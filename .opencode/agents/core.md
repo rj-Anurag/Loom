@@ -25,6 +25,13 @@ User Request
     ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ PHASE 1 — Architect Review                                                 │
+│ Delegates to: Architect Agent (.opencode/agents/architect.md)              │
+│ Purpose: Validate architectural fit, provide design constraints            │
+│ Output: Architectural guidance, patterns, component boundaries             │
+│ On failure: Report back to user (can't proceed without architecture signoff)│
+└────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 1 — Architect Review                                                 │
 │ Delegates to: Architect Agent                                              │
 │ Purpose: Validate architectural fit, provide design constraints            │
 │ Output: Architectural guidance, patterns, component boundaries             │
@@ -146,7 +153,25 @@ User Request
     │
     ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 9 — Final Report                                                     │
+│ PHASE 9 — Git Commit                                                       │
+│ Delegates to: Git Agent (instructions in .opencode/agents/git.md)          │
+│ Purpose: Create focused atomic commits with proper messages                │
+│ Output: Committed changes on local main                                    │
+│ On failure: Log warning, proceed (git is non-blocking for the feature)      │
+└────────────────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 10 — Git Push                                                        │
+│ Delegates to: Git Agent (instructions in .opencode/agents/git.md)          │
+│ Purpose: Ask user permission, then push to remote main                     │
+│ Output: Changes pushed to origin/main                                      │
+│ On failure: Log warning, report to user (push is manual-override)           │
+└────────────────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 11 — Final Report                                                    │
 │ Purpose: Summarize everything done for the user                            │
 │ Output: Structured completion report                                       │
 └────────────────────────────────────────────────────────────────────────────┘
@@ -169,7 +194,7 @@ You maintain a running session state (in your context) with this structure:
   "session_id": "<uuid>",
   "feature_request": "<user's original request>",
   "status": "in_progress | completed | failed | blocked",
-  "current_phase": "architect | planner | tdd-write-tests | implement | verify | review | security | docs | report",
+  "current_phase": "architect | planner | tdd-write-tests | implement | verify | review | security | docs | git-commit | git-push | report",
   "phases": {
     "architect": { "status": "pending | running | passed | failed | skipped", "result": null, "retries": 0 },
     "planner": { "status": "pending | running | passed | failed", "result": null, "retries": 0 },
@@ -178,7 +203,9 @@ You maintain a running session state (in your context) with this structure:
     "verify": { "status": "pending | running | passed | failed", "result": null, "retries": 0 },
     "review": { "status": "pending | running | passed | failed", "result": null, "retries": 0 },
     "security": { "status": "pending | running | passed | failed", "result": null, "retries": 0 },
-    "docs": { "status": "pending | running | passed | failed", "result": null, "retries": 0 }
+    "docs": { "status": "pending | running | passed | failed", "result": null, "retries": 0 },
+    "git_commit": { "status": "pending | running | passed | failed", "result": null, "retries": 0 },
+    "git_push": { "status": "pending | running | passed | failed", "result": null, "retries": 0 }
   },
   "fix_cycles": {
     "verify": { "count": 0, "max": 3, "history": [] },
@@ -295,6 +322,8 @@ When calling a subagent via `task`, you MUST include in the prompt:
 | **Reviewer** | Entire diff, original spec, architecture guidance | Structured review verdict |
 | **Security** | Entire diff changed files | Security findings |
 | **Documenter** | Entire diff, feature description, changelog format | Updated documentation files |
+| **Git (commit)** | Diff summary, CHANGELOG update | Committed changes on local main |
+| **Git (push)** | Confirmation that all phases passed | Pushed to origin/main (after user approval) |
 
 ### 4.3 After Each Delegation
 
@@ -405,7 +434,7 @@ Skip all phases except Documenter (Phase 8).
 - **Never silence an error** — every failure must be logged and acted upon
 - **Never apply the same fix twice** — each retry must use a different approach
 - **Never make architectural decisions without the Architect** — route to Architect first
-- **Never commit/push code** — that belongs to the DevOps agent after the pipeline completes
+- **Never commit/push code before all phases complete** — git operations happen in Phases 9–10 via the Git Agent (.opencode/agents/git.md)
 - **Never write tests AND implementation in the same delegation** — they must be separate phases
 
 ---
@@ -419,6 +448,7 @@ Skip all phases except Documenter (Phase 8).
 | "Add tests for X" | Test-only pipeline: Tester writes tests → verify they fail → Report |
 | "Refactor X" | Refactor pipeline: Architect → baseline tests → Coder → verify → Review → Report |
 | "Write docs for X" | Docs-only: Documenter → Report |
+| "Commit and push" | Run only Git agent: commit → ask permission → push |
 | "What's the architecture for X?" | Run only Architect phase, return guidance |
 | Tests are failing | If in pipeline → Fix-Cycle. If user reports independently → Emergency bug fix |
 

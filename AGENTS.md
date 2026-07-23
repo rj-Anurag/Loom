@@ -17,12 +17,23 @@ Each phase follows this pipeline:
 
 ## Delegation
 
-The Orchestrator delegates specialized work to agents in `.opencode/agents/`:
-- `git.md` — commit & push workflow (runs at pipeline end)
-- `tester.md` — test execution
-- `reviewer.md` — code review
-- `security.md` — security audit
-- Any other agent in `.opencode/agents/`
+The Orchestrator (`.opencode/agents/core.md`) coordinates the full pipeline and uses ALL agents in `.opencode/agents/` at the appropriate phase:
+
+| Phase | Agent | File |
+|---|---|---|
+| 1 — Architect Review | Architect | `.opencode/agents/architect.md` |
+| 2 — Planning | Planner | `.opencode/agents/planner.md` |
+| 3 — TDD (Write Tests) | Tester | `.opencode/agents/tester.md` |
+| 4 — Implementation | Coder | `.opencode/agents/coder.md` |
+| 5 — Test Verification | Tester + Fixer | `.opencode/agents/tester.md`, `.opencode/agents/fixer.md` |
+| 6 — Code Review | Reviewer | `.opencode/agents/reviewer.md` |
+| 7 — Security Scan | Security | `.opencode/agents/security.md` |
+| 8 — Documentation | Documenter | `.opencode/agents/documenter.md` |
+| 9 — Git Commit | Git | `.opencode/agents/git.md` |
+| 10 — Git Push | Git | `.opencode/agents/git.md` |
+| 11 — Final Report | Core | `.opencode/agents/core.md` |
+
+For subagent types supported by the `task` tool (architect, coder, tester, etc.), the orchestrator delegates directly. For agents without built-in subagent types (like the git agent), the orchestrator reads the `.md` file as instructions and follows them.
 
 ## Git Rules
 
