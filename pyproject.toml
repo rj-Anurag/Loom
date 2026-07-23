@@ -1,7 +1,7 @@
 [project]
 name = "loom"
 version = "0.1.0"
-description = "Multi-agent shared-context collaboration platform"
+description = "Context layer for the agentic era — bridges browser AI chats and CLI agents into a shared persistent context store"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 readme = "README.md"
@@ -42,6 +42,8 @@ include = ["loom*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 

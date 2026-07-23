@@ -38,7 +38,3 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
-
-# Node (for web UI)
-web/node_modules/
-web/package-lock.json

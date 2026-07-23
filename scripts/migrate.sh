@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MIGRATIONS_DIR="${MIGRATIONS_DIR:-loom/services/context/migrations}"
-PG_HOST="${PGHOST:-localhost}"
-PG_PORT="${PGPORT:-5432}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-$PROJECT_ROOT/loom/services/context/migrations}"
+COMPOSE_FILE="${COMPOSE_FILE:-$PROJECT_ROOT/infra/docker-compose.yml}"
+
+# Run psql via docker compose exec (no local psql needed on macOS).
+psql_loom() {
+    docker compose -f "$COMPOSE_FILE" exec -T postgres psql -U loom -d loom "$@"
+}
 
 ensure_migrations_table() {
-    psql -h "$PG_HOST" -p "$PG_PORT" -U loom -d loom -c "
+    psql_loom -c "
         CREATE TABLE IF NOT EXISTS _migrations (
             id SERIAL PRIMARY KEY,
             filename TEXT NOT NULL UNIQUE,
@@ -18,8 +25,8 @@ ensure_migrations_table() {
 apply_migration() {
     local file="$1"
     echo "  Applying: $file"
-    psql -h "$PG_HOST" -p "$PG_PORT" -U loom -d loom -f "$file" 2>/dev/null
-    psql -h "$PG_HOST" -p "$PG_PORT" -U loom -d loom -c "
+    psql_loom -f "$file" 2>/dev/null
+    psql_loom -c "
         INSERT INTO _migrations (filename) VALUES ('$file');
     " 2>/dev/null
 }
@@ -36,7 +43,7 @@ case "${1:-up}" in
         if [ -d "$MIGRATIONS_DIR" ]; then
             for file in "$MIGRATIONS_DIR"/*.sql; do
                 filename=$(basename "$file")
-                applied=$(psql -h "$PG_HOST" -p "$PG_PORT" -U loom -d loom -t -c "
+                applied=$(psql_loom -t -c "
                     SELECT COUNT(*) FROM _migrations WHERE filename = '$filename';
                 " 2>/dev/null | tr -d ' ')
                 if [ "$applied" = "0" ]; then

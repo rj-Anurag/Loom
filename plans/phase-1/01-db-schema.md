@@ -1,7 +1,7 @@
 ---
 title: "Phase 1.1 — Database Schema & Migrations"
 description: "PostgreSQL schema for context_units, context_edges, event_log, agents, and projects tables. Includes pgvector setup, trust-tier ENUM, and migration runner."
-status: pending
+status: completed
 dependencies: ["phase-0/02-dev-environment.md"]
 ---
 

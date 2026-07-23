@@ -1,6 +1,6 @@
 # Loom — Implementation Plans
 
-This directory contains the complete, phased implementation plan for the **Loom** project: a multi-agent shared-context system where AI agents collaborate on projects via an append-only, never-lost event log.
+This directory contains the complete, phased implementation plan for **Loom**: a context layer for the agentic era — bridges browser AI chats (Claude.ai, ChatGPT) and CLI agents (Claude Code, opencode) into a shared, persistent context store. **Context is never lost, only compressed or deferred.**
 
 ## How to Use These Plans
 
@@ -20,8 +20,8 @@ Sets up the development environment, CI pipeline, and the orchestrator tool.
 
 | # | Subtask | File | Description |
 |---|---------|------|-------------|
-| 0.1 | **Project Scaffold** | `phase-0/01-project-scaffold.md` | Repo skeleton: directory structure, README, LICENSE, .gitignore, pyproject.toml |
-| 0.2 | **Dev Environment** | `phase-0/02-dev-environment.md` | Docker Compose (Postgres+pgvector, Redis), .env.example, health check scripts |
+| 0.1 | **Project Scaffold** | `phase-0/01-project-scaffold.md` | Repo skeleton, directory structure, config, deps |
+| 0.2 | **Dev Environment** | `phase-0/02-dev-environment.md` | Docker Compose (Postgres+pgvector, Redis), .env.example, scripts |
 | 0.3 | **CI/CD Pipeline** | `phase-0/03-ci-cd.md` | GitHub Actions: lint, test, security scan, deploy stub |
 | 0.4 | **Orchestrator CLI** | `phase-0/04-orchestrator-cli.md` | Python CLI for the checkpoint-graph build pipeline |
 
@@ -29,7 +29,7 @@ Sets up the development environment, CI pipeline, and the orchestrator tool.
 
 ## Phase 1 — MVP
 
-The read-write context path, MCP tools, basic coordination, async embedding, one working agent, and a browser feed.
+The read-write context path, MCP tools, basic coordination, async embedding, one working agent, and browser extension chat sync.
 
 | # | Subtask | File | Key Deliverable |
 |---|---------|------|-----------------|
@@ -43,14 +43,14 @@ The read-write context path, MCP tools, basic coordination, async embedding, one
 | 1.8 | **Basic Coordination** | `phase-1/08-basic-coordination.md` | Conflict detection, auto-merge, pending branches |
 | 1.9 | **Embedding Pipeline** | `phase-1/09-embedding-pipeline.md` | Async queue + worker, pgvector update, DLQ |
 | 1.10 | **Local Agent** | `phase-1/10-local-agent.md` | End-to-end agent: read → LLM → write |
-| 1.11 | **Browser UI (Read-Only)** | `phase-1/11-browser-ui-feed.md` | WebSocket live feed with trust-tier badges |
+| 1.11 | **Browser Extension (Core)** | `phase-1/11-browser-extension-core.md` | Detect AI chats → link to project → auto-sync as context units |
 | 1.12 | **Load Test: Merges** | `phase-1/12-load-test-merges.md` | 3+ concurrent agents, conflict/latency metrics |
 
 ---
 
 ## Phase 2 — Scale
 
-Full coordination, rich retrieval, interactive UI, and multi-agent demos.
+Full coordination, rich retrieval, bidirectional extension, and multi-agent demos.
 
 | # | Subtask | File | Key Deliverable |
 |---|---------|------|-----------------|
@@ -58,7 +58,7 @@ Full coordination, rich retrieval, interactive UI, and multi-agent demos.
 | 2.2 | **Hierarchical Summarization** | `phase-2/02-summarization.md` | Summary context units, LLM-based condensation |
 | 2.3 | **Hybrid Search** | `phase-2/03-hybrid-search.md` | Vector + keyword RRF, token-budget packing |
 | 2.4 | **Live Presence** | `phase-2/04-live-presence.md` | Redis heartbeats, agent status, lock monitoring |
-| 2.5 | **Interactive Browser UI** | `phase-2/05-interactive-ui.md` | Context graph browser, conflict resolution, task mgmt |
+| 2.5 | **Browser Extension (Bidirectional)** | `phase-2/05-extension-bidirectional.md` | Show agent activity in browser sidebar, push decisions back |
 | 2.6 | **Multi-Agent Demo** | `phase-2/06-multi-agent-demo.md` | 3 agents (local/cloud/browser) concurrent demo |
 
 ---
