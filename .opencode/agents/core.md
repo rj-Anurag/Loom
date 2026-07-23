@@ -30,13 +30,6 @@ User Request
 │ Output: Architectural guidance, patterns, component boundaries             │
 │ On failure: Report back to user (can't proceed without architecture signoff)│
 └────────────────────────────────────────────────────────────────────────────┘
-┌────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 1 — Architect Review                                                 │
-│ Delegates to: Architect Agent                                              │
-│ Purpose: Validate architectural fit, provide design constraints            │
-│ Output: Architectural guidance, patterns, component boundaries             │
-│ On failure: Report back to user (can't proceed without architecture signoff)│
-└────────────────────────────────────────────────────────────────────────────┘
     │
     ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
