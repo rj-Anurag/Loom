@@ -1,7 +1,6 @@
 ---
 description: Information gathering and research agent. Performs web searches, fetches documentation, researches technologies and libraries, gathers competitive intelligence, and answers open-ended questions that require current or external information. Read-only agent that feeds findings to the Planner, Architect, and Coder agents.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.3
 permission:
   edit: deny

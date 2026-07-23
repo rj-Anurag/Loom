@@ -1,7 +1,6 @@
 ---
 description: Git commit and push agent. Creates focused atomic commits, writes proper commit messages, and handles push workflow with user permission checks. Designed to run at the end of each phase pipeline after all tests pass.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.1
 permission:
   edit: allow

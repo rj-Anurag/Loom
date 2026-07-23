@@ -1,7 +1,6 @@
 ---
 description: Code implementation and modification agent. Reads specifications from the planner, writes or edits source code one file at a time, produces checkpoints for every change, and handles routine code-generation tasks. Operates under the single-file-change policy to keep failures easy to bisect and review.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.2
 permission:
   edit: allow

@@ -1,7 +1,6 @@
 ---
 description: Security audit and vulnerability analysis agent. Performs threat modeling, dependency scanning, secret detection, prompt-injection analysis, and security reviews for all code changes. Enforces OWASP Top 10 principles and Loom-specific security patterns.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.1
 permission:
   edit: deny

@@ -1,7 +1,6 @@
 ---
 description: Documentation generation and maintenance agent. Creates, updates, and maintains project documentation including API docs, architecture docs, README files, contribution guides, and changelogs. Ensures documentation stays in sync with the codebase and follows the Diataxis framework.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.2
 permission:
   edit: allow

@@ -1,7 +1,6 @@
 ---
 description: Bug fixing and remediation agent. Diagnoses test failures and error reports, traces root causes, and produces targeted fixes. Consumes structured failure output from the Test Agent and Reviewer Agent, then generates surgical patches. Retry-capped to prevent infinite fix loops.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.2
 permission:
   edit: allow

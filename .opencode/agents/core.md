@@ -293,7 +293,18 @@ When you cannot resolve an issue internally (max retries exceeded, architecture 
 
 You use the `task` tool to delegate to subagents. Each delegation must follow this protocol:
 
-### 4.1 Task Invocation Template
+### 4.1 Subagent Type Selection
+
+Use the appropriate `subagent_type` for the task:
+- `architect`, `coder`, `tester`, `reviewer`, `security`, `planner`, `fixer`, `documenter` — specialized types (preferred)
+- `general` — fallback when specialized types are unavailable
+
+When using `general`, include the relevant agent's `.md` file as instructions in your prompt. For example:
+```
+Read the instructions from .opencode/agents/tester.md, then follow them: <task>
+```
+
+### 4.2 Task Invocation Template
 
 When calling a subagent via `task`, you MUST include in the prompt:
 1. **Your current session state** (what phase you're in, what's happened so far)
