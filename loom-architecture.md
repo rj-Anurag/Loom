@@ -1,44 +1,49 @@
 # Loom — System Architecture Document
 
-**Project:** Loom — a multi-agent system where agents (local, cloud, browser-chat) collaborate on shared projects via a memory-efficient, never-lost shared context layer.
+**Project:** Loom — a context layer for the agentic era that bridges browser AI chats (Claude.ai, ChatGPT) and CLI agents (Claude Code, opencode) into a shared, persistent context store.
 **Author role:** Senior Staff Architect review
-**Status:** v1 design, pre-implementation
+**Status:** v2 design (updated for browser extension + @loom CLI integration), pre-implementation
 
 ---
 
 ## 1. Executive Summary
 
-Loom lets multiple AI agents — running on a developer's machine, in the cloud, or inside a browser chat session — collaborate on the same project while seeing a single, consistent, evolving context. The system's defining bet is that **context should never be lost, only compressed or deferred**, and that memory efficiency (what gets loaded into an agent's window, when) is the hard problem worth solving well, not an afterthought.
+Loom lets developers seamlessly carry context from their browser AI conversations into their CLI agent tools. When a developer types `@loom <prompt>` in any AI CLI tool (Claude Code, opencode, etc.), Loom automatically gathers relevant context from browser chats, past agent sessions, and local files — then injects it into the prompt so the AI never needs re-explanation.
+
+The system's defining bet is that **context should never be lost, only compressed or deferred**, and that memory efficiency (what gets loaded into an agent's window, when) is the hard problem worth solving well, not an afterthought.
 
 **Primary objectives:**
+- Automatically carry context from browser AI chats into CLI agent sessions
 - Give any agent, regardless of where it runs, access to the same up-to-date project context
 - Guarantee no information written by any agent is ever silently dropped
 - Keep per-agent token usage low by surfacing only what's relevant to the current task
 - Support many agents working concurrently without corrupting shared state
 
 **Core challenges the architecture must solve:**
-1. **The retrieval problem** — deciding what subset of a potentially unbounded history to hand an agent right now
-2. **The concurrency problem** — multiple agents writing to shared context at once without conflicts silently resolving as "last write wins"
-3. **The durability problem** — architecturally guaranteeing nothing is deleted or unreachable, even under aggressive summarization
-4. **The heterogeneity problem** — local, cloud, and browser agents have different latency, connectivity, and trust characteristics but must share one source of truth
+1. **The bridge problem** — connecting browser AI chat context with CLI tool context automatically (solved via browser extension)
+2. **The retrieval problem** — deciding what subset of a potentially unbounded history to hand an agent right now
+3. **The concurrency problem** — multiple agents writing to shared context at once without conflicts silently resolving as "last write wins"
+4. **The durability problem** — architecturally guaranteeing nothing is deleted or unreachable, even under aggressive summarization
+5. **The heterogeneity problem** — local, cloud, and browser agents have different latency, connectivity, and trust characteristics but must share one source of truth
 
 ---
 
 ## 2. Requirements Analysis
 
 ### Functional Requirements
+- Users can link a browser AI chat to a Loom project via a one-tap browser extension UI
+- Once linked, chat messages auto-sync into Loom's context store as context units
 - Agents can read the current shared context relevant to their task
 - Agents can write new context (decisions, artifacts, task results, messages) without overwriting others' work
-- Users can observe agent activity live in a browser chat interface
 - The system supports many agents working on the same project concurrently
 - Historical context is always retrievable — nothing is truly deleted
 - New agents (local, cloud, or browser) can join an in-progress project and get caught up efficiently
 - Users can inspect *why* an agent made a decision (provenance/audit trail)
 
 **Key workflows:**
-1. Agent starts a task → requests relevant context → does work → writes result back
-2. Two agents work on related subtasks concurrently → their outputs merge into shared context
-3. User opens browser chat mid-project → sees live state and history
+1. User chats about architecture in Claude.ai → extension syncs to Loom → user types `@loom implement it` in CLI → Loom injects context → AI responds with full awareness
+2. Agent starts a task → requests relevant context → does work → writes result back
+3. Two agents work on related subtasks concurrently → their outputs merge into shared context
 4. Context grows over time → system compresses/summarizes for efficient injection without deleting originals
 
 ### Non-Functional Requirements
@@ -58,7 +63,7 @@ Loom lets multiple AI agents — running on a developer's machine, in the cloud,
 ## 3. System Context
 
 **Actors:**
-- **Human user** — initiates projects, observes/steers agents via browser chat, approves sensitive actions
+- **Human user** — initiates projects, uses browser AI chats (Claude.ai, ChatGPT) to design architecture, uses CLI tools (Claude Code, opencode) to build
 - **Local agent** — runs on the developer's machine (e.g., via Claude Code), has file-system access
 - **Cloud agent** — runs as a hosted process, no local file access, calls APIs/MCP tools
 - **Browser-chat agent** — lightweight, session-scoped, primarily conversational
@@ -67,26 +72,27 @@ Loom lets multiple AI agents — running on a developer's machine, in the cloud,
 - Anthropic API (Messages endpoint, tool use)
 - MCP-exposed tools (whatever each agent is connected to — file systems, git, external services)
 - Object storage (for artifacts agents produce: files, diffs, generated assets)
+- AI chat platforms (Claude.ai, ChatGPT — source of browser chat context)
 
-**System boundaries:** Loom itself owns the *shared context store*, the *coordination/merge logic*, and the *retrieval layer*. It does not own the LLM inference (delegated to the Anthropic API) or agent-specific tool execution (delegated to MCP servers each agent connects to).
+**System boundaries:** Loom itself owns the *shared context store*, the *coordination/merge logic*, the *retrieval layer*, and the *browser extension*. It does not own the LLM inference (delegated to the Anthropic API) or agent-specific tool execution (delegated to MCP servers each agent connects to).
 
 **Component interaction, at a glance:**
 
 ```
-[User] <-> [Browser Chat UI] <-> [Loom API Gateway]
-                                        |
-        -------------------------------------------------------
-        |                    |                    |
-  [Local Agent]        [Cloud Agent]        [Browser Agent]
-        |                    |                    |
-        --------------- MCP: read_context/write_context ---------------
-                                        |
-                            [Loom Context Service]
-                                        |
-                -----------------------------------------------
-                |                       |                     |
-        [Postgres + pgvector]      [Redis]              [Object Storage]
-        (context graph + search)  (locks, live state)   (artifacts)
+[Browser AI Chat] <-> [Loom Extension] <-> [Loom Context Server API]
+                                                     |
+        ------------------------------------------------
+        |                      |                      |
+  [Local Agent]          [Cloud Agent]          [CLI Tool Plugin]
+        |                      |                      |
+  ----------- MCP: read_context / write_context ---------------
+                                                     |
+                                           [Loom Context Service]
+                                                     |
+                            --------------------------------------
+                            |                    |              |
+                    [Postgres + pgvector]    [Redis]       [Object Storage]
+                    (context graph + search) (locks, live)  (artifacts)
 ```
 
 ---
@@ -110,15 +116,15 @@ Rationale:
 ## 5. Core Components
 
 ### API Gateway
-- **Responsibilities:** authn/session handling, request routing to the Context Service, rate limiting, WebSocket connections for live browser updates
-- **Inputs:** HTTP/WebSocket requests from agents and the browser UI
+- **Responsibilities:** authn/session handling, request routing to the Context Service, rate limiting, WebSocket connections for live updates
+- **Inputs:** HTTP requests from the browser extension, agent MCP tools, and CLI tool plugins
 - **Outputs:** routed requests, live event broadcasts
 - **Dependencies:** Auth service, Context Service
-- **Failure scenarios:** gateway down → agents queue writes locally (local agent) or fail fast with retry (cloud/browser agents); browser UI shows "reconnecting"
+- **Failure scenarios:** gateway down → extension queues writes locally; agents retry with backoff
 
 ### Context Service
 - **Responsibilities:** owns the "Context Unit" data model (see §7), accepts writes, appends to the event log, updates projections
-- **Inputs:** write_context / read_context calls (via MCP), event log
+- **Inputs:** write_context / read_context calls (via MCP or REST), event log
 - **Outputs:** Context Units, updated graph edges, retrieval-ready projections
 - **Dependencies:** Postgres, Redis (for locks), Coordination Service
 - **Failure scenarios:** write fails mid-transaction → event log is the source of truth, projections rebuilt from log; partial writes never surface as "committed" to other agents
@@ -144,6 +150,13 @@ Rationale:
 - **Dependencies:** Anthropic API, Loom MCP server, project-specific tools
 - **Failure scenarios:** agent crashes mid-task → partial work already written is preserved as a Context Unit; task marked incomplete, resumable by any agent
 
+### Browser Extension
+- **Responsibilities:** detect browser AI chats, link chats to Loom projects (one-tap), sync messages as context units
+- **Inputs:** user's browser chat pages (Claude.ai, ChatGPT)
+- **Outputs:** synced context units → Loom context server API
+- **Dependencies:** Loom API, Chrome/Firefox extension APIs
+- **Failure scenarios:** extension offline → queue writes locally; sync on reconnect
+
 ### LLM Layer
 - Anthropic API (Messages endpoint), called by each Agent Service, not by the Context/Coordination services directly — keeps inference concerns isolated from storage/coordination concerns
 
@@ -155,7 +168,7 @@ Rationale:
 - Artifacts too large or binary for the context store (files, generated assets), referenced by Context Units via pointer, not inlined
 
 ### Authentication Service
-- Issues per-agent credentials scoped to a project; browser sessions use standard user auth
+- Issues per-agent credentials scoped to a project; extension uses standard API key auth
 
 ### Monitoring Stack
 - See §12
@@ -163,6 +176,18 @@ Rationale:
 ---
 
 ## 6. Data Flow Design
+
+### Workflow: User brings browser chat context into CLI (the core Loom loop)
+
+1. User chats about architecture in Claude.ai — discusses "email + password + JWT auth with bcrypt"
+2. Loom browser extension detects new chat → one-tap link prompt → user links to project "My App"
+3. Extension syncs each message as a context unit via the Loom context server API
+4. Later, user opens Claude Code and types: `@loom implement the login feature`
+5. A Loom preprocessing hook / MCP tool intercepts the prompt
+6. Retrieval Service embeds the query, runs hybrid search against Postgres+pgvector scoped to the project, ranks and packs results into the token budget
+7. The prompt is augmented with the retrieved context (browser chat messages, past agent decisions, local file references)
+8. The AI receives the augmented prompt and responds with full awareness — no re-explanation needed
+9. The AI's response is saved as a new context unit for future retrieval
 
 ### Workflow: Agent completes a subtask and writes back
 
@@ -172,9 +197,8 @@ Rationale:
 4. Agent calls `write_context(content, parent_ids, type)` via MCP
 5. Coordination Service checks for conflicting concurrent writes touching the same parent Context Units (via version check); if clean, proceeds
 6. Context Service appends an immutable event to the event log, updates the Postgres projection (new Context Unit row, new graph edges), triggers async embedding of the new content
-7. API Gateway broadcasts the update over WebSocket to any connected browser sessions watching the project
-8. **Failure handling:** if step 5 detects a conflict, the write is held as a "pending branch" and flagged for merge (auto-merge if non-overlapping, human/agent review if overlapping) — never silently dropped or silently overwritten
-9. **Retry strategy:** writes are idempotent by client-generated UUID; agent retries a failed write safely without duplicating the Context Unit
+7. **Failure handling:** if step 5 detects a conflict, the write is held as a "pending branch" and flagged for merge (auto-merge if non-overlapping, human/agent review if overlapping) — never silently dropped or silently overwritten
+8. **Retry strategy:** writes are idempotent by client-generated UUID; agent retries a failed write safely without duplicating the Context Unit
 
 ### Workflow: New agent joins an in-progress project
 
@@ -196,12 +220,14 @@ context_units
   id                UUID PK
   project_id        UUID
   agent_id          UUID
+  client_uuid       UUID UNIQUE   -- idempotency
   type              ENUM (message, decision, artifact_ref, task_result, summary)
+  trust_tier        ENUM (user, agent, external_tool)
   content           TEXT
   embedding         VECTOR(1536)
   created_at        TIMESTAMP
-  version           INT          -- optimistic concurrency
-  branch_id         UUID         -- for git-style branching
+  version           INT           -- optimistic concurrency
+  branch_id         UUID          -- for git-style branching
 
 context_edges
   parent_id         UUID FK -> context_units.id
@@ -245,19 +271,17 @@ projects
 
 ## 8. API Design
 
-**Architecture:** gRPC internally (Context/Coordination/Retrieval services talk to each other with low overhead), REST at the Gateway for browser/external simplicity, MCP as the agent-facing tool interface layer.
-
-Rationale: agents already speak MCP naturally (tool calls); the browser UI is simplest over REST/WebSocket; internal service-to-service calls benefit from gRPC's performance and strong typing. GraphQL was considered for the browser API but rejected — the UI's query patterns are simple enough (project state, live updates) that GraphQL's flexibility isn't worth its complexity here.
+**Architecture:** REST at the Gateway for extension/CLI simplicity, MCP as the agent-facing tool interface layer.
 
 **Endpoint structure (REST, Gateway-facing):**
-- `POST /projects/{id}/context` — write
+- `POST /projects/{id}/context` — write (used by extension to sync chats and by agents)
 - `GET /projects/{id}/context?query=...&budget=...` — retrieval
 - `GET /projects/{id}/events` (WebSocket) — live updates
 - `POST /projects/{id}/agents` — register an agent session
 
 **MCP tools (agent-facing):** `read_context`, `write_context`, `get_project_summary`
 
-**Authentication model:** per-agent API keys scoped to a project; browser sessions use standard session/JWT auth; all requests carry `project_id` + `agent_id` for scoping checks
+**Authentication model:** per-agent API keys scoped to a project; extension uses project-scoped API key stored in extension preferences
 
 **Versioning strategy:** URL-path versioning (`/v1/...`) for the REST API; MCP tool schemas versioned via a `schema_version` field so older agents degrade gracefully rather than breaking
 
@@ -283,11 +307,11 @@ Rationale: agents already speak MCP naturally (tool calls); the browser UI is si
 
 ## 10. Security Architecture
 
-- **Authentication:** per-agent scoped API keys; browser sessions via standard session/JWT
+- **Authentication:** per-agent scoped API keys; extension uses project-scoped API key
 - **Authorization:** every read/write checked against `project_id` + agent's granted scope; no agent can address another project's context
 - **Secrets management:** API keys and credentials in a managed secrets store (e.g., cloud provider's secrets manager), never in Context Units or logs
 - **Encryption at rest:** database and object storage encryption enabled by default
-- **Encryption in transit:** TLS everywhere, including internal gRPC
+- **Encryption in transit:** TLS everywhere
 - **API security:** input validation on all write payloads, strict schema validation on MCP tool calls
 - **OWASP considerations:** standard injection/auth/misconfig checks applied to the Gateway and REST surface
 - **Agent and LLM security risks:**
@@ -311,11 +335,11 @@ Rationale: agents already speak MCP naturally (tool calls); the browser UI is si
 
 ## 12. Observability
 
-- **Logging:** structured logs per service, correlated by a `trace_id` that follows a request from Gateway through Context/Coordination/Retrieval
+- **Logging:** structured logs per service, correlated by a `trace_id` that follows a request from extension through Gateway to Context/Coordination/Retrieval
 - **Monitoring:** standard service metrics (latency, error rate, saturation) per component
-- **Distributed tracing:** trace every agent turn end-to-end (read_context → LLM call → write_context) to diagnose slow or failed turns
-- **Metrics:** context write conflict rate, retrieval latency, token budget utilization per agent turn, event log growth rate
-- **Alerting:** conflict rate spikes, embedding queue backlog growth, write failure rate, Postgres replication lag
+- **Distributed tracing:** trace every `@loom` prompt end-to-end (read_context → LLM call → write_context) to diagnose slow or failed turns
+- **Metrics:** context write conflict rate, retrieval latency, token budget utilization per agent turn, event log growth rate, extension sync latency
+- **Alerting:** conflict rate spikes, embedding queue backlog growth, write failure rate, Postgres replication lag, extension disconnection rate
 - **Incident response:** runbooks tied to each alert; conflict-rate spikes point at Coordination Service, latency spikes point at Retrieval Service
 
 ---
@@ -333,7 +357,7 @@ This is the heart of the project, so decisions here are made explicitly rather t
 - **Context management:** "never lost" means the event log and DAG are append-only and immutable; efficiency comes from retrieval ranking and summarization, never deletion.
 - **Tool invocation strategy:** `read_context`/`write_context` as MCP tools, callable by any agent regardless of runtime location (local/cloud/browser) — the interface is uniform even though the underlying agent process differs
 - **Planning and execution flow:** Coordination Service assigns/accepts a task → agent retrieves context → agent plans and executes (its own LLM loop, opaque to Loom) → agent writes results → Coordination Service checks for conflicts and updates task state
-- **Human-in-the-loop design:** conflicts that can't be auto-merged (overlapping edits to the same Context Unit) are surfaced to the user via the browser UI for resolution, rather than resolved silently by heuristic
+- **Human-in-the-loop design:** conflicts that can't be auto-merged (overlapping edits to the same Context Unit) are surfaced to the user for resolution via their CLI tool, rather than resolved silently by heuristic
 - **Multi-agent coordination patterns:** git-style branch/merge for concurrent context writes (Omnigraph-inspired) — each agent's in-progress work is a branch off the current context graph; merges are automatic when non-overlapping, flagged for review when not
 
 ---
@@ -341,7 +365,7 @@ This is the heart of the project, so decisions here are made explicitly rather t
 ## 14. Infrastructure Architecture
 
 - **Cloud architecture:** single-region for v1 (matches the 99.5% availability target); revisit multi-region once the user base or compliance needs demand it
-- **Networking:** private VPC for Postgres/Redis; Gateway is the only public-facing surface; internal service mesh for gRPC traffic
+- **Networking:** private VPC for Postgres/Redis; Gateway is the only public-facing surface
 - **Containerization:** each service (Gateway, Context, Coordination, Retrieval) as its own container image, even while co-deployed as a modular monolith initially — this makes the later split into microservices a deployment change, not a rewrite
 - **Orchestration platform:** Kubernetes (or a managed equivalent) for scaling and self-healing
 - **CI/CD pipeline:** standard build → test → deploy pipeline; database migrations gated behind review given the schema's centrality to the whole system
@@ -353,10 +377,12 @@ This is the heart of the project, so decisions here are made explicitly rather t
 
 | Decision | Alternatives Considered | Chosen | Why |
 |---|---|---|---|
+| Context bridge | Manual paste / URL-based import | Browser extension (one-tap link + auto-sync) | Zero friction — automatic once linked once per chat |
+| User interface | Full web dashboard / CLI-only | CLI-only (`@loom` / `/loom` in existing CLI tools) | No new UI to learn; meets developers where they already work |
 | Coordination model | Fully centralized / fully decentralized | Hybrid (thin coordinator + decentralized store access) | Avoids bottleneck of full centralization and conflict chaos of full decentralization |
 | Datastore | Dedicated graph DB / dedicated vector DB / Postgres+pgvector | Postgres+pgvector | Single consistency boundary for v1; revisit graph DB if traversal patterns demand it |
 | "Never lost" implementation | Delete + rely on backups / append-only log + supersede edges | Append-only log + supersede edges | Makes durability an architectural guarantee, not an operational promise |
-| Internal API style | REST everywhere / GraphQL / gRPC internal + REST external | gRPC internal + REST/MCP external | Performance where it matters (internal), simplicity where it matters (external/agent-facing) |
+| Internal API style | REST everywhere / GraphQL / gRPC internal + REST external | REST external + MCP agent-facing | Simplicity where it matters (external), ubiquity where it matters (agent-facing MCP) |
 | Initial architecture style | Microservices / Serverless / Modular monolith | Modular monolith with event-driven core | Matches current team size and load; structured for a clean future split |
 
 ---
@@ -364,51 +390,54 @@ This is the heart of the project, so decisions here are made explicitly rather t
 ## 16. Architecture Diagram
 
 ```
-                              +-------------------+
-                              |      Users          |
-                              +---------+-----------+
-                                        |
-                              +---------v-----------+
-                              |  Browser Chat UI     |
-                              +---------+-----------+
-                                        | REST / WebSocket
-                              +---------v-----------+
-                              |    API Gateway        |<----- Auth Service
-                              +----+-------+----+-----+
-                                   |       |    |
-              +--------------------+       |    +--------------------+
-              |                            |                          |
-    +---------v---------+       +---------v---------+      +---------v---------+
-    |   Local Agent       |       |   Cloud Agent       |      |  Browser Agent      |
-    +---------+---------+       +---------+---------+      +---------+---------+
-              |  MCP: read_context / write_context               |
-              +----------------------------+-----------------------+
-                                           |
-                                 +---------v----------+
-                                 | Coordination Service |
-                                 |  (branch/merge,      |
-                                 |   task assignment)    |
-                                 +---------+-----------+
-                                           |
-                                 +---------v-----------+
-                                 |   Context Service      |
-                                 +----+-------+----+-----+
-                                      |       |    |
-                        +-------------+       |    +-------------+
-                        |                     |                  |
-              +---------v--------+  +--------v---------+ +------v-------+
-              | Retrieval Service  |  |  Postgres+pgvector |  |    Redis      |
-              | (embed/hybrid      |  |  (context graph,   |  | (locks, live  |
-              |  search, summarize)|  |   event log)        |  |  presence)    |
-              +---------+--------+  +--------------------+ +--------------+
-                        |
-              +---------v--------+
-              |  Object Storage    |
-              |  (artifacts)         |
-              +--------------------+
+                      +----------------------------+
+                      |  Browser AI Chat            |
+                      |  (Claude.ai, ChatGPT)        |
+                      +-------------+---------------+
+                                    | Extension content script
+                      +-------------v---------------+
+                      |  Loom Browser Extension      |
+                      |  (detect → link → sync)      |
+                      +-------------+---------------+
+                                    | REST / API Key
+                      +-------------v---------------+
+                      |  Loom Context Server (API)    |
+                      +----+-------+-------+---------+
+                           |       |       |
+            +--------------+       |       +--------------+
+            |                      |                      |
+  +---------v--------+   +---------v--------+   +---------v--------+
+  |  Claude Code      |   |  opencode        |   |  Other AI CLIs   |
+  |  (@loom plugin)   |   |  (@loom plugin)  |   |  (@loom plugin)  |
+  +---------+---------+   +---------+---------+   +---------+---------+
+            |                         |                       |
+            +-------- MCP: read_context / write_context --------+
+                                    |
+                        +-----------v-----------+
+                        |  Coordination Service  |
+                        |  (branch/merge,        |
+                        |   task assignment)      |
+                        +-----------+------------+
+                                    |
+                        +-----------v-----------+
+                        |   Context Service      |
+                        +----+-------+----+-----+
+                             |       |    |
+               +-------------+       |    +-------------+
+               |                     |                  |
+     +---------v--------+   +--------v---------+ +------v-------+
+     | Retrieval Service |   |  Postgres+pgvector| |    Redis      |
+     | (embed/hybrid     |   |  (context graph,  | | (locks, live  |
+     |  search, summarize)|   |   event log)       | |  presence)    |
+     +---------+--------+   +-------------------+ +--------------+
+               |
+     +---------v--------+
+     |  Object Storage    |
+     |  (artifacts)       |
+     +-------------------+
 
-                    (Monitoring/Observability stack observes all services)
-                    (Anthropic API called by each Agent, not shown for clarity)
+           (Monitoring/Observability stack observes all services)
+           (Anthropic API called by each Agent, not shown for clarity)
 ```
 
 ---
@@ -416,12 +445,12 @@ This is the heart of the project, so decisions here are made explicitly rather t
 ## 17. Implementation Roadmap
 
 ### Phase 1: MVP
-- **Deliverables:** Context Service + Postgres/pgvector schema, basic MCP `read_context`/`write_context`, one local agent + one cloud agent working end-to-end on a toy project, simple browser chat view (read-only live feed)
-- **Risks:** underestimating merge-conflict complexity; schema churn once real usage patterns emerge
+- **Deliverables:** Context Service + Postgres/pgvector schema, basic MCP `read_context`/`write_context`, one local agent + one cloud agent working end-to-end on a toy project, browser extension (core: detect → link → sync), `@loom` command integration in CLI tools
+- **Risks:** underestimating merge-conflict complexity; schema churn once real usage patterns emerge; extension cross-browser compatibility
 - **Dependencies:** Anthropic API access, Postgres+pgvector hosting decision
 
 ### Phase 2: Scale
-- **Deliverables:** Coordination Service split out with real branch/merge logic, hierarchical summarization pipeline, hybrid search, Redis-based locking and live presence, browser UI becomes interactive (not just read-only)
+- **Deliverables:** Coordination Service split out with real branch/merge logic, hierarchical summarization pipeline, hybrid search, Redis-based locking and live presence, extension gains bidirectional sidebar (see agent activity in browser)
 - **Risks:** conflict resolution UX (surfacing merges to users without overwhelming them); embedding pipeline becoming a bottleneck
 - **Dependencies:** Phase 1 stable in production with real usage data to inform merge/retrieval tuning
 

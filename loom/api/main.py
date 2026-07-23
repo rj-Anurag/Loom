@@ -5,7 +5,10 @@ from loom.api.routers import agents, context
 
 app = FastAPI(
     title="Loom API",
-    description="Multi-agent shared-context collaboration platform",
+    description=(
+        "Loom context server — bridges browser AI chats and"
+        " CLI agents into a shared context store"
+    ),
     version="0.1.0",
 )
 

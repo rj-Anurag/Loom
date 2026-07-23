@@ -17,7 +17,7 @@ loom/                          # Main Python package
 ├── __init__.py
 ├── config.py                  # Pydantic Settings
 ├── db.py                      # SQLAlchemy async engine + session
-├── api/                       # FastAPI application
+├── api/                       # FastAPI context server (backing API for MCP tools & extension)
 │   ├── __init__.py
 │   ├── main.py                # FastAPI app, routers, middleware
 │   └── routers/
@@ -47,10 +47,6 @@ loom/                          # Main Python package
 │       └── agent.py
 ├── compliance/
 │   └── __init__.py
-├── web/                       # Browser UI (static files)
-│   ├── index.html
-│   ├── app.js
-│   └── style.css
 ├── infra/                     # Infrastructure configs
 │   ├── docker-compose.yml
 │   └── Dockerfile
@@ -65,7 +61,7 @@ loom/                          # Main Python package
 │       ├── fixer.py
 │       ├── reviewer.py
 │       └── tests/
-├── docs/
+├── extension/                 # Browser extension (Chrome/Firefox)
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py
@@ -77,14 +73,6 @@ loom/                          # Main Python package
 │   ├── migrate.sh
 │   ├── seed.sh
 │   └── health-check.sh
-├── tests/                # Test suite
-│   ├── __init__.py
-│   ├── unit/
-│   ├── integration/
-│   └── conftest.py
-├── scripts/              # Utility scripts
-│   ├── migrate.sh
-│   └── seed.sh
 ├── .github/
 │   └── workflows/
 ├── README.md
@@ -92,7 +80,7 @@ loom/                          # Main Python package
 ├── .gitignore
 ├── .env.example
 ├── pyproject.toml
-└── setup.cfg
+└── loom-architecture.md
 ```
 
 ## Tech Stack
