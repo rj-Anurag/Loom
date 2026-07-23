@@ -61,15 +61,6 @@ loom/
 └── loom-architecture.md # Architecture doc
 ```
 
-## Phase 0 — Build Status
-
-| Subtask | Status |
-|---------|--------|
-| 0.1 — Project Scaffold (FastAPI) | ✅ Complete |
-| 0.2 — Dev Environment (Docker Compose) | ✅ Complete |
-| 0.3 — CI/CD Pipeline (GitHub Actions) | ✅ Complete |
-| 0.4 — Orchestrator CLI (Checkpoint Graph) | ✅ Complete |
-
 ## License
 
 MIT
