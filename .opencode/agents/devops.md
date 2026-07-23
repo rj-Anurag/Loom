@@ -1,7 +1,6 @@
 ---
 description: Infrastructure, CI/CD, and deployment agent. Manages Docker Compose configurations, CI/CD pipelines, deployment scripts, infrastructure-as-code, environment management, and operational tooling for the Loom project. Ensures reproducible builds and reliable deployments.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.1
 permission:
   edit: allow

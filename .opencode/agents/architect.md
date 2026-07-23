@@ -1,7 +1,6 @@
 ---
 description: System architecture design and validation agent. Provides architectural guidance, reviews design decisions, validates that implementations follow the established architecture, and surfaces architectural risks. The go-to agent for questions about system design, component boundaries, data flow, and technology choices.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.2
 permission:
   edit: allow

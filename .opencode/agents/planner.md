@@ -1,7 +1,6 @@
 ---
 description: Strategic planning and task decomposition agent. Transforms high-level goals and user requests into detailed, actionable execution plans with clear dependencies, milestones, and checkpoints. Works closely with the architect to validate feasibility before handing off to the coding agent.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.3
 permission:
   edit: allow

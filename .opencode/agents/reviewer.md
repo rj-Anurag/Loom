@@ -1,7 +1,6 @@
 ---
 description: Code review and quality analysis agent. Performs structured pre-merge reviews of diffs against the base branch. Checks for correctness, consistency with architecture, security vulnerabilities, test coverage, style conformance, and adherence to the Loom design principles. Produces actionable review output.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.1
 permission:
   edit: allow

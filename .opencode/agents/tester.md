@@ -1,7 +1,6 @@
 ---
 description: Test execution and validation agent. Runs test suites, linters, type-checkers, and other verification tools. Produces structured pass/fail results with detailed failure information. Supports unit, integration, and end-to-end testing workflows.
 mode: subagent
-model: deepseak/v4-flash-free
 temperature: 0.1
 permission:
   edit: allow
