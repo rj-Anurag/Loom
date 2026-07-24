@@ -96,3 +96,16 @@
   - Existing schema (Phase 1.1), write path (Phase 1.2), read ranking (Phase 1.3), and MCP `min_trust_tier` filtering (Phase 1.5) already in place and unchanged
   - 6 integration tests covering: default agent tier, local agent denied at user tier, local agent allowed at agent/external_tool tiers, browser agent allowed at user tier, trust-tier preservation through write-read cycle
   - 64 total tests, zero regressions
+
+- **Phase 1.8 — Basic Coordination** (2026-07-24)
+  - Entity extraction (`merge.py`): pulls file paths, function names, imports, URLs from context content
+  - Overlap detection (`merge.py`): compares two context units for overlapping entities
+  - Version-conflict handler updated (`service.py`): when two agents write to the same parent at the same version:
+    - No existing siblings → plain version conflict (standard `PendingBranch`)
+    - Overlapping content → `PendingBranch` conflict with rich 409
+    - Non-overlapping content → auto-merge: adjusts version and creates a `summary`-type merge unit with `merged_from` edges to both siblings, plus an event-log `merge` event
+  - Conflict management API endpoints (`conflicts.py`):
+    - `GET /v1/projects/{id}/conflicts` — list pending branches for a project
+    - `POST /v1/projects/{id}/conflicts/{branch_id}/resolve` — set resolution to `merged` or `discarded`
+  - 7 integration tests covering: entity extraction, overlap detection (true/false), non-overlapping auto-merge, overlapping conflict creation, conflict list endpoint, conflict resolve endpoint
+  - 71 total tests, zero regressions
