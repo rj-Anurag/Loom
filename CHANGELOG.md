@@ -86,3 +86,13 @@
   - API router catches `VersionConflict`, commits the session (no other mutations pending at that point), and returns structured JSON
   - 4 integration tests covering: PendingBranch creation on conflict, no branch on successful write, multiple conflicts create multiple branches, and structured response fields
   - 58 total tests, zero regressions
+
+- **Phase 1.7 — Trust-Tier Field Enforcement** (2026-07-24)
+  - `_ALLOWED_TRUST_TIERS` mapping: `local`/`cloud` agents can write at `agent`/`external_tool` tiers only; `browser` agents can write at any tier
+  - `write_context()` service validates the requested `trust_tier` against the agent's `kind` before processing the write
+  - Agents cannot impersonate `user` tier — attempted writes return 403 `TRUST_TIER_DENIED`
+  - API router maps `TRUST_TIER_DENIED` to HTTP 403
+  - `browser`-kind agents (representing human users via the extension) are the only identity allowed to write `user`-tier context
+  - Existing schema (Phase 1.1), write path (Phase 1.2), read ranking (Phase 1.3), and MCP `min_trust_tier` filtering (Phase 1.5) already in place and unchanged
+  - 6 integration tests covering: default agent tier, local agent denied at user tier, local agent allowed at agent/external_tool tiers, browser agent allowed at user tier, trust-tier preservation through write-read cycle
+  - 64 total tests, zero regressions

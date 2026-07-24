@@ -74,7 +74,7 @@ async def test_event_payload_enriched(
     child_body = {
         "client_uuid": str(uuid.uuid4()),
         "type": "task_result",
-        "trust_tier": "user",
+        "trust_tier": "agent",
         "content": "Implemented Redis caching layer with connection pooling and retry logic",
         "parent_ids": [parent_id],
         "parent_relations": ["derived_from"],
@@ -101,7 +101,7 @@ async def test_event_payload_enriched(
 
     # Verify enriched fields
     assert "trust_tier" in payload
-    assert payload["trust_tier"] == "user"
+    assert payload["trust_tier"] == "agent"
     assert "content_preview" in payload
     assert len(payload["content_preview"]) <= 200
     assert "parent_ids" in payload

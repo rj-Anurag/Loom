@@ -1,7 +1,7 @@
 ---
 title: "Phase 1.7 — Trust-Tier Field"
 description: "Trust-tier ENUM on every Context Unit. Propagation through read/write. Retrieval weighting by trust tier."
-status: pending
+status: completed
 dependencies: ["phase-1/01-db-schema.md", "phase-1/02-context-service-write.md", "phase-1/03-context-service-read.md"]
 ---
 
