@@ -38,3 +38,15 @@
   - 11 integration tests covering success path, idempotency, version conflicts, event logging, edges, validation errors, authorization, and cross-project access
   - First-class `ContextUnitResponse` model with OpenAPI schema generation
   - 30 total tests, zero regressions
+
+- **Phase 1.3 — Context Service: Read Path** (2026-07-24)
+  - Keyword-based retrieval using PostgreSQL full-text search (`to_tsvector` + `plainto_tsquery`)
+  - GIN-index-backed search on `context_units.content` (index from Phase 1.1)
+  - Ranking formula: `0.4 * ts_rank + 0.3 * recency + 0.3 * trust_tier_weight`
+  - Token-budget-aware packing with content truncation (4 chars ≈ 1 token)
+  - Scope filtering: `onboarding` (summaries only), `task` (all types), `full`
+  - `GET /v1/projects/{id}/context` endpoint with `query`, `budget`, `scope` parameters
+  - Full Pydantic response model (`ReadContextResponse`, `ReadContextUnitModel`) with OpenAPI schema
+  - Batch parent-edge lookup per result set
+  - 11 integration tests covering keyword search, empty query, budget adherence, scope filtering, ranking order, authorization, cross-project access, and parent edges
+  - 41 total tests, zero regressions
