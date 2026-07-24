@@ -109,3 +109,21 @@
     - `POST /v1/projects/{id}/conflicts/{branch_id}/resolve` — set resolution to `merged` or `discarded`
   - 7 integration tests covering: entity extraction, overlap detection (true/false), non-overlapping auto-merge, overlapping conflict creation, conflict list endpoint, conflict resolve endpoint
   - 71 total tests, zero regressions
+
+- **Phase 1.9 — Async Embedding Pipeline** (2026-07-24)
+  - Redis-backed async embedding job queue (`queue.py`): LPUSH jobs to `embedding:queue` after write commits
+  - Fire-and-forget enqueue in `service.py`: post-commit hook calls `enqueue_embedding_job()` — Redis failures never mask successful writes
+  - Pluggable embedding providers (`providers.py`):
+    - `EmbeddingProvider` protocol with `async embed(text) → list[float] | None`
+    - `StubProvider`: deterministic L2-normalized 1536-d vector from content hash (default, always available)
+    - `OpenAIProvider`: calls `text-embedding-3-small` via `openai.AsyncOpenAI` (opt-in)
+    - `from_config()` factory driven by `settings.embedding_provider`
+  - Standalone embedding worker (`embedding_worker.py`):
+    - `process_embedding_job()`: ORM-based fetch → compute → UPDATE `context_units.embedding`
+    - `recover_inprogress()`: drains orphaned `embedding:inprogress` jobs back to queue on startup
+    - SIGTERM graceful shutdown with drain-before-exit
+    - Worker loop: `BRPOPLPUSH` with 30s timeout, retry up to 3 attempts, then DLQ
+  - Dead-letter queue (`dlq.py`): `count_dlq()`, `list_dlq()`, `replay_dlq()` — atomically move items back to main queue
+  - Worker entrypoint script (`scripts/run-embedding-worker.sh`)
+  - 17 integration tests covering: StubProvider (dimension, determinism, normalization, empty-input), queue enqueue (truncation, redis-down), write-path integration, worker processing, nonexistent-unit skip, error propagation, DLQ management, in-progress recovery
+  - 90 total tests, zero regressions

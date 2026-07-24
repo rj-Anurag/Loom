@@ -292,6 +292,20 @@ async def write_context(
 
     await session.commit()
     await session.refresh(unit)
+
+    # ── 12. Fire-and-forget embedding job ──────────────────────────────────
+    try:
+        from loom.services.retrieval.queue import enqueue_embedding_job
+
+        await enqueue_embedding_job(str(unit.id), unit.content)
+    except Exception:
+        # Never let a Redis failure mask a successful write
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "Failed to enqueue embedding job for unit %s", unit.id
+        )
+
     return unit, True  # freshly created
 
 
