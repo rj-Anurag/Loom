@@ -9,6 +9,7 @@ and token-budget-aware packing (v1 — no embeddings yet).
 
 from __future__ import annotations
 
+import hashlib
 import math
 import uuid
 from collections import defaultdict
@@ -185,8 +186,13 @@ async def write_context(
             "context_unit_id": str(unit.id),
             "client_uuid": str(client_uuid),
             "agent_id": str(agent_id),
-            "version": version,
             "type": type_,
+            "trust_tier": tier.value,
+            "content_preview": content[:200],
+            "content_hash": hashlib.sha256(content.encode()).hexdigest(),
+            "parent_ids": parent_ids_list,
+            "parent_relations": parent_relations_list,
+            "version": version,
         },
     )
     session.add(event)
@@ -194,6 +200,91 @@ async def write_context(
     await session.commit()
     await session.refresh(unit)
     return unit, True  # freshly created
+
+
+# ── Projection Rebuild ──────────────────────────────────────────────────────────
+
+
+async def rebuild_projections(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+) -> None:
+    """Rebuild ``context_units`` and ``context_edges`` from the event log.
+
+    Replays all ``write`` events in chronological order for the given project,
+    reconstructing the context graph.  Idempotent — safe to run multiple times.
+    """
+    events = await session.execute(
+        text(
+            "SELECT event_type, payload, created_at FROM event_log "
+            "WHERE project_id = :pid ORDER BY created_at ASC"
+        ),
+        {"pid": project_id},
+    )
+
+    for event in events.all():
+        if event.event_type != "write":
+            continue
+
+        p = event.payload
+        unit_id = uuid.UUID(p["context_unit_id"])
+        agent_uuid = uuid.UUID(p["agent_id"])
+
+        # Skip if this unit was already rebuilt (idempotent)
+        existing = await session.execute(
+            text("SELECT 1 FROM context_units WHERE id = :id"),
+            {"id": unit_id},
+        )
+        if existing.scalar_one_or_none():
+            continue
+
+        # Rebuild context_unit
+        await session.execute(
+            text(
+                "INSERT INTO context_units "
+                "(id, project_id, agent_id, client_uuid, type, trust_tier, "
+                "content, version, created_at) "
+                "VALUES (:id, :pid, :aid, :cuuid, :type, :tier, "
+                ":content, :version, :created)"
+            ),
+            {
+                "id": unit_id,
+                "pid": project_id,
+                "aid": agent_uuid,
+                "cuuid": uuid.UUID(p["client_uuid"]),
+                "type": p["type"],
+                "tier": p.get("trust_tier", "agent"),
+                "content": p.get("content_preview", ""),
+                "version": p["version"],
+                "created": event.created_at,
+            },
+        )
+
+        # Rebuild edges
+        for parent_id_str in p.get("parent_ids", []):
+            parent_id = uuid.UUID(parent_id_str)
+            # Check edge doesn't already exist (idempotent)
+            edge_exists = await session.execute(
+                text(
+                    "SELECT 1 FROM context_edges "
+                    "WHERE parent_id = :pid AND child_id = :cid"
+                ),
+                {"pid": parent_id, "cid": unit_id},
+            )
+            if edge_exists.scalar_one_or_none():
+                continue
+
+            await session.execute(
+                text(
+                    "INSERT INTO context_edges (parent_id, child_id, relation) "
+                    "VALUES (:pid, :cid, :rel)"
+                ),
+                {
+                    "pid": parent_id,
+                    "cid": unit_id,
+                    "rel": "derived_from",
+                },
+            )
 
 
 # ── Read Path ──────────────────────────────────────────────────────────────────
