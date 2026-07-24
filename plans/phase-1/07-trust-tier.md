@@ -14,7 +14,7 @@ Every Context Unit carries a `trust_tier` field indicating the trustworthiness o
 
 | Value | Source | Typical Content | Confidence |
 |---|---|---|---|
-| `user` | Human user via browser UI or direct input | Requirements, decisions, approvals | Highest — user intent |
+| `user` | Human user via extension popup or direct input | Requirements, decisions, approvals | Highest — user intent |
 | `agent` | AI agent (local, cloud, or browser) | Task results, analysis, messages | Medium — agent may be wrong |
 | `external_tool` | Automated tool or external system | CI results, webhook data, logs | Lowest — unverified source |
 
@@ -57,8 +57,8 @@ The `read_context` MCP tool accepts an optional `min_trust_tier` parameter:
 - `agent`: exclude `external_tool` content
 - `user`: return only human-authored content
 
-### Trust Tier in the UI
-The browser UI must display the trust tier visually:
+### Trust Tier in the Extension
+The browser extension popup/feed must display the trust tier visually:
 - `user` = green badge
 - `agent` = blue badge
 - `external_tool` = gray badge
@@ -68,7 +68,7 @@ The browser UI must display the trust tier visually:
 - `services/context/service.py` — add trust tier weight to read ranking
 - `api/middleware.py` — map auth identity to allowed trust tiers
 - `services/context/mcp_tools.py` — add `min_trust_tier` parameter to read_context
-- `web/app.js` — display trust tier badges in UI
+- `extension/popup.js` — display trust tier badges in extension feed
 
 ## Acceptance Criteria
 
@@ -76,7 +76,7 @@ The browser UI must display the trust tier visually:
 - [ ] Agent cannot write with `user` trust tier
 - [ ] `read_context` with `min_trust_tier=user` returns only user-authored content
 - [ ] Retrieval ranking weights trust_tier correctly
-- [ ] UI displays trust tier badge for every context unit
+- [ ] Extension popup displays trust tier badge for every context unit
 - [ ] Trust tier is preserved through the entire write-read cycle
 
 ## TDD Instructions

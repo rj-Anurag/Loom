@@ -1,6 +1,6 @@
 ---
 title: "Phase 2.4 — Redis Live Presence"
-description: "Agent heartbeat and status tracking in Redis. Live view of active agents, their current tasks, and lock management."
+description: "Agent heartbeat and status tracking in Redis. Live view of active agents, their current tasks, and lock management for the extension sidebar."
 status: pending
 dependencies: ["phase-2/01-full-coordination.md"]
 ---
@@ -8,7 +8,7 @@ dependencies: ["phase-2/01-full-coordination.md"]
 # Redis Live Presence
 
 ## Description
-Track which agents are currently active, what they're working on, and their status via Redis. This enables the live "who's working" view in the browser UI and provides heartbeat-based dead agent detection.
+Track which agents are currently active, what they're working on, and their status via Redis. This enables the live "who's working" view in the extension sidebar and provides heartbeat-based dead agent detection.
 
 ## Data Model
 
@@ -54,8 +54,8 @@ Body: { "status": "working|idle|blocked", "task_id": "optional-uuid" }
 Response: 200 OK
 ```
 
-## Live Presence in Browser UI
-The browser UI shows:
+## Live Presence in Extension Sidebar
+The browser extension sidebar shows:
 - Connected agents and their status
 - Agent names/types
 - What task each agent is working on

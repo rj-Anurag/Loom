@@ -2,7 +2,7 @@
 title: "Phase 2.6 — Multi-Agent Concurrent Demo"
 description: "End-to-end demo with 3 agents (local, cloud, browser) working on the same project simultaneously. Demonstrates branch/merge in action."
 status: pending
-dependencies: ["phase-2/01-full-coordination.md", "phase-2/05-interactive-ui.md"]
+dependencies: ["phase-2/01-full-coordination.md", "phase-2/05-extension-bidirectional.md"]
 ---
 
 # Multi-Agent Concurrent Demo
@@ -32,7 +32,7 @@ All three agents work concurrently, occasionally writing to shared parents (the 
 1. Agents working in parallel
 2. Auto-merge of non-overlapping writes
 3. Conflict detection if agents write overlapping decisions
-4. Conflict resolution via the browser UI
+4. Conflict resolution via the extension sidebar
 
 ## Demo Script
 
@@ -45,9 +45,6 @@ docker-compose up -d
 
 # Create a demo project
 python -m scripts.create_demo_project
-
-# Start the browser UI
-open web/index.html
 
 # Start all 3 agents concurrently
 python -m agents.local.agent \
@@ -66,18 +63,18 @@ python -m agents.browser.agent \
     --name "Agent C (Browser)" &
 
 wait
-echo "Demo complete! Open the browser UI to see results."
+echo "Demo complete! Open the extension dashboard to see results."
 ```
 
 ## Demo Visualization
 
-The browser UI should highlight:
+The extension dashboard should highlight:
 - Which agent wrote which context unit (color-coded)
 - Branch structure (which units are on which branch)
 - Merge points (where branches were merged)
 - Conflicts (which units conflicted and how they were resolved)
 
-A "Demo Mode" overlay in the UI shows:
+A "Demo Mode" overlay in the extension shows:
 - Animation of agents writing in real time
 - Branch visualization
 - Conflict resolution steps
@@ -87,14 +84,14 @@ A "Demo Mode" overlay in the UI shows:
 - `scripts/create_demo_project.py` — creates a demo project with sample data
 - `agents/browser/agent.py` — simple browser agent stub (simulated)
 - `agents/cloud/agent.py` — simple cloud agent stub (simulated)
-- `web/demo-mode.js` — demo visualization overlay
+- `extension/demo-mode.js` — demo visualization overlay
 
 ## Acceptance Criteria
 - [ ] All 3 agents start and work concurrently
 - [ ] Each agent writes at least 3 context units
 - [ ] Non-overlapping writes are auto-merged
 - [ ] Overlapping writes are detected and flagged
-- [ ] Conflicts are resolvable via the browser UI
+- [ ] Conflicts are resolvable via the extension sidebar
 - [ ] The demo can be re-run (idempotent)
 - [ ] The demo completes in under 2 minutes
 
@@ -117,4 +114,4 @@ async def test_demo_is_idempotent(demo_runner):
 
 ## Dependencies
 - Phase 2.1 (full coordination with branch/merge)
-- Phase 2.5 (interactive UI with conflict resolution)
+- Phase 2.5 (bidirectional extension with agent activity sidebar and conflict resolution)
