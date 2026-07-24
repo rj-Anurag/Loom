@@ -43,6 +43,9 @@ include = ["loom*", "agents*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "load_test: Concurrent-merge load test (Phase 1.12)",
+]
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
