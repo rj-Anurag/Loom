@@ -50,3 +50,12 @@
   - Batch parent-edge lookup per result set
   - 11 integration tests covering keyword search, empty query, budget adherence, scope filtering, ranking order, authorization, cross-project access, and parent edges
   - 41 total tests, zero regressions
+
+- **Phase 1.4 — Event Log (Append-Only Ledger)** (2026-07-24)
+  - Enriched write event payload: `trust_tier`, `content_preview` (200-char truncation), `content_hash` (SHA-256), `parent_ids`, `parent_relations`
+  - Content integrity via SHA-256 hash of the unit content in every event payload
+  - `rebuild_projections()` service function that reconstructs `context_units` + `context_edges` from event log replay
+  - Rebuild is idempotent: running it multiple times produces the same result
+  - Chronological event ordering verified
+  - 5 integration tests covering enriched payload, hash verification, event ordering, content_preview truncation, and full graph rebuild
+  - 46 total tests, zero regressions

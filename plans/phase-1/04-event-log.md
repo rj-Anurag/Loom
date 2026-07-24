@@ -1,7 +1,7 @@
 ---
 title: "Phase 1.4 — Event Log (Append-Only Ledger)"
 description: "The immutable, append-only event log that serves as the system's source of truth. Every write, merge, and conflict is recorded here."
-status: pending
+status: completed
 dependencies: ["phase-1/02-context-service-write.md"]
 ---
 
