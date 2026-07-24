@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
     environment: str = "development"
     embedding_provider: str = "stub"
+    groq_api_key: str = ""
     summarization_interval_minutes: int = 15
     otel_endpoint: str = ""
 

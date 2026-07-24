@@ -19,6 +19,7 @@ dependencies = [
     "websockets>=13.0",
     "python-dotenv>=1.0.0",
     "anthropic>=0.40.0",
+    "openai>=1.55.0",
     "structlog>=24.4.0",
 ]
 
@@ -38,7 +39,7 @@ requires = ["setuptools>=70.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["loom*"]
+include = ["loom*", "agents*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
