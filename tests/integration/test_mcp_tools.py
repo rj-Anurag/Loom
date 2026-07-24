@@ -162,49 +162,45 @@ async def test_read_context_tool_min_trust_tier(
     tool_registry: Any,
     test_project: Project,
     test_agent: Agent,
+    db_session: AsyncSession,
 ) -> None:
     """read_context with min_trust_tier filters lower-tier results.
 
-    For this test we write a user-tier and an external_tool-tier unit,
-    then query with min_trust_tier='user' and expect only user-tier back.
+    We write an agent-tier and an external_tool-tier unit,
+    then query with min_trust_tier='agent' and expect only agent-tier back.
     """
-    # Write via the tool (defaults to 'agent' tier)
     from loom.services.context.service import write_context
-    from loom.db import async_session_factory
 
-    session = async_session_factory()
-
-    # Write a unit with trust_tier='user' using the service directly
-    unit_user, _ = await write_context(
-        session, test_project.id, test_agent.id,
+    # Write a unit with trust_tier='agent'
+    unit_agent, _ = await write_context(
+        db_session, test_project.id, test_agent.id,
         client_uuid=uuid.uuid4(),
         type_="message",
-        content="User-approved decision about architecture",
+        content="Agent analysis of architecture decision",
         version=1,
-        trust_tier="user",
+        trust_tier="agent",
     )
 
     # Write a unit with trust_tier='external_tool'
     unit_ext, _ = await write_context(
-        session, test_project.id, test_agent.id,
+        db_session, test_project.id, test_agent.id,
         client_uuid=uuid.uuid4(),
         type_="message",
         content="External linter report on code quality",
         version=1,
         trust_tier="external_tool",
     )
-    await session.close()
 
-    # Query with min_trust_tier='user' — should only get user-tier units
+    # Query with min_trust_tier='agent' — should filter out external_tool
     result = await tool_registry.call("read_context", {
         "task_description": "architecture",
         "token_budget": 5000,
-        "min_trust_tier": "user",
+        "min_trust_tier": "agent",
     })
     assert len(result["units"]) > 0
     for unit in result["units"]:
-        assert unit["trust_tier"] == "user", (
-            f"Expected user tier, got {unit['trust_tier']}"
+        assert unit["trust_tier"] == "agent", (
+            f"Expected agent tier, got {unit['trust_tier']}"
         )
 
 

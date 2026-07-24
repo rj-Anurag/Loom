@@ -213,6 +213,7 @@ async def write_context_endpoint(
         status_map: dict[str, int] = {
             "PROJECT_NOT_FOUND": 404,
             "AGENT_MISMATCH": 403,
+            "TRUST_TIER_DENIED": 403,
             "INVALID_TYPE": 400,
             "EMPTY_CONTENT": 400,
             "CONFLICT": 409,

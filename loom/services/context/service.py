@@ -177,7 +177,13 @@ async def write_context(
                 pending_branch_id=pending.id,
             )
 
-    # ── 7. Determine trust_tier ──────────────────────────────────────────
+    # ── 7. Validate trust_tier is allowed for this agent kind ─────────────
+    if trust_tier is not None:
+        _allowed = _ALLOWED_TRUST_TIERS.get(agent.kind, {"agent", "external_tool"})
+        if trust_tier not in _allowed:
+            raise ValueError("TRUST_TIER_DENIED")
+
+    # ── 8. Determine trust_tier ──────────────────────────────────────────
     if trust_tier:
         try:
             tier = TrustTier(trust_tier)
@@ -332,6 +338,17 @@ TRUST_TIER_WEIGHTS: dict[str, float] = {
     "agent": 0.7,
     "external_tool": 0.4,
 }
+
+_ALLOWED_TRUST_TIERS: dict[str, set[str]] = {
+    "local": {"agent", "external_tool"},
+    "cloud": {"agent", "external_tool"},
+    "browser": {"user", "agent", "external_tool"},
+}
+"""Agent kind → set of trust tiers the agent is allowed to write at.
+
+- ``local`` / ``cloud`` agents cannot impersonate a human (``user`` tier).
+- ``browser`` agents (extension popup) may write at any tier.
+"""
 
 SCOPE_FILTERS: dict[str, str | None] = {
     "onboarding": "summary",

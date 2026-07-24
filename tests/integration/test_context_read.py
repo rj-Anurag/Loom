@@ -101,8 +101,8 @@ async def sample_units(
         ("task_user_tier", {
             "client_uuid": str(uuid.uuid4()),
             "type": "task_result",
-            "trust_tier": "user",
-            "content": "User reviewed the bcrypt implementation and approved it",
+            "trust_tier": "agent",
+            "content": "Agent reviewed the bcrypt implementation and approved it",
             "version": 1,
         }),
         ("task_external_tier", {
