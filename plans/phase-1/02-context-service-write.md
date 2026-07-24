@@ -1,7 +1,7 @@
 ---
 title: "Phase 1.2 — Context Service: Write Path"
 description: "REST endpoint POST /v1/projects/{id}/context that validates, appends to event log, inserts context unit + edges in a single transaction."
-status: pending
+status: completed
 dependencies: ["phase-1/01-db-schema.md"]
 ---
 
