@@ -143,6 +143,7 @@ async def write_context(
     parent_uuids: list[uuid.UUID] = []
     parent_ids_list = parent_ids or []
     parent_relations_list = parent_relations or []
+    _pending_auto_merge = False
 
     if parent_ids_list:
         parent_versions: list[int] = []
@@ -161,21 +162,62 @@ async def write_context(
         max_parent_version = max(parent_versions)
         expected_version = max_parent_version + 1
         if version != expected_version:
-            # Create a PendingBranch record for the conflict
-            # Use the first parent as the context_unit reference
-            pending = PendingBranch(
-                context_unit_id=parent_uuids[0],
-                conflict_type="version_conflict",
-                resolution="pending",
+            # ── Check for overlap with existing sibling children ────────
+            siblings = (
+                await session.execute(
+                    select(ContextUnit).where(
+                        ContextUnit.id.in_(
+                            select(ContextEdge.child_id).where(
+                                ContextEdge.parent_id.in_(parent_uuids),
+                                ContextEdge.relation == EdgeRelation.derived_from,
+                            )
+                        )
+                    )
+                )
+            ).scalars().all()
+
+            if not siblings:
+                # No existing sibling children → this is just a version-bump
+                # error, not a concurrent-write scenario.  Reject.
+                pending = PendingBranch(
+                    context_unit_id=parent_uuids[0],
+                    conflict_type="version_conflict",
+                    resolution="pending",
+                )
+                session.add(pending)
+                await session.flush()
+                raise VersionConflict(
+                    context_unit_id=parent_uuids[0],
+                    claimed_version=version,
+                    current_version=max_parent_version,
+                    pending_branch_id=pending.id,
+                )
+
+            from loom.services.coordination.merge import detect_overlap
+
+            overlapping = any(
+                detect_overlap(content, s.content) for s in siblings
             )
-            session.add(pending)
-            await session.flush()
-            raise VersionConflict(
-                context_unit_id=parent_uuids[0],
-                claimed_version=version,
-                current_version=max_parent_version,
-                pending_branch_id=pending.id,
-            )
+
+            if overlapping:
+                # Overlapping content → reject + create pending branch
+                pending = PendingBranch(
+                    context_unit_id=parent_uuids[0],
+                    conflict_type="version_conflict",
+                    resolution="pending",
+                )
+                session.add(pending)
+                await session.flush()
+                raise VersionConflict(
+                    context_unit_id=parent_uuids[0],
+                    claimed_version=version,
+                    current_version=max_parent_version,
+                    pending_branch_id=pending.id,
+                )
+
+            # Non-overlapping → auto-merge: adjust version to bypass check
+            version = expected_version
+            _pending_auto_merge = True
 
     # ── 7. Validate trust_tier is allowed for this agent kind ─────────────
     if trust_tier is not None:
@@ -221,7 +263,15 @@ async def write_context(
         )
         session.add(edge)
 
-    # ── 10. Append event-log entry ────────────────────────────────────────
+    # ── 10. Auto-merge (if triggered by non-overlapping version conflict) ──
+    if _pending_auto_merge:
+        from loom.services.coordination.merge import auto_merge
+
+        merge_unit = await auto_merge(
+            session, project_id, agent_id, unit.id, parent_uuids
+        )
+
+    # ── 11. Append event-log entry ────────────────────────────────────────
     event = EventLog(
         project_id=project_id,
         event_type=EventType.write,
