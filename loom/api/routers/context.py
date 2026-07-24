@@ -7,8 +7,6 @@ POST /{project_id}/context (write new context unit).
 from __future__ import annotations
 
 import uuid
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -16,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import AuthContext, require_auth
 from loom.db import get_session
-from loom.services.context.service import write_context
+from loom.services.context.service import read_context, write_context
 
 router = APIRouter()
 
@@ -68,15 +66,90 @@ class ContextUnitResponse(BaseModel):
     version: int
 
 
+class ReadContextQuery(BaseModel):
+    """Query parameters for GET /v1/projects/{id}/context."""
+
+    query: str | None = Field(
+        None,
+        description="Natural-language keyword query. Empty returns recent units.",
+    )
+    budget: int = Field(
+        4096,
+        description="Max tokens to return (default 4096, max 32000).",
+        ge=1,
+        le=32000,
+    )
+    scope: str = Field(
+        "task",
+        description="One of: onboarding, task (default), full.",
+    )
+
+
+class ReadContextUnitModel(BaseModel):
+    """A single context unit in the read response."""
+
+    id: str
+    type: str
+    trust_tier: str
+    content: str
+    created_at: str
+    agent_id: str
+    parent_ids: list[str] = []
+    relevance_score: float = 0.0
+
+
+class ReadContextResponse(BaseModel):
+    """Response from GET /v1/projects/{id}/context."""
+
+    units: list[ReadContextUnitModel]
+    total_tokens: int
+    budget_used: int
+    truncated: bool
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 
-@router.get("/{project_id}/context")
-async def read_context(
-    project_id: str,
-) -> dict[str, Any]:
-    """List / read context units (stub — Phase 1.3)."""
-    return {"project_id": project_id, "units": [], "total_tokens": 0}
+@router.get(
+    "/{project_id}/context",
+    response_model=ReadContextResponse,
+    responses={
+        200: {"description": "Context units retrieved"},
+        401: {"description": "Missing or invalid auth"},
+        403: {"description": "Agent does not belong to this project"},
+        404: {"description": "Project not found"},
+    },
+)
+async def read_context_endpoint(
+    project_id: uuid.UUID,
+    params: ReadContextQuery = Depends(),
+    auth: AuthContext = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Retrieve context units for a project.
+
+    Supports keyword full-text search, token-budget-aware packing, and
+    scope filtering (onboarding / task / full).
+    """
+    try:
+        result = await read_context(
+            session,
+            project_id,
+            auth.agent_id,
+            query=params.query,
+            budget=params.budget,
+            scope=params.scope,
+        )
+    except ValueError as exc:
+        error_code = str(exc)
+        status_map: dict[str, int] = {
+            "PROJECT_NOT_FOUND": 404,
+            "AGENT_MISMATCH": 403,
+        }
+        status = status_map.get(error_code, 400)
+        raise HTTPException(status_code=status, detail=error_code)
+
+    return result
 
 
 @router.post(

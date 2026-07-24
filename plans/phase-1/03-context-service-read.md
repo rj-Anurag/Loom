@@ -1,7 +1,7 @@
 ---
 title: "Phase 1.3 — Context Service: Read Path"
 description: "REST endpoint GET /v1/projects/{id}/context that retrieves context units with keyword filtering and token-budget-aware packing."
-status: pending
+status: completed
 dependencies: ["phase-1/02-context-service-write.md"]
 ---
 
