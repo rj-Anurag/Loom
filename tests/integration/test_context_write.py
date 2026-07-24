@@ -199,7 +199,14 @@ async def test_write_context_version_conflict(
         headers=auth_headers,
     )
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == "CONFLICT"
+    data = resp.json()
+    assert data["detail"] == "VERSION_CONFLICT"
+    assert data["claimed_version"] == 1
+    assert data["current_version"] >= 1  # parent version
+    assert "pending_branch_id" in data
+    assert "context_unit_id" in data
+    # Verify pending_branch_id is a valid UUID
+    uuid.UUID(data["pending_branch_id"])
 
 
 # ── Event Log ─────────────────────────────────────────────────────────────────

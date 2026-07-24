@@ -26,9 +26,32 @@ from loom.models import (
     EdgeRelation,
     EventLog,
     EventType,
+    PendingBranch,
     Project,
     TrustTier,
 )
+
+
+class VersionConflict(Exception):
+    """Raised when a write's claimed version doesn't match the parent lineage.
+
+    Carries structured information about the conflict for the API layer to
+    return a rich 409 response, including a ``pending_branch_id`` for the
+    auto-created ``pending_branches`` record.
+    """
+
+    def __init__(
+        self,
+        context_unit_id: uuid.UUID,
+        claimed_version: int,
+        current_version: int,
+        pending_branch_id: uuid.UUID,
+    ) -> None:
+        self.context_unit_id = context_unit_id
+        self.claimed_version = claimed_version
+        self.current_version = current_version
+        self.pending_branch_id = pending_branch_id
+        super().__init__("VERSION_CONFLICT")
 
 
 async def write_context(
@@ -138,7 +161,21 @@ async def write_context(
         max_parent_version = max(parent_versions)
         expected_version = max_parent_version + 1
         if version != expected_version:
-            raise ValueError("CONFLICT")
+            # Create a PendingBranch record for the conflict
+            # Use the first parent as the context_unit reference
+            pending = PendingBranch(
+                context_unit_id=parent_uuids[0],
+                conflict_type="version_conflict",
+                resolution="pending",
+            )
+            session.add(pending)
+            await session.flush()
+            raise VersionConflict(
+                context_unit_id=parent_uuids[0],
+                claimed_version=version,
+                current_version=max_parent_version,
+                pending_branch_id=pending.id,
+            )
 
     # ── 7. Determine trust_tier ──────────────────────────────────────────
     if trust_tier:

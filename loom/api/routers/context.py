@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import AuthContext, require_auth
 from loom.db import get_session
-from loom.services.context.service import read_context, write_context
+from loom.services.context.service import (
+    VersionConflict,
+    read_context,
+    write_context,
+)
 
 router = APIRouter()
 
@@ -188,6 +192,21 @@ async def write_context_endpoint(
             trust_tier=body.trust_tier,
             parent_ids=body.parent_ids,
             parent_relations=body.parent_relations,
+        )
+    except VersionConflict as vc:
+        # The service flushed a PendingBranch before raising, but the
+        # transaction hasn't committed yet.  Commit now so the branch
+        # is persisted (no other mutations are pending at this point).
+        await session.commit()
+        return JSONResponse(
+            content={
+                "detail": "VERSION_CONFLICT",
+                "current_version": vc.current_version,
+                "claimed_version": vc.claimed_version,
+                "pending_branch_id": str(vc.pending_branch_id),
+                "context_unit_id": str(vc.context_unit_id),
+            },
+            status_code=409,
         )
     except ValueError as exc:
         error_code = str(exc)

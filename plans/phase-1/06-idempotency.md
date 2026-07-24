@@ -1,7 +1,7 @@
 ---
 title: "Phase 1.6 — Idempotency & Versioning"
 description: "Client-generated UUID deduplication and optimistic concurrency version checks for all context writes."
-status: pending
+status: completed
 dependencies: ["phase-1/02-context-service-write.md"]
 ---
 

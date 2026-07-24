@@ -76,3 +76,13 @@
   - Tools call the Python service layer directly (no HTTP overhead) for co-located agents
   - 10 integration tests covering all 3 tools + registry listing + unknown tool error handling + idempotency + trust_tier filtering + parent versioning
   - 54 total tests, zero regressions
+
+- **Phase 1.6 — Idempotency & Versioning** (2026-07-24)
+  - `VersionConflict` exception with structured fields (`context_unit_id`, `claimed_version`, `current_version`, `pending_branch_id`)
+  - On version conflict, a `pending_branches` record is created with `conflict_type='version_conflict'` and `resolution='pending'`
+  - The `PendingBranch` is persisted (committed) even though the conflicting write is rejected
+  - Rich 409 response now includes `current_version`, `claimed_version`, `pending_branch_id`, and `context_unit_id`
+  - Service-layer `write_context()` creates the `PendingBranch` record via `session.flush()` before raising `VersionConflict`
+  - API router catches `VersionConflict`, commits the session (no other mutations pending at that point), and returns structured JSON
+  - 4 integration tests covering: PendingBranch creation on conflict, no branch on successful write, multiple conflicts create multiple branches, and structured response fields
+  - 58 total tests, zero regressions
