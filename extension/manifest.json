@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Loom — Context Bridge",
+  "version": "0.1.0",
+  "description": "Sync AI chat conversations (Claude.ai, ChatGPT) into Loom's shared context store. Retrieve via @loom in your CLI.",
+  "permissions": [
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "http://localhost:8000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Loom — Context Bridge"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  }
+}
