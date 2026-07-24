@@ -76,7 +76,7 @@ POST /v1/projects/{id}/branches/{id}/merge  → Merge branch
 ## Task Assignment
 
 ### How Tasks Flow
-1. User creates a task (via browser UI or API)
+1. User creates a task (via extension sidebar or API)
 2. Coordination Service records the task in a `tasks` table
 3. Available agents poll or are notified of pending tasks
 4. Agent accepts the task (creates a branch)

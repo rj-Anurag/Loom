@@ -43,7 +43,7 @@ The read-write context path, MCP tools, basic coordination, async embedding, one
 | 1.8 | **Basic Coordination** | `phase-1/08-basic-coordination.md` | Conflict detection, auto-merge, pending branches |
 | 1.9 | **Embedding Pipeline** | `phase-1/09-embedding-pipeline.md` | Async queue + worker, pgvector update, DLQ |
 | 1.10 | **Local Agent** | `phase-1/10-local-agent.md` | End-to-end agent: read → LLM → write |
-| 1.11 | **Browser Extension (Core)** | `phase-1/11-browser-extension-core.md` | Detect AI chats → link to project → auto-sync as context units |
+| 1.11 | **Browser Extension (Core)** | `phase-1/11-browser-extension-core.md` | Chrome extension: one-tap link AI chats → auto-sync as context units → retrieve via @loom |
 | 1.12 | **Load Test: Merges** | `phase-1/12-load-test-merges.md` | 3+ concurrent agents, conflict/latency metrics |
 
 ---

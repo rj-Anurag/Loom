@@ -75,7 +75,7 @@ When writes overlap:
 1. Create a `pending_branches` row
 2. Both writes are stored as separate context units
 3. A `conflict_flagged` event is appended to the event log
-4. The conflict is surfaced via the API (and later, via the browser UI)
+4. The conflict is surfaced via the API (and later, via the extension sidebar)
 
 ### Pending Branches Table
 ```sql

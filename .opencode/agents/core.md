@@ -1,7 +1,7 @@
 ---
 description: Core orchestration agent for OpenCode — the single entry point for all feature development. Orchestrates a strict Agentic TDD pipeline: Architect → Planner → Tester (write tests) → Coder → Tester (verify) → Reviewer → Security → Documenter. Handles all error routing, retry loops, and workflow state. You never call subagents directly; you always go through this agent.
 mode: primary
-model: deepseak/v4-flash-free
+
 temperature: 0.1
 permission:
   edit: allow
