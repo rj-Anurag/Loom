@@ -59,3 +59,20 @@
   - Chronological event ordering verified
   - 5 integration tests covering enriched payload, hash verification, event ordering, content_preview truncation, and full graph rebuild
   - 46 total tests, zero regressions
+
+- **Phase 1.5 — MCP Tool Definitions** (2026-07-24)
+  - `ToolRegistry` class that holds and dispatches MCP tool calls bound to a session+project+agent
+  - `ReadContextTool` — wraps `read_context()` service with:
+    - Full-text search relevance ranking via `task_description` parameter
+    - Token-budget enforcement with content truncation
+    - Scope filtering (`task` / `onboarding` / `full`)
+    - `min_trust_tier` post-filter (user > agent > external_tool)
+  - `WriteContextTool` — wraps `write_context()` service with:
+    - Deterministic `client_uuid` generation (UUID v5 from `type:content`) for automatic idempotency
+    - Auto-computed version from parent lineage when parents are referenced
+    - Support for `parent_ids` / `parent_relations` for edge creation
+  - `GetProjectSummaryTool` — retrieves summary-type context units via `scope="onboarding"`
+  - `MCPTool` base class with `definition()` and `call()` interface matching the MCP tool schema
+  - Tools call the Python service layer directly (no HTTP overhead) for co-located agents
+  - 10 integration tests covering all 3 tools + registry listing + unknown tool error handling + idempotency + trust_tier filtering + parent versioning
+  - 54 total tests, zero regressions

@@ -1,7 +1,7 @@
 ---
 title: "Phase 1.5 — MCP Tools (read_context / write_context)"
 description: "Model Context Protocol tool wrappers that agents call to interact with Loom's shared context store."
-status: pending
+status: completed
 dependencies: ["phase-1/02-context-service-write.md", "phase-1/03-context-service-read.md"]
 ---
 
