@@ -29,3 +29,23 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
     finally:
         await session.close()
+
+
+@pytest_asyncio.fixture
+async def redis_client() -> AsyncGenerator:  # type: ignore[type-arg]
+    """Provide a Redis client connected to test database 1.
+
+    Flushes the database before and after each test so every test starts
+    with a clean state.  This fixture is re-usable across lock tests and
+    coordination tests that need to verify Redis availability / fallback.
+
+    Import ``redis.asyncio`` lazily to avoid requiring the dependency
+    for tests that don't use Redis.
+    """
+    import redis.asyncio as redis_async
+
+    r = redis_async.from_url("redis://localhost:6379/1", decode_responses=True)
+    await r.flushdb()
+    yield r
+    await r.flushdb()
+    await r.close()
