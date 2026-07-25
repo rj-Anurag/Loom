@@ -39,13 +39,29 @@ async def redis_client() -> AsyncGenerator:  # type: ignore[type-arg]
     with a clean state.  This fixture is re-usable across lock tests and
     coordination tests that need to verify Redis availability / fallback.
 
+    Also sets ``loom.config.settings.redis_url`` to DB 1 so the app's
+    module-level Redis singleton (``get_redis`` dependency) uses the
+    same database as the test fixture.
+
     Import ``redis.asyncio`` lazily to avoid requiring the dependency
     for tests that don't use Redis.
     """
+    import loom.config
     import redis.asyncio as redis_async
+
+    # Point the app's Redis config to DB 1 so get_redis() uses the
+    # same database as this test fixture.
+    original_url = loom.config.settings.redis_url
+    loom.config.settings.redis_url = "redis://localhost:6379/1"
+
+    # Reset the module-level singleton so the next get_redis() call
+    # picks up the test DB URL.
+    import loom.services.retrieval.queue as queue_module
+    queue_module._redis = None
 
     r = redis_async.from_url("redis://localhost:6379/1", decode_responses=True)
     await r.flushdb()
     yield r
     await r.flushdb()
     await r.close()
+    loom.config.settings.redis_url = original_url

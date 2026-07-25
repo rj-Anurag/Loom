@@ -231,3 +231,28 @@
   - **API updates:** `ReadContextUnitModel` now includes `version` field; `query` param has `max_length=500`; `scope` uses `Literal["onboarding", "task", "full"]`
   - Sub-queries run sequentially (asyncpg sessions are not concurrency-safe)
   - 187 total tests, zero regressions
+
+- **Phase 2.4 — Redis Live Presence** (2026-07-25)
+  - **New module:** `loom/services/coordination/presence.py` — agent heartbeat recording and presence querying:
+    - `record_heartbeat()` — stores `project_id`, `status`, `task_id` in `presence:agent:{agent_id}` Redis hash with 60s TTL using pipelined `HSET` + `EXPIRE`
+    - `get_active_agents()` — project-scoped agent list via `SCAN` iteration (not `KEYS`), pipelined `HGETALL`, returns `agent_id`/`project_id`/`status`/`task_id`
+    - `get_agent_presence()` — single-agent presence lookup with `dict` or `None` response
+    - All three functions accept `redis=None` and degrade gracefully (return `False`/`[]`/`None`)
+    - Redis errors (`ConnectionError`, `TimeoutError`, `OSError`, `redis_exceptions.*`) caught and logged
+  - **`AuthContext` extended** (`loom/api/auth.py`): `project_id` field added (default `None`) — enables endpoints to know which project an agent belongs to without a separate DB call
+  - **New FastAPI dependency** (`loom/api/dependencies.py`): `get_redis` — reuses the existing module-level Redis singleton from `loom.services.retrieval.queue`; returns `None` on error for graceful degradation
+  - **Event type schemas** (`loom/schemas/events.py`): `AgentEventType` literal type with 5 members (`agent_online`, `agent_heartbeat`, `agent_offline`, `agent_lock`, `agent_unlock`) and 5 payload type aliases — schema only, no WebSocket implementation
+  - **Heartbeat endpoint** `POST /v1/agents/{agent_id}/heartbeat`:
+    - Auth + `agent_id` match enforcement (403 `AGENT_ID_MISMATCH` on mismatch)
+    - Request body: `status` (`"idle"|"working"|"blocked"`), optional `task_id`
+    - Response: `{"status": "ok", "redis_available": true|false}`
+    - Pydantic validation on `status` literal (422 on invalid value)
+  - **Presence query endpoint** `GET /v1/projects/{project_id}/agents/presence`:
+    - Cross-project access guard (403 `PROJECT_MISMATCH` if auth agent belongs to a different project)
+    - Returns list of active agents with `agent_id`, `project_id`, `status`, `task_id`
+    - Returns empty list when no agents have heartbeats or Redis is down
+  - **23 new tests** (13 unit + 10 integration) covering:
+    - All three service functions with Redis and `redis=None` degradation
+    - Heartbeat API: auth mismatch, missing auth, invalid status, task_id storage, Redis-down resilience
+    - Presence query: active agent retrieval, empty state, missing auth, cross-project access block
+  - 234 total tests, zero regressions

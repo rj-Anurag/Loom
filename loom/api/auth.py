@@ -19,8 +19,9 @@ from loom.models import Agent
 class AuthContext:
     """Represents an authenticated agent."""
 
-    def __init__(self, agent_id: uuid.UUID) -> None:
+    def __init__(self, agent_id: uuid.UUID, project_id: uuid.UUID | None = None) -> None:
         self.agent_id = agent_id
+        self.project_id = project_id
 
 
 async def require_auth(
@@ -48,4 +49,4 @@ async def require_auth(
     if agent is None:
         raise HTTPException(status_code=401, detail="Unknown agent")
 
-    return AuthContext(agent_id=agent.id)
+    return AuthContext(agent_id=agent.id, project_id=agent.project_id)

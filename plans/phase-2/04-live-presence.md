@@ -1,7 +1,7 @@
 ---
 title: "Phase 2.4 — Redis Live Presence"
 description: "Agent heartbeat and status tracking in Redis. Live view of active agents, their current tasks, and lock management for the extension sidebar."
-status: pending
+status: completed
 dependencies: ["phase-2/01-full-coordination.md"]
 ---
 
