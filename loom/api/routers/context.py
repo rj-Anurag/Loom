@@ -7,6 +7,8 @@ POST /{project_id}/context (write new context unit).
 from __future__ import annotations
 
 import uuid
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -80,6 +82,7 @@ class ReadContextQuery(BaseModel):
 
     query: str | None = Field(
         None,
+        max_length=500,
         description="Natural-language keyword query. Empty returns recent units.",
     )
     budget: int = Field(
@@ -88,14 +91,14 @@ class ReadContextQuery(BaseModel):
         ge=1,
         le=32000,
     )
-    scope: str = Field(
+    scope: Literal["onboarding", "task", "full"] = Field(
         "task",
         description="One of: onboarding, task (default), full.",
     )
 
 
 class ReadContextUnitModel(BaseModel):
-    """A single context unit in the read response."""
+    """Individual context unit returned in a read response."""
 
     id: str
     type: str
@@ -103,6 +106,7 @@ class ReadContextUnitModel(BaseModel):
     content: str
     created_at: str
     agent_id: str
+    version: int = 1
     parent_ids: list[str] = []
     relevance_score: float = 0.0
 

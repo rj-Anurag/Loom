@@ -209,7 +209,7 @@ async def test_read_context_no_results(
     auth_headers: dict[str, str],
     sample_units: dict[str, Any],
 ) -> None:
-    """Query matching no units returns empty array (not 404)."""
+    """Non-matching query falls through to chronological (never 404)."""
     resp = await client.get(
         f"/v1/projects/{test_project.id}/context",
         params={"query": "xyznonexistentkeyword", "budget": 10000},
@@ -217,8 +217,10 @@ async def test_read_context_no_results(
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["units"] == []
-    assert data["total_tokens"] == 0
+    # When hybrid search returns no matches, the service falls through
+    # to chronological ordering so the caller always gets recent context.
+    assert len(data["units"]) > 0
+    assert data["total_tokens"] > 0
 
 
 @pytest.mark.asyncio
