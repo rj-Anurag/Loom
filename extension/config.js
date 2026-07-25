@@ -9,6 +9,13 @@ const LOOM_CONFIG = {
   /** Base URL of the Loom context server (no trailing slash). */
   LOOM_SERVER_URL: 'http://localhost:8000',
 
+  /**
+   * Default API key — the agent UUID from the Loom extension setup.
+   * The extension tries stored credentials first, then falls back to this.
+   * Regenerate by calling GET /v1/extension/setup on the running server.
+   */
+  DEFAULT_API_KEY: 'a7318f8c-e1d8-4d94-b6be-ab58aa17640e',
+
   /** Chat platforms the extension recognises. */
   SUPPORTED_PLATFORMS: [
     { hostname: 'claude.ai',      name: 'Claude.ai' },
