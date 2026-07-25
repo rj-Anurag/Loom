@@ -12,14 +12,17 @@ importScripts('config.js', 'storage.js');
 const API = LOOM_CONFIG.LOOM_SERVER_URL;
 
 /**
- * Get authentication headers from stored credentials.
+ * Get authentication headers from stored or default credentials.
  */
 async function authHeaders() {
   const creds = await Storage.getCredentials();
   if (creds) {
     return { Authorization: `Bearer ${creds.api_key}` };
   }
-  // Fall back to any stored browser agent's credentials
+  // Fall back to the default API key from config
+  if (LOOM_CONFIG.DEFAULT_API_KEY) {
+    return { Authorization: `Bearer ${LOOM_CONFIG.DEFAULT_API_KEY}` };
+  }
   return {};
 }
 
@@ -69,17 +72,15 @@ const MESSAGE_HANDLERS = {
    * CHECK_LINK — Is this chat URL already linked?
    */
   async CHECK_LINK(msg) {
-    const projectId = await Storage.getProjectForChat(msg.chatUrl);
-    if (projectId) {
-      return { linked: true, projectId, projectName: projectId };
+    const linkInfo = await Storage.getProjectForChat(msg.chatUrl);
+    if (linkInfo) {
+      return {
+        linked: true,
+        projectId: linkInfo.projectId,
+        projectName: linkInfo.projectName,
+      };
     }
-    // Also check server-side via the link-chat endpoint (idempotent lookup)
-    try {
-      // We don't have a GET endpoint for chat links, so just return false
-      return { linked: false };
-    } catch {
-      return { linked: false };
-    }
+    return { linked: false };
   },
 
   /**
@@ -122,7 +123,7 @@ const MESSAGE_HANDLERS = {
 
     // Persist the link locally
     if (data.chat_url) {
-      await Storage.setChatLink(data.chat_url, msg.projectId);
+      await Storage.setChatLink(data.chat_url, msg.projectId, msg.projectName);
     }
 
     return data;
@@ -133,15 +134,16 @@ const MESSAGE_HANDLERS = {
    * Called by the content script when new DOM messages are detected.
    */
   async SYNC_MESSAGES(msg) {
-    const projectId = await Storage.getProjectForChat(msg.chatUrl);
-    if (!projectId) {
+    const linkInfo = await Storage.getProjectForChat(msg.chatUrl);
+    if (!linkInfo) {
       console.warn('[Loom] Cannot sync — chat not linked to any project');
       return { synced: 0 };
     }
+    const projectId = linkInfo.projectId;
 
     const results = [];
     for (const message of msg.messages) {
-      const clientUuid = generateClientUuid(msg.chatUrl, message.index);
+      const clientUuid = await generateClientUuid(msg.chatUrl, message.index);
       const content = `${message.role === 'user' ? 'User' : 'AI'}: ${message.content}`;
 
       try {
@@ -168,25 +170,24 @@ const MESSAGE_HANDLERS = {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Generate a deterministic UUID v5 for idempotent sync.
- * Uses the chat URL + message index as the name.
+ * Generate a deterministic UUID for idempotent sync.
+ * Uses SHA-256 hash of chatUrl + index, formatted as UUID v4-like.
+ * Deterministic: same inputs always produce same UUID.
  */
-function generateClientUuid(chatUrl, index) {
-  // Simple hash-based UUID-like string (browser-compatible, no crypto.subtle needed)
+async function generateClientUuid(chatUrl, index) {
   const str = `${chatUrl}:${index}`;
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const chr = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + chr;
-    hash |= 0; // Convert to 32bit integer
-  }
-  // Format as a UUID-like string
-  const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
-  return template.replace(/[xy]/g, c => {
-    const r = (hash + Math.random() * 16) | 0;
-    hash = Math.floor(hash / 16);
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  // Take first 16 bytes and format as UUID v4
+  const bytes = hashArray.slice(0, 16);
+  // Set version 4 bits (4xxx)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  // Set variant bits (10xx)
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
 }
 
 // ── Boot ────────────────────────────────────────────────────────────────────

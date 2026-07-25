@@ -7,27 +7,34 @@
 
 const Storage = {
   /**
-   * Get the project ID linked to a chat URL.
+   * Get project info linked to a chat URL.
    * @param {string} chatUrl
-   * @returns {Promise<string|null>}
+   * @returns {Promise<{projectId: string, projectName: string}|null>}
    */
   async getProjectForChat(chatUrl) {
     const key = LOOM_CONFIG.STORAGE_KEYS.CHAT_LINKS;
     const result = await chrome.storage.local.get(key);
     const links = result[key] || {};
-    return links[chatUrl] || null;
+    const entry = links[chatUrl];
+    if (!entry) return null;
+    // Support both legacy (string) and new (object) formats
+    if (typeof entry === 'string') {
+      return { projectId: entry, projectName: entry };
+    }
+    return entry;
   },
 
   /**
-   * Store a chat URL → project_id mapping.
+   * Store a chat URL → { projectId, projectName } mapping.
    * @param {string} chatUrl
    * @param {string} projectId
+   * @param {string} [projectName]
    */
-  async setChatLink(chatUrl, projectId) {
+  async setChatLink(chatUrl, projectId, projectName) {
     const key = LOOM_CONFIG.STORAGE_KEYS.CHAT_LINKS;
     const result = await chrome.storage.local.get(key);
     const links = result[key] || {};
-    links[chatUrl] = projectId;
+    links[chatUrl] = { projectId, projectName: projectName || projectId };
     await chrome.storage.local.set({ [key]: links });
   },
 
