@@ -100,6 +100,130 @@ class OpenAIProvider:
 # ── Factory ────────────────────────────────────────────────────────────────────
 
 
+# ── LLM Provider (Phase 2.2 — Hierarchical Summarization) ──────────────────────
+
+
+@runtime_checkable
+class LLMProvider(Protocol):
+    """Protocol for LLM summarization providers.
+
+    Every provider must accept a list of context-unit dicts and return
+    a condensed summary string preserving key decisions and state.
+    """
+
+    async def summarize(self, context_units: list[dict]) -> str:
+        """Generate a summary of the given context units.
+
+        Parameters
+        ----------
+        context_units : list[dict]
+            Each dict has at least ``id``, ``content``, ``type``,
+            ``trust_tier``, ``created_at``, and ``agent_id`` keys.
+
+        Returns
+        -------
+        str
+            The condensed summary text.
+        """
+        ...
+
+
+class StubLLMProvider:
+    """Deterministic stub summarizer for tests.
+
+    Returns a concatenation of the unit contents prefixed with
+    a header, truncated at 1000 chars.  Always available — no
+    external dependencies.
+    """
+
+    async def summarize(self, context_units: list[dict]) -> str:
+        if not context_units:
+            return ""
+        header = f"Stub summary of {len(context_units)} units:\n"
+        body = "; ".join(u.get("content", "")[:200] for u in context_units)
+        return (header + body)[:1000]
+
+
+class GroqLLMProvider:
+    """LLM provider backed by the Groq API.
+
+    Requires the ``groq`` package and ``GROQ_API_KEY`` environment
+    variable.  Uses ``mixtral-8x7b-32768`` by default for fast
+    summarization with large context windows.
+    """
+
+    _SUMMARY_PROMPT = (
+        "You are a technical summarizer. Condense the following "
+        "context units into a concise summary preserving key "
+        "decisions, findings, and state. Omit low-signal details.\n\n"
+        "# Context Units\n\n{units_text}"
+    )
+
+    MAX_INPUT_CHARS = 30000
+
+    def __init__(
+        self,
+        model: str = "mixtral-8x7b-32768",
+        api_key: str | None = None,
+    ) -> None:
+        self.model = model
+        self._api_key = api_key
+
+    async def summarize(self, context_units: list[dict]) -> str:
+        if not context_units:
+            return ""
+        units_text = self._format_units(context_units)
+        prompt = self._SUMMARY_PROMPT.format(units_text=units_text)
+
+        import groq as groq_client
+
+        client = groq_client.AsyncGroq(api_key=self._api_key)
+        resp = await client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt[:self.MAX_INPUT_CHARS]}],
+            temperature=0.3,
+            max_tokens=1024,
+        )
+        return resp.choices[0].message.content or ""
+
+    def _format_units(self, units: list[dict]) -> str:
+        lines = []
+        for i, u in enumerate(units, 1):
+            # Isolate each unit's content behind XML-like boundary markers
+            # to mitigate prompt-injection from unit content.
+            content = (u.get("content", "") or "")[:4000]
+            lines.append(
+                f'<unit index="{i}" type="{u.get("type", "unknown")}" '
+                f'tier="{u.get("trust_tier", "agent")}">\n'
+                f"{content}\n"
+                f"</unit>"
+            )
+        return "\n\n".join(lines)
+
+
+def from_llm_config() -> LLMProvider:
+    """Build an LLM provider based on ``settings.summarization_provider``.
+
+    ``"stub"`` (default) → :class:`StubLLMProvider`
+    ``"groq"``           → :class:`GroqLLMProvider`
+
+    Raises
+    ------
+    ValueError
+        If the provider name is not recognized.
+    """
+    provider_name = settings.summarization_provider.lower()
+    if provider_name == "groq":
+        return GroqLLMProvider(api_key=settings.groq_api_key or None)
+    if provider_name == "stub":
+        return StubLLMProvider()
+    msg = f"Unrecognised summarization provider: {settings.summarization_provider!r}"
+    raise ValueError(msg)
+
+
+# ── Factory ────────────────────────────────────────────────────────────────────
+
+
 def from_config() -> EmbeddingProvider:
     """Build an embedding provider based on ``settings.embedding_provider``.
 
