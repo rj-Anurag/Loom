@@ -15,7 +15,7 @@ class Agent(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('local', 'cloud', 'browser')",
+            "kind IN ('local', 'cloud', 'browser', 'system')",
             name="ck_agents_kind",
         ),
     )
