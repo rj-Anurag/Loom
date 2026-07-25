@@ -19,6 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
 
+try:
+    import redis.asyncio as redis_async
+except ImportError:
+    redis_async = None  # type: ignore[assignment]  # not required for Phase 1.8 tests
+
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -381,3 +386,306 @@ async def test_conflict_resolve_endpoint(
     row = result.one_or_none()
     assert row is not None
     assert row.resolution == "resolved"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 2.1 — Write path extensions (branch integration, lock ordering,
+# Redis fallback, backward compatibility)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Note: These tests use a real Redis connection for lock-related scenarios.
+# The ``redis_client`` fixture (defined in ``tests/conftest.py``) connects
+# to ``localhost:6379/1`` and flushes between tests.
+
+
+@pytest.mark.asyncio
+async def test_write_with_branch_id(
+    client: AsyncClient,
+    test_project: Project,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    """Writing context with a branch_id creates a PendingBranch linked to the branch.
+
+    This validates that the ``branch_id`` column on ``pending_branches`` is
+    populated when a branch-scoped write triggers a version conflict, enabling
+    the merge endpoint to associate conflicts with branches.
+    """
+    # 1. Create a branch
+    branch_resp = await client.post(
+        f"/v1/projects/{test_project.id}/branches",
+        json={"name": "feature/write-with-branch"},
+        headers=auth_headers,
+    )
+    assert branch_resp.status_code == 201
+    branch_id = branch_resp.json()["id"]
+
+    # 2. Write a parent context unit on main
+    parent_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "type": "decision",
+        "content": "Decision: refactor database layer",
+        "version": 1,
+    }
+    resp = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json=parent_body,
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    parent_id = resp.json()["id"]
+
+    # 3. Write a unit on main (creates siblings)
+    main_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "type": "task_result",
+        "content": "Migrated ORM queries in src/db/repository.py",
+        "parent_ids": [parent_id],
+        "version": 2,
+    }
+    resp = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json=main_body,
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+
+    # 4. Write overlapping content on the branch — use stale version (1 instead of 2)
+    #    to trigger version-conflict detection
+    branch_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "type": "task_result",
+        "content": "Rewrote queries in src/db/repository.py with SQLAlchemy 2.0",
+        "parent_ids": [parent_id],
+        "version": 1,  # stale — parent is version 1, expected version is 2
+        "branch_id": branch_id,
+    }
+    resp = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json=branch_body,
+        headers=auth_headers,
+    )
+    assert resp.status_code == 409, f"Expected conflict, got {resp.status_code}: {resp.text}"
+    data = resp.json()
+    assert "pending_branch_id" in data
+
+    # 5. Verify the PendingBranch has the correct branch_id
+    pending_id = data["pending_branch_id"]
+    result = await db_session.execute(
+        text("SELECT id, branch_id, resolution FROM pending_branches WHERE id = :pid"),
+        {"pid": uuid.UUID(pending_id)},
+    )
+    row = result.one_or_none()
+    assert row is not None
+    assert row.branch_id is not None, "pending_branches.branch_id should be set"
+    assert str(row.branch_id) == branch_id
+    assert row.resolution == "pending"
+
+
+@pytest.mark.asyncio
+async def test_write_without_branch_id_backward_compat(
+    client: AsyncClient,
+    test_project: Project,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    """Writing context without a branch_id behaves exactly as in Phase 1.8.
+
+    The ``branch_id`` field is optional; when omitted the write path must
+    fall back to the original conflict-detection behaviour (creates a
+    PendingBranch with ``branch_id IS NULL``).
+    """
+    # 1. Write parent
+    parent_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "type": "decision",
+        "content": "Decision: implement search indexing",
+        "version": 1,
+    }
+    resp = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json=parent_body,
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    parent_id = resp.json()["id"]
+
+    # 2. Write first child (version 2)
+    child1_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "type": "task_result",
+        "content": "Set up Elasticsearch in src/search/es_client.py",
+        "parent_ids": [parent_id],
+        "version": 2,
+    }
+    resp = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json=child1_body,
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+
+    # 3. Write overlapping second child without branch_id — should produce conflict
+    child2_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "type": "task_result",
+        "content": "Set up Meilisearch in src/search/es_client.py",
+        "parent_ids": [parent_id],
+        "version": 1,
+    }
+    resp = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json=child2_body,
+        headers=auth_headers,
+    )
+    assert resp.status_code == 409
+    pending_branch_id = resp.json()["pending_branch_id"]
+
+    # 4. Verify PendingBranch exists with branch_id IS NULL
+    result = await db_session.execute(
+        text("SELECT id, branch_id FROM pending_branches WHERE id = :pid"),
+        {"pid": uuid.UUID(pending_branch_id)},
+    )
+    row = result.one_or_none()
+    assert row is not None
+    assert row.branch_id is None, (
+        "Phase 1.8-style conflict should have branch_id IS NULL"
+    )
+
+
+@pytest.mark.asyncio
+async def test_write_context_lock_before_check(
+    client: AsyncClient,
+    test_project: Project,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+    redis_client: redis_async.Redis,
+) -> None:
+    """The write path acquires a Redis lock on the parent unit BEFORE performing
+    the version-conflict check.
+
+    Locks are best-effort (fall back to optimistic concurrency per architecture).
+    This test verifies that the lock acquisition happens without error, and that
+    the version check still functions correctly with the lock held by a different
+    agent (the write proceeds via optimistic fallback since the lock is advisory).
+    """
+    from loom.services.coordination.locks import acquire_lock, release_lock
+
+    # 1. Write a parent context unit
+    parent_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "type": "decision",
+        "content": "Decision: implement rate limiting",
+        "version": 1,
+    }
+    resp = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json=parent_body,
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    parent_id = resp.json()["id"]
+
+    # 2. Manually acquire a Redis lock on the parent unit with a different agent id
+    other_agent_id = str(uuid.uuid4())
+    lock_result = await acquire_lock(redis_client, parent_id, other_agent_id, ttl=3)
+    assert lock_result.acquired is True
+
+    # 3. Write a child — should succeed because locks are best-effort
+    #    (fall back to optimistic concurrency + version check)
+    child_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "type": "task_result",
+        "content": "Implementing token bucket in src/ratelimit/token_bucket.py",
+        "parent_ids": [parent_id],
+        "version": 2,
+    }
+    resp = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json=child_body,
+        headers=auth_headers,
+    )
+    # Lock held by other agent → lock acquisition returns acquired=False,
+    # but the write still proceeds via optimistic concurrency.
+    # Version 2 matches expected (parent v1 + 1), so write succeeds.
+    assert resp.status_code == 201, (
+        f"Write should succeed with optimistic fallback: {resp.status_code}: {resp.text}"
+    )
+
+    # 4. Release the lock
+    await release_lock(redis_client, parent_id, other_agent_id)
+
+
+@pytest.mark.asyncio
+async def test_write_context_redis_down(
+    client: AsyncClient,
+    test_project: Project,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When Redis is unreachable, the write path falls back to optimistic
+    concurrency control (PostgreSQL-level version checking) and the write
+    succeeds or fails based on content overlap, not Redis availability.
+    """
+    # 1. Monkey-patch the Redis connection to point at a dead port
+    import loom.config
+    original_redis_url = loom.config.settings.redis_url
+    loom.config.settings.redis_url = "redis://localhost:16379/1"
+    # Force re-initialization of the module-level Redis client
+    import loom.services.retrieval.queue as queue_module
+    # Reset the module-level _redis so get_redis() creates a new (broken) connection
+    queue_module._redis = None  # type: ignore[attr-defined]
+
+    try:
+        # 2. Write parent (no Redis needed for this)
+        parent_body = {
+            "client_uuid": str(uuid.uuid4()),
+            "type": "decision",
+            "content": "Decision: implement audit logging",
+            "version": 1,
+        }
+        resp = await client.post(
+            f"/v1/projects/{test_project.id}/context",
+            json=parent_body,
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        parent_id = resp.json()["id"]
+
+        # 3. Write first child
+        child1_body = {
+            "client_uuid": str(uuid.uuid4()),
+            "type": "task_result",
+            "content": "Audit trail in src/audit/logger.py",
+            "parent_ids": [parent_id],
+            "version": 2,
+        }
+        resp = await client.post(
+            f"/v1/projects/{test_project.id}/context",
+            json=child1_body,
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+
+        # 4. Write non-overlapping child with stale version (auto-merge via optimistic check)
+        child2_body = {
+            "client_uuid": str(uuid.uuid4()),
+            "type": "task_result",
+            "content": "Audit dashboard in src/audit/dashboard.py",
+            "parent_ids": [parent_id],
+            "version": 1,
+        }
+        resp = await client.post(
+            f"/v1/projects/{test_project.id}/context",
+            json=child2_body,
+            headers=auth_headers,
+        )
+        # Should succeed (auto-merge) despite Redis being down
+        assert resp.status_code == 201, (
+            f"Should succeed with optimistic fallback, got {resp.status_code}: {resp.text}"
+        )
+    finally:
+        # Restore Redis URL and reset connection
+        loom.config.settings.redis_url = original_redis_url
+        queue_module._redis = None
