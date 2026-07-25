@@ -127,3 +127,64 @@
   - Worker entrypoint script (`scripts/run-embedding-worker.sh`)
   - 17 integration tests covering: StubProvider (dimension, determinism, normalization, empty-input), queue enqueue (truncation, redis-down), write-path integration, worker processing, nonexistent-unit skip, error propagation, DLQ management, in-progress recovery
   - 90 total tests, zero regressions
+
+## v0.2.0 — 2026-07-25
+
+### Added
+
+- **Phase 1.10 — Local Agent Prototype** (2026-07-24)
+  - `LoomClient` — async HTTP client wrapping all Loom API endpoints
+  - `GroqLLM` — LLM provider using Groq's Mixtral-8x7b, Llama-3, and Gemma models
+  - `LocalAgent` — single-message loop: project lookup → read context → LLM call → write response → emit event
+  - Agent CLI entry point at `loom/scripts/run_local_agent.py`
+  - 7 integration tests covering: agent lifecycle, MCP tool invocation, event emission
+  - 97 total tests, zero regressions
+
+- **Phase 1.11 — Browser Extension** (2026-07-24)
+  - Backend: `chat_links` model, project listing/creation API endpoints
+  - Frontend: Manifest V3 extension with content script, popup UI, background service worker
+  - Extension API endpoint for setup/linking
+  - Popup UX with improved storage and reliable message sync
+  - 4 integration tests for chat_links and extension API
+  - 101 total tests, zero regressions
+
+- **Phase 1.12 — Concurrent Merge Load Tests** (2026-07-24)
+  - 3-agent concurrent write simulation with conflict detection
+  - Latency measurement and P95 tracking
+  - 1 load test verifying concurrent merge safety
+  - 102 total tests, zero regressions
+
+- **Phase 2.1 — Full Coordination Service** (2026-07-25)
+  - **Redis distributed locks** (`loom/services/coordination/locks.py`):
+    - Atomic `SET NX EX` lock acquire with sorted UUID ordering (deadlock prevention)
+    - All-or-nothing multi-lock acquire (release all on any failure)
+    - Lua-script-based lock release with ownership verification
+    - Exponential backoff on contention (3 retries)
+    - Graceful Redis-down fallback (disables locking, allows operations to proceed)
+  - **Git-style Branch CRUD + Merge** (`loom/services/coordination/branches.py`):
+    - Branch creation with unique constraint on `(project_id, name)`
+    - Branch listing with optional status filter
+    - Merge branches to main with full context unit version bumping
+    - Overlap detection reusing Phase 1.8 merge logic
+    - PendingBranch creation on merge conflict
+  - **Full Task Lifecycle** (`loom/services/coordination/tasks.py`):
+    - Task creation, listing, and retrieval
+    - Assignment, start, complete, fail with validated state transitions
+    - Optional branch linking via `start_task`
+  - **CoordinationService** (`loom/services/coordination/service.py`):
+    - Unified public API wrapping locks, branches, and tasks
+  - **Write Path Integration** (`loom/services/context/service.py`):
+    - Lock-before-version-check ordering to prevent TOCTOU race conditions
+    - `branch_id` passthrough on context unit writes
+    - Lock release after transaction commit
+  - **API Endpoints** (14 new endpoints):
+    - Branches: `POST|GET /{project_id}/branches`, `GET /{project_id}/branches/{id}`, `POST /{project_id}/branches/{id}/merge`
+    - Tasks: `POST|GET /{project_id}/tasks`, `GET /{project_id}/tasks/{id}`, `POST assign/start/complete/fail`
+    - Conflicts: extended with `branch_id` in responses
+  - **Database Migrations**: 3 new migration files (branches, tasks, PendingBranch extensions)
+  - **Security Hardening**:
+    - Project-level authorization on all new endpoints (`_verify_project_access`)
+    - `max_length` constraints on branch names and content fields
+    - Strict UUID typing in Pydantic models (`branch_id`, `parent_ids`)
+    - All endpoints authenticated via Bearer token
+  - 150 total tests, zero regressions

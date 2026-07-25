@@ -1,7 +1,7 @@
 ---
 title: "Phase 2.1 — Full Coordination Service"
 description: "Separate Coordination Service with Redis-based locking, git-style branch/merge, fine-grained per-unit locks, and task assignment."
-status: pending
+status: completed
 dependencies: ["phase-1/08-basic-coordination.md"]
 ---
 
