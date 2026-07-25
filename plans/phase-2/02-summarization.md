@@ -1,7 +1,7 @@
 ---
 title: "Phase 2.2 — Hierarchical Summarization"
 description: "Periodic summarization that creates summary-type Context Units with supersedes edges. Retrieval prefers summaries."
-status: pending
+status: completed
 dependencies: ["phase-1/07-trust-tier.md", "phase-1/03-context-service-read.md"]
 ---
 

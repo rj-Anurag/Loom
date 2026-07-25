@@ -188,3 +188,31 @@
     - Strict UUID typing in Pydantic models (`branch_id`, `parent_ids`)
     - All endpoints authenticated via Bearer token
   - 150 total tests, zero regressions
+
+- **Phase 2.2 — Hierarchical Summarization** (2026-07-25)
+  - **LLM Provider protocol** (`loom/services/retrieval/providers.py`):
+    - `LLMProvider` protocol with `async def summarize(units) -> str`
+    - `StubLLMProvider` — deterministic concatenation for tests (always available)
+    - `GroqLLMProvider` — Groq API-backed summarization via `mixtral-8x7b-32768`
+    - `from_llm_config()` factory reading `settings.summarization_provider`
+    - Lazy `import groq` inside method — importable without the package installed
+    - Prompt-injection mitigation via XML boundary markers and per-unit 4K char limit
+  - **Grouping strategy** (`loom/services/retrieval/grouping.py`):
+    - Time-window grouping (configurable: 10 min default, 50 units max per group)
+    - Deterministic `client_uuid` via `uuid.uuid5(SUMMARY_NS, sorted_ids)` for idempotency
+    - Trust-tier inheritance (summary inherits highest trust tier from source units)
+    - Filters out units already covered by a `supersedes` edge
+  - **Summarization worker** (`loom/services/retrieval/summarizer.py`):
+    - `run_summarization_cycle()` — full cycle: lock → group → LLM → write_context → release
+    - Project-level Redis lock (`summarize:{project_id}`) with unique token + Lua compare-and-delete
+    - Per-group error isolation — a single group failure doesn't abort the cycle
+    - `run_summarization_loop()` — asyncio periodic loop with SIGTERM graceful shutdown
+    - Summarizer agent identity (`kind="system"`) with full trust-tier write privileges
+  - **Read path score boost** (`loom/services/context/service.py`):
+    - Flat +0.15 bonus for summary-type units in `_compute_score()` (both Python and SQL paths)
+    - Summary units rank above their originals without dominating the formula
+  - **Database Migration**: `012_update_agents_kind_check.sql` — adds `'system'` to agents.kind constraint
+  - **Entrypoint**: `scripts/run-summarizer.sh`
+  - **New settings**: `summarization_window_minutes=10`, `summarization_max_units_per_group=50`, `summarization_min_units=5`, `summarization_provider="stub"`
+  - 24 integration tests covering: LLM providers, grouping, full summarization cycle, idempotency, Redis locking, originals preserved, score boost
+  - 174 total tests, zero regressions
