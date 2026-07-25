@@ -5,6 +5,8 @@ from loom.models.context_edges import ContextEdge, EdgeRelation
 from loom.models.event_log import EventLog, EventType
 from loom.models.pending_branches import PendingBranch
 from loom.models.chat_links import ChatLink
+from loom.models.branches import Branch
+from loom.models.tasks import Task
 
 __all__ = [
     "Project",
@@ -18,4 +20,6 @@ __all__ = [
     "EventType",
     "PendingBranch",
     "ChatLink",
+    "Branch",
+    "Task",
 ]

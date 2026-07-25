@@ -17,6 +17,9 @@ class PendingBranch(Base):
     context_unit_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("context_units.id"), nullable=False
     )
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True
+    )
     conflict_type: Mapped[str] = mapped_column(Text, nullable=False)
     resolution: Mapped[str] = mapped_column(
         Text,

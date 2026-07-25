@@ -1,0 +1,3 @@
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS branch_id UUID REFERENCES branches(id);
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS task_id UUID REFERENCES tasks(id);
+ALTER TABLE pending_branches ADD COLUMN IF NOT EXISTS branch_id UUID REFERENCES branches(id);
