@@ -10,6 +10,7 @@ and token-budget-aware packing (v1 — no embeddings yet).
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import uuid
 from collections import defaultdict
@@ -18,6 +19,10 @@ from datetime import datetime, timezone
 import redis.asyncio as redis_async
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from loom.services.retrieval.search import hybrid_search
+
+logger = logging.getLogger(__name__)
 
 from loom.models import (
     Agent,
@@ -517,19 +522,51 @@ async def read_context(
     if agent is None or agent.project_id != project_id:
         raise ValueError("AGENT_MISMATCH")
 
-    # ── Clamp budget ────────────────────────────────────────────────────
+    # ── Clamp budget and strip query ─────────────────────────────────────
     budget = min(max(budget, 1), MAX_BUDGET)
     query = query.strip() if query else None
 
-    # ── Build the search query ──────────────────────────────────────────
+    # ── Hybrid or chronological? ────────────────────────────────────────
     scope_type_filter = SCOPE_FILTERS.get(scope)
-    conditions = ["u.project_id = :project_id"]
-    params: dict = {"project_id": project_id, "query": query or ""}
+    degraded = False
 
     if query:
-        conditions.append(
-            "to_tsvector('english', u.content) @@ plainto_tsquery('english', :query)"
-        )
+        try:
+            hybrid_result = await hybrid_search(
+                session,
+                project_id,
+                query,
+                scope_type_filter=scope_type_filter,
+                budget=budget,
+            )
+        except Exception:
+            logger.exception("Hybrid search failed — falling back to chronological")
+            degraded = True
+            hybrid_result = {"units": []}
+
+        if hybrid_result["units"]:
+            # Load parent edges for hybrid results
+            unit_ids = [uuid.UUID(u["id"]) for u in hybrid_result["units"]]
+            edge_rows = await session.execute(
+                select(ContextEdge.parent_id, ContextEdge.child_id).where(
+                    ContextEdge.child_id.in_(unit_ids)
+                )
+            )
+            parent_map: dict[str, list[str]] = defaultdict(list)
+            for edge in edge_rows:
+                parent_map[str(edge.child_id)].append(str(edge.parent_id))
+            for unit in hybrid_result["units"]:
+                unit["parent_ids"] = parent_map.get(unit["id"], [])
+
+            hybrid_result["budget_used"] = hybrid_result["total_tokens"]
+            return hybrid_result
+
+        # Hybrid returned no results — fall through to chronological path
+        # so the caller gets the most recent units instead of an empty result.
+
+    # ── Chronological path (no query, fallback from hybrid) ─────────────
+    conditions = ["u.project_id = :project_id"]
+    params: dict = {"project_id": project_id}
 
     if scope_type_filter:
         conditions.append("u.type = :scope_type")
@@ -537,27 +574,26 @@ async def read_context(
 
     where_clause = " AND ".join(conditions)
 
-    search_sql = text(f"""
+    chronological_sql = text(f"""
         SELECT
-            u.id,
-            u.type,
-            u.trust_tier,
-            u.content,
-            u.created_at,
-            u.agent_id,
-            ts_rank(to_tsvector('english', u.content),
-                    plainto_tsquery('english', COALESCE(:query, ''))) AS rank
+            u.id, u.type, u.trust_tier, u.content, u.created_at, u.agent_id,
+            u.version, 0.0 AS rank
         FROM context_units u
         WHERE {where_clause}
-        ORDER BY
-            {_compute_score_sql()} DESC
+        ORDER BY u.created_at DESC
         LIMIT 200
     """)
 
-    rows = (await session.execute(search_sql, params)).mappings().all()
+    rows = (await session.execute(chronological_sql, params)).mappings().all()
 
     if not rows:
-        return {"units": [], "total_tokens": 0, "budget_used": 0, "truncated": False}
+        return {
+            "units": [],
+            "total_tokens": 0,
+            "budget_used": 0,
+            "truncated": False,
+            "degraded": degraded,
+        }
 
     # ── Compute scores ──────────────────────────────────────────────────
     scored: list[dict] = []
@@ -575,10 +611,11 @@ async def read_context(
             "content": row["content"],
             "created_at": row["created_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
+            "version": int(row["version"]),
             "relevance_score": round(score, 4),
         })
 
-    # Sort by score descending (already ordered by SQL, but be safe)
+    # Sort by score descending
     scored.sort(key=lambda u: u["relevance_score"], reverse=True)
 
     # ── Batch-load parent edges ─────────────────────────────────────────
@@ -588,7 +625,7 @@ async def read_context(
             ContextEdge.child_id.in_(unit_ids)
         )
     )
-    parent_map: dict[str, list[str]] = defaultdict(list)
+    parent_map = defaultdict(list)
     for edge in edge_rows:
         parent_map[str(edge.child_id)].append(str(edge.parent_id))
 
@@ -602,11 +639,9 @@ async def read_context(
         unit["parent_ids"] = parent_map.get(unit["id"], [])
 
         if budget_used + tokens <= budget:
-            # Fits entirely
             packed_units.append(unit)
             budget_used += tokens
         elif budget_used < budget:
-            # Partially fits — truncate
             remaining = budget - budget_used
             max_chars = remaining * CHARS_PER_TOKEN
             unit["content"] = unit["content"][:max_chars]
@@ -622,6 +657,7 @@ async def read_context(
         "total_tokens": budget_used,
         "budget_used": budget_used,
         "truncated": truncated,
+        "degraded": degraded,
     }
 
 

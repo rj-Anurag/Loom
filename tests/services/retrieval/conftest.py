@@ -104,6 +104,71 @@ def _aligned_window_start(window_minutes: int = 30) -> datetime:
     return datetime.fromtimestamp(aligned_epoch, tz=timezone.utc)
 
 
+@pytest_asyncio.fixture
+async def stub_embedder():
+    """A StubProvider instance for deterministic embedding in tests.
+
+    Always available — no external dependencies required.
+    """
+    from loom.services.retrieval.providers import StubProvider
+
+    return StubProvider()
+
+
+@pytest_asyncio.fixture
+async def embedded_sample_units(
+    db_session: AsyncSession,
+    test_project: Project,
+    test_agent: Agent,
+) -> dict[str, uuid.UUID]:
+    """Insert units with deterministic embeddings for search tests.
+
+    Returns a dict mapping semantic labels to unit IDs.
+    """
+    from loom.services.retrieval.providers import StubProvider
+
+    provider = StubProvider()
+    units = {
+        "security_bcrypt": "Use bcrypt for password hashing to comply with security policies",
+        "redis_cache": "Implement Redis caching layer for frequently accessed context",
+        "auth_flow": "The authentication flow uses JWT tokens with a 24-hour expiry",
+        "db_schema": "PostgreSQL schema with pgvector for embedding storage",
+        "weather_noise": "The weather today is sunny with a chance of rain",
+    }
+
+    unit_ids: dict[str, uuid.UUID] = {}
+    for label, content in units.items():
+        unit_id = uuid.uuid4()
+        embedding = await provider.embed(content)
+
+        await db_session.execute(
+            text("""
+                INSERT INTO context_units
+                    (id, project_id, agent_id, client_uuid, type, trust_tier,
+                     content, embedding, version, created_at)
+                VALUES
+                    (:id, :pid, :aid, :cuuid, :type, :tier,
+                     :content, CAST(:embedding AS vector), :version, :created_at)
+            """),
+            {
+                "id": unit_id,
+                "pid": test_project.id,
+                "aid": test_agent.id,
+                "cuuid": uuid.uuid4(),
+                "type": "decision",
+                "tier": "agent",
+                "content": content,
+                "embedding": str(embedding),
+                "version": 1,
+                "created_at": datetime.now(timezone.utc),
+            },
+        )
+        unit_ids[label] = unit_id
+
+    await db_session.commit()
+    return unit_ids
+
+
 async def _insert_unit(
     db_session: AsyncSession,
     project_id: uuid.UUID,

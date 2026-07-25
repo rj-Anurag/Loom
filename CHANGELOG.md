@@ -216,3 +216,18 @@
   - **New settings**: `summarization_window_minutes=10`, `summarization_max_units_per_group=50`, `summarization_min_units=5`, `summarization_provider="stub"`
   - 24 integration tests covering: LLM providers, grouping, full summarization cycle, idempotency, Redis locking, originals preserved, score boost
   - 174 total tests, zero regressions
+
+- **Phase 2.3 — Hybrid Search (Vector + Keyword RRF Fusion)** (2026-07-25)
+  - **New module:** `loom/services/retrieval/search.py` (513 lines) — vector + keyword search with Reciprocal Rank Fusion
+  - **Query encoding** (`encode_query`): module-level singleton `EmbeddingProvider` with fallback retry on stale provider
+  - **Vector search** (`vector_search`): pgvector ANN cosine similarity via `<=>` operator, capped at 50 candidates, includes `version` and `vector_score` per result
+  - **Keyword search** (`keyword_search`): GIN full-text search with `ts_rank` scoring, capped at 50 candidates, includes `version` and `keyword_score` per result
+  - **RRF fusion** (`rrf_fusion`): combines vector + keyword results using `SUM(1 / (k + rank))` with k=60, deduplicates by ID
+  - **Score normalization** (`_normalize_rrf_scores`): maps RRF scores to [0,1] by dividing by max score
+  - **Final scoring** (`compute_final_scores`): `0.4 * normalized_rrf + 0.3 * recency + 0.3 * trust_tier + 0.15 (if summary)`, sorts descending
+  - **Token budget packing** (`pack_results`): `_CHARS_PER_TOKEN = 8` with content truncation and `truncated` flag
+  - **Hybrid orchestrator** (`hybrid_search`): graceful degradation — if encoding fails, falls back to keyword-only with `degraded: true` flag
+  - **Service integration** (`read_context` in `service.py`): routes queries through `hybrid_search()`, falls through to chronological when hybrid returns no results
+  - **API updates:** `ReadContextUnitModel` now includes `version` field; `query` param has `max_length=500`; `scope` uses `Literal["onboarding", "task", "full"]`
+  - Sub-queries run sequentially (asyncpg sessions are not concurrency-safe)
+  - 187 total tests, zero regressions
