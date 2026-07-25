@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from loom.api.routers import agents, conflicts, context, extension, projects
+from loom.api.routers import agents, branches, conflicts, context, extension, projects, tasks
 
 app = FastAPI(
     title="Loom API",
@@ -25,6 +25,8 @@ app.include_router(agents.router, prefix="/v1", tags=["agents"])
 app.include_router(conflicts.router, prefix="/v1/projects", tags=["conflicts"])
 app.include_router(projects.router, prefix="/v1/projects", tags=["projects"])
 app.include_router(extension.router, tags=["extension"])
+app.include_router(branches.router, prefix="/v1/projects", tags=["branches"])
+app.include_router(tasks.router, prefix="/v1/projects", tags=["tasks"])
 
 
 @app.get("/health")

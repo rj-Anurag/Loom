@@ -15,9 +15,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import AuthContext, require_auth
 from loom.db import get_session
-from loom.models import PendingBranch
+from loom.models import Agent, PendingBranch
 
 router = APIRouter()
+
+
+async def _verify_project_access(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    agent_id: uuid.UUID,
+) -> None:
+    """Verify the agent belongs to the project. Raises 404 if not."""
+    agent = await session.get(Agent, agent_id)
+    if agent is None or agent.project_id != project_id:
+        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
 
 
 class ResolveConflictRequest(BaseModel):
@@ -39,13 +50,13 @@ async def list_conflicts(
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     """List all unresolved (pending) conflicts for a project."""
-    _ = auth  # auth ensures valid agent; project-level access TBD
+    await _verify_project_access(session, project_id, auth.agent_id)
 
     rows = (
         await session.execute(
             text(
                 "SELECT pb.id, pb.context_unit_id, pb.conflict_type, "
-                "       pb.resolution, pb.created_at "
+                "       pb.resolution, pb.created_at, pb.branch_id "
                 "FROM pending_branches pb "
                 "JOIN context_units cu ON cu.id = pb.context_unit_id "
                 "WHERE cu.project_id = :pid "
@@ -63,6 +74,7 @@ async def list_conflicts(
             "conflict_type": row["conflict_type"],
             "resolution": row["resolution"],
             "created_at": row["created_at"].isoformat(),
+            "branch_id": str(row["branch_id"]) if row["branch_id"] else None,
         }
         for row in rows
     ]
@@ -84,7 +96,7 @@ async def resolve_conflict(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Resolve a pending conflict by updating its resolution status."""
-    _ = auth
+    await _verify_project_access(session, project_id, auth.agent_id)
 
     branch = await session.get(PendingBranch, branch_id)
     if branch is None:

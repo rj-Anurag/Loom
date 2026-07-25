@@ -41,6 +41,7 @@ class WriteContextRequest(BaseModel):
         ...,
         description="Non-empty text content of the context unit.",
         min_length=1,
+        max_length=100000,
     )
     version: int = Field(
         ...,
@@ -51,13 +52,17 @@ class WriteContextRequest(BaseModel):
         None,
         description="One of: user, agent, external_tool. Defaults to agent.",
     )
-    parent_ids: list[str] | None = Field(
+    parent_ids: list[uuid.UUID] | None = Field(
         None,
         description="UUIDs of parent context units this derives from.",
     )
     parent_relations: list[str] | None = Field(
         None,
         description="Edge relation for each parent (defaults to derived_from).",
+    )
+    branch_id: uuid.UUID | None = Field(
+        None,
+        description="Branch ID to associate this write with (for Phase 2.1 coordination).",
     )
 
 
@@ -192,6 +197,7 @@ async def write_context_endpoint(
             trust_tier=body.trust_tier,
             parent_ids=body.parent_ids,
             parent_relations=body.parent_relations,
+            branch_id=body.branch_id,
         )
     except VersionConflict as vc:
         # The service flushed a PendingBranch before raising, but the
