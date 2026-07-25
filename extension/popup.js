@@ -97,19 +97,20 @@
   async function loadProjects() {
     try {
       const resp = await chrome.runtime.sendMessage({ type: 'GET_PROJECTS' });
-      const projects = resp?.projects || [];
-
-      projectSelect.innerHTML = '<option value="">— Select a project —</option>';
-      projects.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name;
-        projectSelect.appendChild(opt);
-      });
-
-      linkBtn.disabled = false;
+      if (resp?.error) {
+        setStatus('Server unreachable — create a new project to start', 'error');
+      } else {
+        const projects = resp?.projects || [];
+        projectSelect.innerHTML = '<option value="">— Select a project —</option>';
+        projects.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name;
+          projectSelect.appendChild(opt);
+        });
+      }
     } catch (err) {
-      setStatus('Failed to load projects. Is Loom running?', 'error');
+      setStatus('Server unreachable — create a new project to start', 'error');
       console.error('[Loom] Load projects error:', err);
     }
   }
@@ -155,23 +156,26 @@
         return;
       }
 
+      // Get project name from selected option or new name
+      const projectName = newName || projectSelect.options[projectSelect.selectedIndex]?.text || projectId;
+
       // Link chat to project
       const result = await chrome.runtime.sendMessage({
         type: 'LINK_CHAT',
         chatUrl: currentTabUrl,
         projectId,
+        projectName,
         title: document.title || '',
         platform: new URL(currentTabUrl).hostname,
       });
 
       if (result && result.id) {
         // Notify content script
-        await chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-          const tabId = tabs[0]?.id;
-          if (tabId) {
-            chrome.tabs.sendMessage(tabId, { type: 'LOOM_LINKED' }).catch(() => {});
-          }
-        });
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tabId = tabs[0]?.id;
+        if (tabId) {
+          await chrome.tabs.sendMessage(tabId, { type: 'LOOM_LINKED', projectName }).catch(() => {});
+        }
 
         // Reload popup to show linked state
         window.location.reload();

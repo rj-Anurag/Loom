@@ -39,3 +39,4 @@ htmlcov/
 .DS_Store
 Thumbs.db
 tests/load/last-report.json
+.gstack/
