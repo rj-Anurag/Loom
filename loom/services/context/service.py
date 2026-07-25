@@ -428,11 +428,13 @@ _ALLOWED_TRUST_TIERS: dict[str, set[str]] = {
     "local": {"agent", "external_tool"},
     "cloud": {"agent", "external_tool"},
     "browser": {"user", "agent", "external_tool"},
+    "system": {"user", "agent", "external_tool"},
 }
 """Agent kind → set of trust tiers the agent is allowed to write at.
 
 - ``local`` / ``cloud`` agents cannot impersonate a human (``user`` tier).
 - ``browser`` agents (extension popup) may write at any tier.
+- ``system`` agents (internal services like summarizer) may write at any tier.
 """
 
 SCOPE_FILTERS: dict[str, str | None] = {
@@ -455,18 +457,23 @@ def _compute_score(
     ts_rank: float | None,
     created_at: datetime,
     trust_tier: str,
+    unit_type: str = "",
 ) -> float:
     """Ranking formula from the plan.
 
     score = 0.4 * ts_rank
           + 0.3 * (1.0 / (hours_since_creation + 1))
           + 0.3 * trust_tier_weight
+          + 0.15 (if unit_type == "summary")
     """
     hours_since = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600.0
     recency = 1.0 / (hours_since + 1.0)
     weight = TRUST_TIER_WEIGHTS.get(trust_tier, 0.4)
 
-    return 0.4 * (ts_rank or 0.0) + 0.3 * recency + 0.3 * weight
+    score = 0.4 * (ts_rank or 0.0) + 0.3 * recency + 0.3 * weight
+    if unit_type == "summary":
+        score += 0.15
+    return score
 
 
 async def read_context(
@@ -559,6 +566,7 @@ async def read_context(
             ts_rank=row["rank"],
             created_at=row["created_at"],
             trust_tier=row["trust_tier"],
+            unit_type=row["type"],
         )
         scored.append({
             "id": str(row["id"]),
@@ -627,5 +635,6 @@ def _compute_score_sql() -> str:
         "     WHEN 'user' THEN 1.0"
         "     WHEN 'agent' THEN 0.7"
         "     ELSE 0.4"
-        "   END)"
+        "   END"
+        " + CASE WHEN u.type = 'summary' THEN 0.15 ELSE 0.0 END)"
     )
