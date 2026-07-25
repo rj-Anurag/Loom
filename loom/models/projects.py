@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from loom.db import Base
 
@@ -21,3 +21,6 @@ class Project(Base):
     retention_policy: Mapped[str | None] = mapped_column(
         Text, server_default="archive_after_90_days"
     )
+
+    # Relationships
+    branches = relationship("Branch", back_populates="project")

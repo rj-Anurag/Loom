@@ -15,6 +15,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 
+import redis.asyncio as redis_async
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,8 +65,10 @@ async def write_context(
     content: str,
     version: int,
     trust_tier: str | None = None,
-    parent_ids: list[str] | None = None,
+    parent_ids: list[uuid.UUID] | None = None,
     parent_relations: list[str] | None = None,
+    branch_id: uuid.UUID | None = None,
+    redis: redis_async.Redis | None = None,
 ) -> tuple[ContextUnit, bool]:
     """Write a new context unit in a single transaction.
 
@@ -139,19 +142,28 @@ async def write_context(
     if existing is not None:
         return existing, False  # idempotent replay — not newly created
 
+    # ── 5b. Acquire Redis locks (before version check — prevent TOCTOU) ──
+    if parent_ids and redis is not None:
+        from loom.services.coordination.locks import acquire_locks
+
+        await acquire_locks(
+            redis,
+            [str(pid) for pid in parent_ids],
+            str(agent_id),
+            ttl=30,
+        )
+
     # ── 6. Version-conflict check ────────────────────────────────────────
     parent_uuids: list[uuid.UUID] = []
     parent_ids_list = parent_ids or []
     parent_relations_list = parent_relations or []
     _pending_auto_merge = False
 
+    branch_uuid = branch_id
+
     if parent_ids_list:
         parent_versions: list[int] = []
-        for pid_str in parent_ids_list:
-            try:
-                pid = uuid.UUID(pid_str)
-            except ValueError:
-                raise ValueError("PARENT_NOT_FOUND")
+        for pid in parent_ids_list:
             parent_uuids.append(pid)
 
             parent = await session.get(ContextUnit, pid)
@@ -181,6 +193,7 @@ async def write_context(
                 # error, not a concurrent-write scenario.  Reject.
                 pending = PendingBranch(
                     context_unit_id=parent_uuids[0],
+                    branch_id=branch_uuid,
                     conflict_type="version_conflict",
                     resolution="pending",
                 )
@@ -203,6 +216,7 @@ async def write_context(
                 # Overlapping content → reject + create pending branch
                 pending = PendingBranch(
                     context_unit_id=parent_uuids[0],
+                    branch_id=branch_uuid,
                     conflict_type="version_conflict",
                     resolution="pending",
                 )
@@ -283,7 +297,7 @@ async def write_context(
             "trust_tier": tier.value,
             "content_preview": content[:200],
             "content_hash": hashlib.sha256(content.encode()).hexdigest(),
-            "parent_ids": parent_ids_list,
+            "parent_ids": [str(pid) for pid in parent_ids_list],
             "parent_relations": parent_relations_list,
             "version": version,
         },
@@ -292,6 +306,13 @@ async def write_context(
 
     await session.commit()
     await session.refresh(unit)
+
+    # ── 11b. Release Redis locks (after commit) ────────────────────────────
+    if parent_ids and redis is not None:
+        from loom.services.coordination.locks import release_lock
+
+        for pid in parent_ids:
+            await release_lock(redis, str(pid), str(agent_id))
 
     # ── 12. Fire-and-forget embedding job ──────────────────────────────────
     try:
