@@ -180,7 +180,7 @@ const MESSAGE_HANDLERS = {
 
     const results = [];
     for (const message of msg.messages) {
-      const clientUuid = await generateClientUuid(msg.chatUrl, message.index);
+      const clientUuid = await generateClientUuid(msg.chatUrl, message.content);
       const content = `${message.role === 'user' ? 'User' : 'AI'}: ${message.content}`;
 
       try {
