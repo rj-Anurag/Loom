@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "scripting",
-    "alarms"
+    "alarms",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://claude.ai/*",

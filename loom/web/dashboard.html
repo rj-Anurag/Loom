@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loom Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; }
+  .project-meta { color: #9ca3af; font-size: 0.875rem; margin-bottom: 24px; }
+  .card {
+    background: #16213e;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #4f46e5;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+  .badge-idle { background: #374151; color: #9ca3af; }
+  .badge-working { background: #065f46; color: #6ee7b7; }
+  .badge-blocked { background: #7f1d1d; color: #fca5a5; }
+  .badge-conflict { background: #7f1d1d; color: #fca5a5; }
+  .agent-list { list-style: none; }
+  .agent-list li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #1e293b;
+  }
+  .agent-list li:last-child { border-bottom: none; }
+  .agent-id { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8125rem; }
+  .context-list { list-style: none; }
+  .context-list li {
+    padding: 10px 0; border-bottom: 1px solid #1e293b;
+  }
+  .context-list li:last-child { border-bottom: none; }
+  .context-type {
+    display: inline-block; font-size: 0.75rem; font-weight: 500;
+    color: #4f46e5; margin-bottom: 4px;
+  }
+  .context-preview {
+    font-size: 0.875rem; color: #cbd5e1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .context-meta { font-size: 0.75rem; color: #6b7280; margin-top: 4px; }
+  .empty-state { color: #6b7280; font-style: italic; font-size: 0.875rem; }
+  .loading { color: #6b7280; font-size: 0.875rem; }
+  .error-state { color: #fca5a5; font-size: 0.875rem; }
+  .grid-2 {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+  @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+  .conflict-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #1e293b;
+  }
+  .conflict-item:last-child { border-bottom: none; }
+  .conflict-type { font-size: 0.8125rem; color: #fca5a5; }
+  .conflict-time { font-size: 0.75rem; color: #6b7280; }
+</style>
+</head>
+<body>
+<div class="container" id="app">
+  <div id="project-header">
+    <h1 id="project-name">Loading...</h1>
+    <div class="project-meta" id="project-meta"></div>
+  </div>
+  <div class="grid-2">
+    <div class="card" id="agents-card">
+      <h2>Active Agents</h2>
+      <div id="agents-content"><span class="loading">Loading...</span></div>
+    </div>
+    <div class="card" id="conflicts-card">
+      <h2>Pending Conflicts</h2>
+      <div id="conflicts-content"><span class="loading">Loading...</span></div>
+    </div>
+  </div>
+  <div class="card" id="context-card">
+    <h2>Recent Context</h2>
+    <div id="context-content"><span class="loading">Loading...</span></div>
+  </div>
+</div>
+<script>
+(function() {
+  // ── Auth ──────────────────────────────────────────────────────────────
+  let token = '';
+  const hash = window.location.hash;
+  if (hash.startsWith('#token=')) {
+    token = hash.slice(7);
+    history.replaceState(null, '', window.location.pathname);
+  }
+
+  if (!token) {
+    document.getElementById('project-name').textContent = 'Unauthorized';
+    document.getElementById('project-meta').textContent = 'No token found in URL. Use #token=xxx in the URL fragment.';
+    return;
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+  const API_BASE = window.location.origin;
+
+  async function api(url) {
+    const res = await fetch(API_BASE + url, {
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(res.status + ': ' + body);
+    }
+    return res.json();
+  }
+
+  function escapeHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+  }
+
+  // ── Extract project_id from path ──────────────────────────────────────
+  // URL pattern: /v1/projects/{project_id}/dashboard
+  const pathParts = window.location.pathname.split('/');
+  const projectIdx = pathParts.indexOf('projects');
+  const projectId = projectIdx !== -1 && projectIdx + 1 < pathParts.length
+    ? pathParts[projectIdx + 1]
+    : null;
+
+  if (!projectId) {
+    document.getElementById('project-name').textContent = 'Invalid URL';
+    document.getElementById('project-meta').textContent = 'Could not extract project ID from path.';
+    return;
+  }
+
+  // ── Main ──────────────────────────────────────────────────────────────
+  async function loadDashboard() {
+    try {
+      // 1. Project info
+      const project = await api('/v1/projects/' + projectId);
+      document.getElementById('project-name').textContent = escapeHtml(project.name || 'Unnamed Project');
+      document.getElementById('project-meta').textContent = 'ID: ' + escapeHtml(project.id) + ' &middot; Created: ' + escapeHtml(project.created_at || 'unknown');
+    } catch (err) {
+      document.getElementById('project-name').textContent = 'Error loading project';
+      document.getElementById('project-meta').textContent = err.message;
+    }
+
+    // 2. Agents
+    (async function loadAgents() {
+      try {
+        const agents = await api('/v1/projects/' + projectId + '/agents/presence');
+        const el = document.getElementById('agents-content');
+        if (!agents || agents.length === 0) {
+          el.innerHTML = '<span class="empty-state">No active agents</span>';
+          return;
+        }
+        var ALLOWED_STATUSES = { 'online': true, 'idle': true, 'working': true, 'blocked': true, 'offline': true };
+        const items = agents.map(function(a) {
+          var safeStatus = ALLOWED_STATUSES[a.status] ? a.status : 'idle';
+          const status = safeStatus;
+          const badgeClass = 'badge badge-' + safeStatus;
+          return '<li>'
+            + '<span class="agent-id">' + escapeHtml(a.agent_id || 'unknown') + '</span>'
+            + '<span class="' + badgeClass + '">' + escapeHtml(status) + '</span>'
+            + '</li>';
+        }).join('');
+        el.innerHTML = '<ul class="agent-list">' + items + '</ul>';
+      } catch (err) {
+        document.getElementById('agents-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+      }
+    })();
+
+    // 3. Context
+    (async function loadContext() {
+      try {
+        const ctx = await api('/v1/projects/' + projectId + '/context');
+        const el = document.getElementById('context-content');
+        if (!ctx || !ctx.units || ctx.units.length === 0) {
+          el.innerHTML = '<span class="empty-state">No context units</span>';
+          return;
+        }
+        const items = ctx.units.slice(0, 20).map(function(u) {
+          const preview = (u.content || '').slice(0, 200);
+          const time = u.created_at ? new Date(u.created_at).toLocaleString() : '';
+          return '<li>'
+            + '<div class="context-type">' + escapeHtml(u.type || 'unknown') + '</div>'
+            + '<div class="context-preview">' + escapeHtml(preview) + '</div>'
+            + '<div class="context-meta">' + escapeHtml(time) + ' &middot; score: ' + (u.relevance_score || 0) + '</div>'
+            + '</li>';
+        }).join('');
+        el.innerHTML = '<ul class="context-list">' + items + '</ul>';
+      } catch (err) {
+        document.getElementById('context-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+      }
+    })();
+
+    // 4. Conflicts
+    (async function loadConflicts() {
+      try {
+        const conflicts = await api('/v1/projects/' + projectId + '/conflicts');
+        const el = document.getElementById('conflicts-content');
+        if (!conflicts || conflicts.length === 0) {
+          el.innerHTML = '<span class="empty-state">No pending conflicts</span>';
+          return;
+        }
+        const items = conflicts.map(function(c) {
+          const time = c.created_at ? new Date(c.created_at).toLocaleString() : '';
+          return '<div class="conflict-item">'
+            + '<div><div class="conflict-type">' + escapeHtml(c.conflict_type || 'unknown') + '</div>'
+            + '<div class="conflict-time">' + escapeHtml(time) + '</div></div>'
+            + '<span class="badge badge-conflict">pending</span>'
+            + '</div>';
+        }).join('');
+        el.innerHTML = items;
+      } catch (err) {
+        document.getElementById('conflicts-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+      }
+    })();
+  }
+
+  loadDashboard();
+})();
+</script>
+</body>
+</html>

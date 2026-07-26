@@ -238,3 +238,76 @@ class TestLinkChat:
             },
         )
         assert resp.status_code == 401
+
+
+# ── Get Project ──────────────────────────────────────────────────────────────
+
+
+class TestGetProject:
+    """GET /v1/projects/{id}"""
+
+    async def test_get_project_success(
+        self,
+        client: AsyncClient,
+        test_project: Project,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Returns the requested project by ID."""
+        resp = await client.get(
+            f"/v1/projects/{test_project.id}",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["id"] == str(test_project.id)
+        assert data["name"] == test_project.name
+        assert "created_at" in data
+
+    async def test_get_project_no_auth(
+        self,
+        client: AsyncClient,
+        test_project: Project,
+    ) -> None:
+        """Returns 401 without Authorization header."""
+        resp = await client.get(f"/v1/projects/{test_project.id}")
+        assert resp.status_code == 401
+
+    async def test_get_project_not_found(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Returns 404 for a non-existent project ID."""
+        fake_id = uuid.uuid4()
+        resp = await client.get(
+            f"/v1/projects/{fake_id}",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+    async def test_get_project_wrong_agent(
+        self,
+        client: AsyncClient,
+        test_project: Project,
+        db_session: AsyncSession,
+    ) -> None:
+        """Returns 404 when the agent does not belong to the requested project."""
+        # Create another project and agent
+        other_project = Project(name="Other Project")
+        db_session.add(other_project)
+        await db_session.commit()
+        await db_session.refresh(other_project)
+
+        other_agent = Agent(project_id=other_project.id, kind="local")
+        db_session.add(other_agent)
+        await db_session.commit()
+        await db_session.refresh(other_agent)
+
+        other_headers = {"Authorization": f"Bearer {other_agent.id}"}
+
+        # Fetch original project with other_agent's auth -> should 404
+        resp = await client.get(
+            f"/v1/projects/{test_project.id}",
+            headers=other_headers,
+        )
+        assert resp.status_code == 404

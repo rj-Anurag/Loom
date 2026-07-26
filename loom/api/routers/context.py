@@ -66,6 +66,14 @@ class WriteContextRequest(BaseModel):
         None,
         description="Branch ID to associate this write with (for Phase 2.1 coordination).",
     )
+    source_url: str | None = Field(
+        None,
+        description="URL the content was pushed from (used by browser extension). "
+                     "NOTE: Currently accepted but not persisted. The ContextUnit model "
+                     "does not yet have a source_url column. This field is forward-compatible "
+                     "plumbing for future schema migration.",
+        max_length=2048,
+    )
 
 
 class ContextUnitResponse(BaseModel):
@@ -202,6 +210,7 @@ async def write_context_endpoint(
             parent_ids=body.parent_ids,
             parent_relations=body.parent_relations,
             branch_id=body.branch_id,
+            source_url=body.source_url,
         )
     except VersionConflict as vc:
         # The service flushed a PendingBranch before raising, but the

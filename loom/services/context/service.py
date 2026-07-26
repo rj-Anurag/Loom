@@ -73,6 +73,9 @@ async def write_context(
     parent_ids: list[uuid.UUID] | None = None,
     parent_relations: list[str] | None = None,
     branch_id: uuid.UUID | None = None,
+    # source_url is accepted for forward compatibility but not yet persisted.
+    # See loom/api/routers/context.py WriteContextRequest.source_url.
+    source_url: str | None = None,
     redis: redis_async.Redis | None = None,
 ) -> tuple[ContextUnit, bool]:
     """Write a new context unit in a single transaction.

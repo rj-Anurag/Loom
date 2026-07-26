@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import AuthContext, require_auth
 from loom.db import get_session
+from loom.models import Agent
 from loom.services.links.service import link_chat
-from loom.services.projects.service import create_project, list_projects
+from loom.services.projects.service import create_project, get_project, list_projects
 
 router = APIRouter()
 
@@ -59,6 +60,20 @@ class LinkChatResponse(BaseModel):
     title: str
     platform: str
     linked_at: str
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+async def _verify_project_access(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    agent_id: uuid.UUID,
+) -> None:
+    """Verify the agent belongs to the project. Raises 404 if not."""
+    agent = await session.get(Agent, agent_id)
+    if agent is None or agent.project_id != project_id:
+        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -132,3 +147,27 @@ async def link_chat_endpoint(
         }
         status = status_map.get(error_code, 400)
         raise HTTPException(status_code=status, detail=error_code)
+
+
+@router.get(
+    "/{project_id}",
+    responses={
+        200: {"description": "Project details"},
+        401: {"description": "Unauthorized"},
+        404: {"description": "Project not found"},
+    },
+)
+async def get_project_endpoint(
+    project_id: uuid.UUID,
+    auth: AuthContext = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Get a single project by ID."""
+    await _verify_project_access(session, project_id, auth.agent_id)
+    try:
+        return await get_project(session, project_id)
+    except ValueError as exc:
+        error_code = str(exc)
+        if error_code == "PROJECT_NOT_FOUND":
+            raise HTTPException(status_code=404, detail=error_code)
+        raise HTTPException(status_code=400, detail=error_code)
