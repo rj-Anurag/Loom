@@ -55,8 +55,10 @@
   .context-list li:last-child { border-bottom: none; }
   .context-type {
     display: inline-block; font-size: 0.75rem; font-weight: 500;
-    color: #4f46e5; margin-bottom: 4px;
+    padding: 1px 6px; border-radius: 3px; margin-bottom: 4px;
   }
+  .context-type.type-user { background: #1e3a5f; color: #93c5fd; }
+  .context-type.type-ai { background: #3b1f4e; color: #d8b4fe; }
   .context-preview {
     font-size: 0.875rem; color: #cbd5e1;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -106,12 +108,16 @@
   const hash = window.location.hash;
   if (hash.startsWith('#token=')) {
     token = hash.slice(7);
+    // Persist in sessionStorage so reload works (without persisting to browser history)
+    sessionStorage.setItem('loom_dashboard_token', token);
     history.replaceState(null, '', window.location.pathname);
+  } else {
+    token = sessionStorage.getItem('loom_dashboard_token');
   }
 
   if (!token) {
     document.getElementById('project-name').textContent = 'Unauthorized';
-    document.getElementById('project-meta').textContent = 'No token found in URL. Use #token=xxx in the URL fragment.';
+    document.getElementById('project-meta').textContent = 'No token found. Open the dashboard from the Loom extension popup.';
     return;
   }
 
@@ -187,17 +193,23 @@
 
   async function loadContext() {
     try {
-      const ctx = await api('/v1/projects/' + projectId + '/context');
+      const ctx = await api('/v1/projects/' + projectId + '/context?budget=32000');
       const el = document.getElementById('context-content');
       if (!ctx || !ctx.units || ctx.units.length === 0) {
         el.innerHTML = '<span class="empty-state">No context units</span>';
         return;
       }
-      const items = ctx.units.slice(0, 20).map(function(u) {
-        const preview = (u.content || '').slice(0, 200);
-        const time = u.created_at ? new Date(u.created_at).toLocaleString() : '';
+      const items = ctx.units.slice(0, 50).map(function(u) {
+        var content = u.content || '';
+        var preview = content.slice(0, 200);
+        var time = u.created_at ? new Date(u.created_at).toLocaleString() : '';
+        // Determine display type from the content prefix (User:/AI:)
+        var displayType = u.type || 'unknown';
+        var typeClass = '';
+        if (content.indexOf('AI:') === 0) { displayType = 'AI'; typeClass = 'type-ai'; }
+        else if (content.indexOf('User:') === 0) { displayType = 'User'; typeClass = 'type-user'; }
         return '<li>'
-          + '<div class="context-type">' + escapeHtml(u.type || 'unknown') + '</div>'
+          + '<div class="context-type ' + escapeHtml(typeClass) + '">' + escapeHtml(displayType) + '</div>'
           + '<div class="context-preview">' + escapeHtml(preview) + '</div>'
           + '<div class="context-meta">' + escapeHtml(time) + ' &middot; score: ' + (u.relevance_score || 0) + '</div>'
           + '</li>';
