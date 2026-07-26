@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Loom — Context Bridge</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://localhost:8000">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -19,7 +20,7 @@
       margin-bottom: 12px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
     }
     .status {
       background: #16213e;
@@ -100,10 +101,181 @@
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    /* ── Icon Button ──────────────────────────────────────────── */
+    .icon-btn {
+      background: transparent;
+      border: 1px solid #444;
+      color: #e0e0e0;
+      border-radius: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .icon-btn:hover {
+      background: #0f3460;
+    }
+
+    /* ── Activity Panel ───────────────────────────────────────── */
+    .activity-panel {
+      margin-top: 12px;
+      border-top: 1px solid #333;
+      padding-top: 8px;
+    }
+
+    .activity-section {
+      margin-bottom: 8px;
+    }
+
+    .activity-section-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      background: #16213e;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      user-select: none;
+    }
+    .activity-section-header:hover {
+      background: #1a2744;
+    }
+
+    .section-arrow {
+      font-size: 10px;
+      color: #888;
+      transition: transform 0.15s ease;
+      width: 12px;
+      text-align: center;
+    }
+    .section-arrow.expanded {
+      transform: rotate(90deg);
+    }
+
+    .section-badge {
+      margin-left: auto;
+      background: #333;
+      color: #ccc;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      min-width: 18px;
+      text-align: center;
+    }
+    .section-badge.conflict-badge {
+      background: #7f1d1d;
+      color: #fca5a5;
+    }
+
+    .activity-section-body {
+      padding: 6px 0 6px 8px;
+      font-size: 12px;
+    }
+
+    .activity-empty {
+      color: #666;
+      font-style: italic;
+      padding: 8px 4px;
+    }
+
+    /* ── Agent Card ───────────────────────────────────────────── */
+    .agent-card {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 8px 8px;
+      margin-bottom: 4px;
+      background: #16213e;
+      border-radius: 6px;
+      border-left: 3px solid #666;
+    }
+    .agent-card.status-online  { border-left-color: #22c55e; }
+    .agent-card.status-idle    { border-left-color: #f59e0b; }
+    .agent-card.status-working { border-left-color: #3b82f6; }
+    .agent-card.status-blocked { border-left-color: #ef4444; }
+
+    .agent-name {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      font-size: 12px;
+      color: #e0e0e0;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .status-dot.online  { background: #22c55e; box-shadow: 0 0 4px #22c55e66; }
+    .status-dot.idle    { background: #f59e0b; }
+    .status-dot.working { background: #3b82f6; box-shadow: 0 0 4px #3b82f666; }
+    .status-dot.blocked { background: #ef4444; }
+    .status-dot.offline { background: #555; }
+
+    .agent-task {
+      color: #aaa;
+      font-size: 11px;
+      margin-left: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agent-meta {
+      display: flex;
+      gap: 12px;
+      margin-left: 14px;
+      font-size: 10px;
+      color: #777;
+    }
+    .agent-meta span {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .agent-meta .label {
+      color: #555;
+    }
+    .agent-meta .time {
+      color: #999;
+    }
+
+    /* ── Conflict Item ────────────────────────────────────────── */
+    .conflict-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      background: #1a1a2e;
+      border-radius: 6px;
+      border: 1px solid #333;
+      border-left: 3px solid #ef4444;
+      font-size: 11px;
+    }
+    .conflict-item .conflict-type {
+      font-weight: 600;
+      color: #fca5a5;
+    }
+    .conflict-item .conflict-meta {
+      color: #777;
+      font-size: 10px;
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
-  <h1>🔗 Loom Bridge</h1>
+  <h1>
+    <span>🔗 Loom Bridge</span>
+    <button id="toggle-activity" class="icon-btn" title="Show agent activity &amp; conflicts">📊</button>
+  </h1>
 
   <div id="status" class="status unlinked">
     <span id="status-text">Checking...</span>
@@ -128,7 +300,37 @@
     <button id="unlink-btn" class="secondary">Unlink</button>
   </div>
 
+  <!-- ── Activity & Conflicts Panel ─────────────────────────────────────── -->
+  <div id="activity-panel" class="activity-panel hidden">
+
+    <!-- Agent Activity -->
+    <div class="activity-section">
+      <div class="activity-section-header" id="agents-section-header">
+        <span class="section-arrow">▶</span>
+        <span>Agent Activity</span>
+        <span class="section-badge" id="agent-count-badge">0</span>
+      </div>
+      <div class="activity-section-body" id="agents-list">
+        <div class="activity-empty">No project linked — agent activity available after linking.</div>
+      </div>
+    </div>
+
+    <!-- Conflicts -->
+    <div class="activity-section">
+      <div class="activity-section-header" id="conflicts-section-header">
+        <span class="section-arrow">▶</span>
+        <span>Conflicts</span>
+        <span class="section-badge conflict-badge" id="conflict-count-badge">0</span>
+      </div>
+      <div class="activity-section-body" id="conflicts-list">
+        <div class="activity-empty">No pending conflicts.</div>
+      </div>
+    </div>
+
+  </div>
+
   <script src="config.js"></script>
+  <script src="storage.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -256,3 +256,16 @@
     - Heartbeat API: auth mismatch, missing auth, invalid status, task_id storage, Redis-down resilience
     - Presence query: active agent retrieval, empty state, missing auth, cross-project access block
   - 234 total tests, zero regressions
+
+- **Phase 2.5a — Agent Activity Sidebar + Conflict Badge** (2026-07-26)
+  - **Agent Activity Sidebar** in the extension popup — collapsible panel showing live agents with status dots (online/idle/working/blocked/offline), task description, heartbeat time, and last write
+  - **Conflict Badge** on the extension icon — red badge with pending conflict count, updated via `chrome.alarms`-based background polling every 60s
+  - **Conflict list** in the activity panel — type, created time, and context unit ID for each pending conflict
+  - **Background polling** via `chrome.alarms` (MV3-safe) — `LOOM_CONFLICT_POLL` alarm with periodInMinutes dedup check
+  - **Popup-side polling** — agent presence every 5s, conflicts every 30s, relative time ticker every 1s; pauses when panel is hidden
+  - **Storage layer** — `getCurrentProject()`, `setCurrentProject()`, `clearCurrentProject()` for cross-popup project persistence
+  - **Message handlers** — `GET_AGENT_PRESENCE`, `GET_CONFLICTS`, `SET_CURRENT_PROJECT` in background service worker
+  - **Security hardening** — `escapeHtml()` for all user-visible text, status value whitelist, CSP meta tag in popup, sender validation in background message handler, `escapeHtml` fix for `LOOM_LINKED` banner in content.js
+  - **Code Review fixes** — HTML attribute injection patched, CSS class injection patched, polling stops on panel hide, conflict timestamps updated via DOM (no 1Hz full re-render), badge background color set once
+  - **No backend changes** — all 234 backend tests unchanged
+  - **6 files modified** — all in `extension/` (manifest.json, config.js, storage.js, background.js, popup.html, popup.js, content.js)

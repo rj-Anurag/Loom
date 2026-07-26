@@ -5,7 +5,8 @@
   "description": "Sync AI chat conversations (Claude.ai, ChatGPT) into Loom's shared context store. Retrieve via @loom in your CLI.",
   "permissions": [
     "storage",
-    "scripting"
+    "scripting",
+    "alarms"
   ],
   "host_permissions": [
     "https://claude.ai/*",

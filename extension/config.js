@@ -28,9 +28,21 @@ const LOOM_CONFIG = {
   /** Max messages to batch in a single sync request. */
   MAX_BATCH_SIZE: 20,
 
+  /** Polling intervals for real-time data. */
+  POLL_INTERVALS: {
+    /** How often the popup polls agent presence (ms). */
+    AGENT_PRESENCE_POPUP_MS: 5_000,
+    /** How often the popup polls conflict list (ms). */
+    CONFLICT_POPUP_MS: 30_000,
+    /** How often the background alarm fires for conflict polling (minutes). */
+    CONFLICT_BG_ALARM_MINUTES: 1,
+  },
+
   /** Storage keys. */
   STORAGE_KEYS: {
     CHAT_LINKS: 'loom_chat_links',       // { [chatUrl]: projectId }
     AGENT_CREDENTIALS: 'loom_credentials', // { agent_id, api_key }
+    /** Project ID to use for background polling. Updated by popup on link/unlink. */
+    CURRENT_PROJECT: 'loom_current_project',
   },
 };

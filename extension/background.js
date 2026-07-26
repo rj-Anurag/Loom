@@ -54,6 +54,12 @@ async function api(path, options = {}) {
 // ── Message Router ───────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Only process messages from our own extension components
+  if (sender.id !== chrome.runtime.id) {
+    sendResponse({ error: 'unauthorized' });
+    return;
+  }
+
   const handler = MESSAGE_HANDLERS[msg.type];
   if (handler) {
     handler(msg, sender)
@@ -130,6 +136,37 @@ const MESSAGE_HANDLERS = {
   },
 
   /**
+   * GET_AGENT_PRESENCE — Fetch active agents for a project.
+   * Called by the popup on an interval while open.
+   */
+  async GET_AGENT_PRESENCE(msg) {
+    const data = await api(`/v1/projects/${msg.projectId}/agents/presence`);
+    return { agents: data };
+  },
+
+  /**
+   * GET_CONFLICTS — Fetch pending conflicts for a project.
+   * Called by the popup on an interval while open.
+   */
+  async GET_CONFLICTS(msg) {
+    const data = await api(`/v1/projects/${msg.projectId}/conflicts`);
+    return { conflicts: data };
+  },
+
+  /**
+   * SET_CURRENT_PROJECT — Store the project ID for background alarm polling.
+   * Called by the popup on link/unlink to keep the background worker in sync.
+   */
+  async SET_CURRENT_PROJECT(msg) {
+    if (msg.projectId) {
+      await Storage.setCurrentProject(msg.projectId, msg.projectName);
+    } else {
+      await Storage.clearCurrentProject();
+    }
+    return { ok: true };
+  },
+
+  /**
    * SYNC_MESSAGES — Sync captured chat messages as context units.
    * Called by the content script when new DOM messages are detected.
    */
@@ -190,6 +227,67 @@ async function generateClientUuid(chatUrl, index) {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
 }
 
+// ── Conflict Alarm ────────────────────────────────────────────────────────────
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'LOOM_CONFLICT_POLL') {
+    pollConflictsAndUpdateBadge();
+  }
+});
+
+/**
+ * Fetch pending conflicts for the stored current project and update
+ * the extension icon badge with the count. Clears badge if no project
+ * is stored or no conflicts exist.
+ */
+async function pollConflictsAndUpdateBadge() {
+  try {
+    const project = await Storage.getCurrentProject();
+    if (!project) {
+      chrome.action.setBadgeText({ text: '' });
+      return;
+    }
+
+    const data = await api(`/v1/projects/${project.projectId}/conflicts`);
+    const conflicts = Array.isArray(data) ? data : [];
+    const count = conflicts.length;
+
+    if (count > 0) {
+      chrome.action.setBadgeText({ text: String(count) });
+    } else {
+      chrome.action.setBadgeText({ text: '' });
+    }
+  } catch (err) {
+    // Don't clear badge on transient errors — stale data is better
+    // than silently dropping the badge. Log and move on.
+    console.warn('[Loom] Conflict poll failed:', err.message);
+  }
+}
+
 // ── Boot ────────────────────────────────────────────────────────────────────
+
+// Set badge background color once at startup
+chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
+
+// Register conflict polling alarm (only if not already scheduled, to avoid
+// resetting the timer on every service worker wakeup).
+chrome.alarms.get('LOOM_CONFLICT_POLL', (alarm) => {
+  if (!alarm) {
+    chrome.alarms.create('LOOM_CONFLICT_POLL', {
+      periodInMinutes: LOOM_CONFIG.POLL_INTERVALS.CONFLICT_BG_ALARM_MINUTES,
+    });
+  }
+});
+
+// Also register on install/update to handle fresh installs
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.create('LOOM_CONFLICT_POLL', {
+    periodInMinutes: LOOM_CONFIG.POLL_INTERVALS.CONFLICT_BG_ALARM_MINUTES,
+  });
+  // Set badge background color once (text is updated per-poll)
+  chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
+  // Run an immediate poll on install
+  setTimeout(pollConflictsAndUpdateBadge, 1000);
+});
 
 console.log('[Loom] Background service worker started');

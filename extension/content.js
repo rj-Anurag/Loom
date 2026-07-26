@@ -225,10 +225,12 @@
       'box-shadow: 0 2px 12px rgba(0,0,0,0.3);',
     ].join(' ');
 
+    // escapeHtml is not available in content script scope, so sanitize manually
+    var safeName = String(projectName).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     banner.innerHTML = [
       '<span style="font-size:18px;">✅</span>',
       '<span style="flex:1;">',
-      '<strong>Linked</strong> to <strong>' + projectName + '</strong>',
+      '<strong>Linked</strong> to <strong>' + safeName + '</strong>',
       '</span>',
     ].join('');
 
