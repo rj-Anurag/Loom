@@ -6,7 +6,9 @@ POST /{project_id}/context (write new context unit).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,11 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import AuthContext, require_auth
 from loom.db import get_session
+from loom.schemas.events import ProjectEvent
 from loom.services.context.service import (
     VersionConflict,
     read_context,
     write_context,
 )
+from loom.services.events.manager import connection_manager
 
 router = APIRouter()
 
@@ -217,6 +221,20 @@ async def write_context_endpoint(
         # transaction hasn't committed yet.  Commit now so the branch
         # is persisted (no other mutations are pending at this point).
         await session.commit()
+
+        # ── Fire-and-forget broadcast ────────────────────────────────────
+        conflict_event = ProjectEvent(
+            type="conflict_created",
+            project_id=str(project_id),
+            payload={
+                "pending_branch_id": str(vc.pending_branch_id),
+                "context_unit_id": str(vc.context_unit_id),
+                "conflict_type": "version_conflict",
+            },
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ).model_dump()
+        asyncio.create_task(connection_manager.broadcast(str(project_id), conflict_event))
+
         return JSONResponse(
             content={
                 "detail": "VERSION_CONFLICT",
@@ -242,6 +260,22 @@ async def write_context_endpoint(
         raise HTTPException(status_code=status, detail=error_code)
 
     status_code = 201 if is_new else 200
+
+    # ── Fire-and-forget broadcast ────────────────────────────────────────
+    if is_new:
+        event = ProjectEvent(
+            type="context_created",
+            project_id=str(project_id),
+            payload={
+                "context_unit_id": str(unit.id),
+                "type": body.type,
+                "content_preview": body.content[:200],
+                "agent_id": str(auth.agent_id),
+                "version": unit.version,
+            },
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ).model_dump()
+        asyncio.create_task(connection_manager.broadcast(str(project_id), event))
 
     return JSONResponse(
         content={
