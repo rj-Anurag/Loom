@@ -136,13 +136,79 @@ async def get_project_agents_presence(
     return await get_active_agents(redis, str(project_id))
 
 
-# ── Agent Registration (Phase 1 stub) ────────────────────────────────────────
+# ── Agent Registration ────────────────────────────────────────────────────────
 
 
-@router.post("/projects/{project_id}/agents")
+class RegisterAgentRequest(BaseModel):
+    """JSON body for POST /v1/projects/{project_id}/agents."""
+
+    kind: Literal["local", "cloud", "browser", "system"] = Field(
+        ...,
+        description="Agent runtime kind.",
+    )
+    name: str | None = Field(
+        None,
+        max_length=255,
+        description="Optional human-readable name for display.",
+    )
+
+
+class RegisterAgentResponse(BaseModel):
+    """Response returned after successful agent registration."""
+
+    agent_id: str
+    api_key: str
+    kind: str
+    name: str | None = None
+
+
+from loom.db import get_session
+from loom.models import Agent as AgentModel, Project
+
+
+@router.post(
+    "/projects/{project_id}/agents",
+    response_model=RegisterAgentResponse,
+    responses={
+        201: {"description": "Agent registered successfully"},
+        404: {"description": "Project not found"},
+        422: {"description": "Validation error"},
+    },
+    status_code=201,
+)
 async def register_agent(
-    project_id: str,
-    auth: AuthContext = Depends(require_auth),
-) -> dict[str, Any]:
-    """Register a new agent for a project (Phase 1 stub)."""
-    return {"agent_id": "", "api_key": "", "trust_tier": "agent"}
+    project_id: uuid.UUID,
+    body: RegisterAgentRequest,
+    session=Depends(get_session),
+) -> RegisterAgentResponse:
+    """Register a new agent for a project.
+
+    Creates an ``Agent`` record in the database and returns the agent's
+    UUID as both ``agent_id`` and ``api_key`` (MVP auth — the bearer
+    token equals the agent UUID).
+
+    No authentication required (matching the extension setup endpoint
+    pattern).  The project must exist.
+    """
+    # Verify project exists
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
+
+    # Create agent
+    agent = AgentModel(
+        project_id=project_id,
+        kind=body.kind,
+        name=body.name,
+    )
+    session.add(agent)
+    await session.commit()
+    await session.refresh(agent)
+
+    agent_id = str(agent.id)
+    return RegisterAgentResponse(
+        agent_id=agent_id,
+        api_key=agent_id,
+        kind=agent.kind,
+        name=agent.name,
+    )
