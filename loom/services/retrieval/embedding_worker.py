@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import signal
+import sys
 import uuid
 from typing import Any
 
@@ -118,10 +119,11 @@ async def process_embedding_job(
                 )
                 return
 
-            # Validate dimension
-            if len(vector) != 1536:
+            # Validate dimension (LocalProvider.DIMENSION vs OpenAIProvider.DIMENSION)
+            expected_dim = 384 if settings.embedding_provider.lower() == "local" else 1536
+            if len(vector) != expected_dim:
                 raise ValueError(
-                    f"Expected 1536-dim vector, got {len(vector)} dim "
+                    f"Expected {expected_dim}-dim vector, got {len(vector)} dim "
                     f"for unit {context_unit_id}"
                 )
 

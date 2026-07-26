@@ -52,7 +52,7 @@ class ContextUnit(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(1536), nullable=True
+        Vector(384), nullable=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     branch_id: Mapped[uuid.UUID | None] = mapped_column(
