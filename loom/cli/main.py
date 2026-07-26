@@ -8,7 +8,7 @@ Usage::
     loom mcp
     loom projects
 
-Configuration via environment variables:
+Configuration via environment variables or ``.env`` file:
 
 - ``LOOM_API_URL`` — Loom API base URL (default ``http://localhost:8000``)
 - ``LOOM_API_KEY`` — Agent bearer token (Agent UUID)
@@ -26,7 +26,10 @@ import uuid
 
 import httpx
 
+from loom.cli.dotenv import load_dotenv
 from loom.mcp.server import main as mcp_main
+
+load_dotenv()
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
