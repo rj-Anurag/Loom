@@ -149,10 +149,10 @@
     return;
   }
 
-  // ── Main ──────────────────────────────────────────────────────────────
-  async function loadDashboard() {
+  // ── Section loaders (hoisted so WS events + polling can call them) ────
+
+  async function loadProjectInfo() {
     try {
-      // 1. Project info
       const project = await api('/v1/projects/' + projectId);
       document.getElementById('project-name').textContent = escapeHtml(project.name || 'Unnamed Project');
       document.getElementById('project-meta').textContent = 'ID: ' + escapeHtml(project.id) + ' &middot; Created: ' + escapeHtml(project.created_at || 'unknown');
@@ -160,78 +160,193 @@
       document.getElementById('project-name').textContent = 'Error loading project';
       document.getElementById('project-meta').textContent = err.message;
     }
+  }
 
-    // 2. Agents
-    (async function loadAgents() {
-      try {
-        const agents = await api('/v1/projects/' + projectId + '/agents/presence');
-        const el = document.getElementById('agents-content');
-        if (!agents || agents.length === 0) {
-          el.innerHTML = '<span class="empty-state">No active agents</span>';
-          return;
-        }
-        var ALLOWED_STATUSES = { 'online': true, 'idle': true, 'working': true, 'blocked': true, 'offline': true };
-        const items = agents.map(function(a) {
-          var safeStatus = ALLOWED_STATUSES[a.status] ? a.status : 'idle';
-          const status = safeStatus;
-          const badgeClass = 'badge badge-' + safeStatus;
-          return '<li>'
-            + '<span class="agent-id">' + escapeHtml(a.agent_id || 'unknown') + '</span>'
-            + '<span class="' + badgeClass + '">' + escapeHtml(status) + '</span>'
-            + '</li>';
-        }).join('');
-        el.innerHTML = '<ul class="agent-list">' + items + '</ul>';
-      } catch (err) {
-        document.getElementById('agents-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+  async function loadAgents() {
+    try {
+      const agents = await api('/v1/projects/' + projectId + '/agents/presence');
+      const el = document.getElementById('agents-content');
+      if (!agents || agents.length === 0) {
+        el.innerHTML = '<span class="empty-state">No active agents</span>';
+        return;
       }
-    })();
+      var ALLOWED_STATUSES = { 'online': true, 'idle': true, 'working': true, 'blocked': true, 'offline': true };
+      const items = agents.map(function(a) {
+        var safeStatus = ALLOWED_STATUSES[a.status] ? a.status : 'idle';
+        const badgeClass = 'badge badge-' + safeStatus;
+        return '<li>'
+          + '<span class="agent-id">' + escapeHtml(a.agent_id || 'unknown') + '</span>'
+          + '<span class="' + badgeClass + '">' + escapeHtml(safeStatus) + '</span>'
+          + '</li>';
+      }).join('');
+      el.innerHTML = '<ul class="agent-list">' + items + '</ul>';
+    } catch (err) {
+      document.getElementById('agents-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+    }
+  }
 
-    // 3. Context
-    (async function loadContext() {
-      try {
-        const ctx = await api('/v1/projects/' + projectId + '/context');
-        const el = document.getElementById('context-content');
-        if (!ctx || !ctx.units || ctx.units.length === 0) {
-          el.innerHTML = '<span class="empty-state">No context units</span>';
-          return;
-        }
-        const items = ctx.units.slice(0, 20).map(function(u) {
-          const preview = (u.content || '').slice(0, 200);
-          const time = u.created_at ? new Date(u.created_at).toLocaleString() : '';
-          return '<li>'
-            + '<div class="context-type">' + escapeHtml(u.type || 'unknown') + '</div>'
-            + '<div class="context-preview">' + escapeHtml(preview) + '</div>'
-            + '<div class="context-meta">' + escapeHtml(time) + ' &middot; score: ' + (u.relevance_score || 0) + '</div>'
-            + '</li>';
-        }).join('');
-        el.innerHTML = '<ul class="context-list">' + items + '</ul>';
-      } catch (err) {
-        document.getElementById('context-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+  async function loadContext() {
+    try {
+      const ctx = await api('/v1/projects/' + projectId + '/context');
+      const el = document.getElementById('context-content');
+      if (!ctx || !ctx.units || ctx.units.length === 0) {
+        el.innerHTML = '<span class="empty-state">No context units</span>';
+        return;
       }
-    })();
+      const items = ctx.units.slice(0, 20).map(function(u) {
+        const preview = (u.content || '').slice(0, 200);
+        const time = u.created_at ? new Date(u.created_at).toLocaleString() : '';
+        return '<li>'
+          + '<div class="context-type">' + escapeHtml(u.type || 'unknown') + '</div>'
+          + '<div class="context-preview">' + escapeHtml(preview) + '</div>'
+          + '<div class="context-meta">' + escapeHtml(time) + ' &middot; score: ' + (u.relevance_score || 0) + '</div>'
+          + '</li>';
+      }).join('');
+      el.innerHTML = '<ul class="context-list">' + items + '</ul>';
+    } catch (err) {
+      document.getElementById('context-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+    }
+  }
 
-    // 4. Conflicts
-    (async function loadConflicts() {
-      try {
-        const conflicts = await api('/v1/projects/' + projectId + '/conflicts');
-        const el = document.getElementById('conflicts-content');
-        if (!conflicts || conflicts.length === 0) {
-          el.innerHTML = '<span class="empty-state">No pending conflicts</span>';
-          return;
-        }
-        const items = conflicts.map(function(c) {
-          const time = c.created_at ? new Date(c.created_at).toLocaleString() : '';
-          return '<div class="conflict-item">'
-            + '<div><div class="conflict-type">' + escapeHtml(c.conflict_type || 'unknown') + '</div>'
-            + '<div class="conflict-time">' + escapeHtml(time) + '</div></div>'
-            + '<span class="badge badge-conflict">pending</span>'
-            + '</div>';
-        }).join('');
-        el.innerHTML = items;
-      } catch (err) {
-        document.getElementById('conflicts-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+  async function loadConflicts() {
+    try {
+      const conflicts = await api('/v1/projects/' + projectId + '/conflicts');
+      const el = document.getElementById('conflicts-content');
+      if (!conflicts || conflicts.length === 0) {
+        el.innerHTML = '<span class="empty-state">No pending conflicts</span>';
+        return;
       }
-    })();
+      const items = conflicts.map(function(c) {
+        const time = c.created_at ? new Date(c.created_at).toLocaleString() : '';
+        return '<div class="conflict-item">'
+          + '<div><div class="conflict-type">' + escapeHtml(c.conflict_type || 'unknown') + '</div>'
+          + '<div class="conflict-time">' + escapeHtml(time) + '</div></div>'
+          + '<span class="badge badge-conflict">pending</span>'
+          + '</div>';
+      }).join('');
+      el.innerHTML = items;
+    } catch (err) {
+      document.getElementById('conflicts-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
+    }
+  }
+
+  // ── WebSocket Client ──────────────────────────────────────────────────
+
+  var WS_BASE = window.location.origin.replace(/^http/, 'ws');
+  var WS_RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
+  var POLL_INTERVAL_MS = 10000;
+
+  var ws = null;
+  var wsReconnectAttempt = 0;
+  var wsReconnectTimer = null;
+  var pollTimer = null;
+  var wsConnected = false;
+
+  function showConnectionStatus(state) {
+    var el = document.getElementById('ws-status');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'ws-status';
+      el.style.cssText = 'position:fixed;bottom:8px;right:8px;font-size:0.7rem;padding:3px 7px;border-radius:4px;z-index:100;font-family:monospace';
+      document.body.appendChild(el);
+    }
+    if (state === 'connected') {
+      el.textContent = '\u25CF live';
+      el.style.background = '#065f46';
+      el.style.color = '#6ee7b7';
+    } else {
+      el.textContent = '\u25CB polling';
+      el.style.background = '#374151';
+      el.style.color = '#9ca3af';
+    }
+  }
+
+  function startPollingFallback() {
+    if (pollTimer) return;
+    pollTimer = setInterval(function() {
+      loadAgents();
+      loadContext();
+      loadConflicts();
+    }, POLL_INTERVAL_MS);
+  }
+
+  function stopPollingFallback() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function connectWebSocket() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return; // Already connected or connecting
+    }
+
+    var url = WS_BASE + '/v1/projects/' + projectId + '/events?token=' + encodeURIComponent(token);
+    ws = new WebSocket(url);
+
+    ws.onopen = function() {
+      wsConnected = true;
+      wsReconnectAttempt = 0;
+      stopPollingFallback();
+      showConnectionStatus('connected');
+    };
+
+    ws.onmessage = function(event) {
+      try {
+        var msg = JSON.parse(event.data);
+        switch (msg.type) {
+          case 'agent_online':
+          case 'agent_offline':
+          case 'agent_heartbeat':
+            loadAgents();
+            break;
+          case 'context_created':
+            loadContext();
+            break;
+          case 'conflict_created':
+            loadConflicts();
+            break;
+        }
+      } catch (e) {
+        console.warn('WS: ignoring malformed message', e);
+      }
+    };
+
+    ws.onclose = function() {
+      wsConnected = false;
+      ws = null;
+      showConnectionStatus('disconnected');
+      startPollingFallback();
+      scheduleReconnect();
+    };
+
+    ws.onerror = function() {
+      // onclose fires after onerror — reconnect is handled there
+    };
+  }
+
+  function scheduleReconnect() {
+    if (wsReconnectTimer) return;
+    var idx = Math.min(wsReconnectAttempt, WS_RECONNECT_DELAYS.length - 1);
+    var delay = WS_RECONNECT_DELAYS[idx];
+    wsReconnectAttempt++;
+    wsReconnectTimer = setTimeout(function() {
+      wsReconnectTimer = null;
+      if (!wsConnected) {
+        connectWebSocket();
+      }
+    }, delay);
+  }
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────
+
+  async function loadDashboard() {
+    await loadProjectInfo();
+    loadAgents();
+    loadContext();
+    loadConflicts();
+    connectWebSocket();
   }
 
   loadDashboard();
