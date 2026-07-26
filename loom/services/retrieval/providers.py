@@ -97,6 +97,35 @@ class OpenAIProvider:
         return vector
 
 
+# ── Local Provider (free, no API key) ────────────────────────────────────────────
+
+
+class LocalProvider:
+    """Free local embedding provider using `sentence-transformers`.
+
+    Uses ``all-MiniLM-L6-v2`` (384-dimensional, ~80 MB download on first use).
+    Runs entirely on CPU — no data ever leaves the machine.
+
+    The model is loaded lazily on the first ``embed()`` call and cached
+    for the lifetime of the process.
+    """
+
+    DIMENSION = 384
+    _model = None
+
+    async def embed(self, text: str) -> list[float] | None:
+        if not text.strip():
+            return None
+
+        from sentence_transformers import SentenceTransformer
+
+        if self._model is None:
+            LocalProvider._model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        vector: list[float] = self._model.encode(text).tolist()  # type: ignore[union-attr]
+        return vector
+
+
 # ── Factory ────────────────────────────────────────────────────────────────────
 
 
@@ -229,8 +258,11 @@ def from_config() -> EmbeddingProvider:
 
     ``"stub"`` (default) → :class:`StubProvider`
     ``"openai"``         → :class:`OpenAIProvider`
+    ``"local"``          → :class:`LocalProvider`
     """
     provider_name = settings.embedding_provider.lower()
     if provider_name == "openai":
         return OpenAIProvider()
+    if provider_name == "local":
+        return LocalProvider()
     return StubProvider()
