@@ -293,6 +293,18 @@ async def write_context(
             session, project_id, agent_id, unit.id, parent_uuids
         )
 
+        # ── Mark pending branches as auto_merged ─────────────────────
+        pending_branches = (
+            await session.execute(
+                select(PendingBranch).where(
+                    PendingBranch.context_unit_id.in_(parent_uuids),
+                    PendingBranch.resolution == "pending",
+                )
+            )
+        ).scalars().all()
+        for pb in pending_branches:
+            pb.resolution = "auto_merged"
+
     # ── 11. Append event-log entry ────────────────────────────────────────
     event = EventLog(
         project_id=project_id,
