@@ -77,4 +77,34 @@ const Storage = {
     const key = LOOM_CONFIG.STORAGE_KEYS.AGENT_CREDENTIALS;
     await chrome.storage.local.remove(key);
   },
+
+  /**
+   * Get the last active project (used by background alarm for conflict polling).
+   * @returns {Promise<{projectId: string, projectName: string}|null>}
+   */
+  async getCurrentProject() {
+    const key = LOOM_CONFIG.STORAGE_KEYS.CURRENT_PROJECT;
+    const result = await chrome.storage.local.get(key);
+    return result[key] || null;
+  },
+
+  /**
+   * Store the last active project.
+   * @param {string} projectId
+   * @param {string} [projectName]
+   */
+  async setCurrentProject(projectId, projectName) {
+    const key = LOOM_CONFIG.STORAGE_KEYS.CURRENT_PROJECT;
+    await chrome.storage.local.set({
+      [key]: { projectId, projectName: projectName || projectId },
+    });
+  },
+
+  /**
+   * Clear the stored current project (on unlink).
+   */
+  async clearCurrentProject() {
+    const key = LOOM_CONFIG.STORAGE_KEYS.CURRENT_PROJECT;
+    await chrome.storage.local.remove(key);
+  },
 };
