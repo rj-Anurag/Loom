@@ -13,7 +13,7 @@
   const linkSection = document.getElementById('link-section');
   const linkedSection = document.getElementById('linked-section');
   const projectSelect = document.getElementById('project-select');
-  const newProjectInput = document.getElementById('new-project-name');
+  const projectIdInput = document.getElementById('project-id-input');
   const linkBtn = document.getElementById('link-btn');
   const errorMsg = document.getElementById('error-msg');
   const linkedProjectName = document.getElementById('linked-project-name');
@@ -163,7 +163,7 @@
               ? '<span>' +
                   '<span class="label">Write:</span>' +
                   '<span class="time" data-timestamp="' + escapeHtml(agent.last_write || '') + '">' + lastWrite + '</span>' +
-                  '<span style="color:#888;">(' + escapeHtml(lastWriteType) + ')</span>' +
+                  '<span class="muted-text">(' + escapeHtml(lastWriteType) + ')</span>' +
                 '</span>'
               : '') +
           '</div>' +
@@ -198,7 +198,7 @@
           '<div class="conflict-meta">' +
             '<span>Created: <span class="conflict-time" data-timestamp="' + escapeHtml(conflict.created_at || '') + '">' + created + '</span></span>' +
             (conflict.context_unit_id
-              ? '<span style="color:#555;">ID: ' + escapeHtml(conflict.context_unit_id.slice(0, 8)) + '\u2026</span>'
+              ? '<span class="dim-text">ID: ' + escapeHtml(conflict.context_unit_id.slice(0, 8)) + '\u2026</span>'
               : '') +
           '</div>' +
         '</div>';
@@ -386,6 +386,56 @@
     }
   }
 
+  // ── Clear competing inputs on focus ──────────────────────────────────
+
+  projectIdInput.addEventListener('focus', function () {
+    projectSelect.value = '';
+  });
+
+  projectSelect.addEventListener('change', function () {
+    projectIdInput.value = '';
+  });
+
+  // ── Local API helper (bypasses background worker to avoid hangs) ──────
+
+  function authHeaders() {
+    var apiKey = LOOM_CONFIG.DEFAULT_API_KEY;
+    if (apiKey) {
+      return { Authorization: 'Bearer ' + apiKey };
+    }
+    return {};
+  }
+
+  async function apiPost(path, body) {
+    var url = LOOM_CONFIG.LOOM_SERVER_URL + path;
+    var headers = {
+      'Content-Type': 'application/json',
+    };
+    var ah = authHeaders();
+    for (var k in ah) { if (ah.hasOwnProperty(k)) { headers[k] = ah[k]; } }
+
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, 8000);
+
+    try {
+      var resp = await fetch(url, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!resp.ok) {
+        var text = await resp.text();
+        throw new Error('Loom API ' + resp.status + ': ' + text);
+      }
+      return resp.json();
+    } catch (err) {
+      clearTimeout(timer);
+      throw err;
+    }
+  }
+
   // ── Link / Create project ──────────────────────────────────────────────
 
   linkBtn.addEventListener('click', async () => {
@@ -395,68 +445,64 @@
 
     try {
       let projectId = projectSelect.value;
-      const newName = newProjectInput.value.trim();
+      const directId = projectIdInput.value.trim();
 
-      if (projectId && newName) {
-        showError('Pick an existing project or create a new one, not both.');
+      // Count how many options were provided
+      const hasSelection = !!projectId;
+      const hasDirectId = !!directId;
+      const provided = [hasSelection, hasDirectId].filter(Boolean).length;
+
+      if (provided === 0) {
+        showError('Select a project or enter a project ID.');
         linkBtn.disabled = false;
         linkBtn.textContent = 'Link Chat';
         return;
       }
 
-      if (newName) {
-        // Create project first
-        const created = await chrome.runtime.sendMessage({
-          type: 'CREATE_PROJECT',
-          name: newName,
-        });
-        if (created && created.id) {
-          projectId = created.id;
-        } else {
-          showError('Failed to create project.');
+      if (provided > 1) {
+        showError('Use only one option: select from the list or enter a project ID.');
+        linkBtn.disabled = false;
+        linkBtn.textContent = 'Link Chat';
+        return;
+      }
+
+      if (hasDirectId) {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(directId)) {
+          showError('Project ID must be a valid UUID (e.g. 6f4f8594-9237-4609-8378-a092de7604a1).');
           linkBtn.disabled = false;
           linkBtn.textContent = 'Link Chat';
           return;
         }
+        projectId = directId;
       }
 
-      if (!projectId) {
-        showError('Select or create a project first.');
-        linkBtn.disabled = false;
-        linkBtn.textContent = 'Link Chat';
-        return;
-      }
+      const projectName = projectId;
 
-      // Get project name from selected option or new name
-      const projectName = newName || projectSelect.options[projectSelect.selectedIndex]?.text || projectId;
-
-      // Link chat to project
-      const result = await chrome.runtime.sendMessage({
-        type: 'LINK_CHAT',
-        chatUrl: currentTabUrl,
-        projectId,
-        projectName,
+      // Link chat to project — direct API call (not via background worker)
+      const data = await apiPost('/v1/projects/' + projectId + '/link/chat', {
+        chat_url: currentTabUrl,
         title: document.title || '',
         platform: new URL(currentTabUrl).hostname,
       });
 
-      if (result && result.id) {
-        // Notify content script
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        const tabId = tabs[0]?.id;
-        if (tabId) {
-          await chrome.tabs.sendMessage(tabId, { type: 'LOOM_LINKED', projectName }).catch(() => {});
-        }
-
-        // Reload popup to show linked state
-        window.location.reload();
-      } else {
-        showError('Link failed. Check Loom server.');
-        linkBtn.disabled = false;
-        linkBtn.textContent = 'Link Chat';
+      // Store link locally
+      if (data.chat_url) {
+        await Storage.setChatLink(data.chat_url, projectId, projectName);
       }
+
+      // Notify content script
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabId = tabs[0]?.id;
+      if (tabId) {
+        await chrome.tabs.sendMessage(tabId, { type: 'LOOM_LINKED', projectName }).catch(function () {});
+      }
+
+      // Reload popup to show linked state
+      window.location.reload();
     } catch (err) {
-      showError('Error linking chat.');
+      showError(err.message.indexOf('abort') !== -1
+        ? 'Server not responding. Is Loom running?'
+        : 'Link failed: ' + err.message);
       console.error('[Loom] Link error:', err);
       linkBtn.disabled = false;
       linkBtn.textContent = 'Link Chat';
