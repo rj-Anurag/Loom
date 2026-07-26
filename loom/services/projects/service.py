@@ -27,6 +27,22 @@ async def list_projects(session: AsyncSession) -> list[dict]:
     ]
 
 
+async def get_project(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+) -> dict:
+    """Return a single project by ID."""
+    result = await session.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if project is None:
+        raise ValueError("PROJECT_NOT_FOUND")
+    return {
+        "id": str(project.id),
+        "name": project.name,
+        "created_at": project.created_at.isoformat() if project.created_at else "",
+    }
+
+
 async def create_project(
     session: AsyncSession,
     name: str,

@@ -18,6 +18,7 @@
   const errorMsg = document.getElementById('error-msg');
   const linkedProjectName = document.getElementById('linked-project-name');
   const unlinkBtn = document.getElementById('unlink-btn');
+  const dashboardBtn = document.getElementById('dashboard-btn');
 
   let currentTabUrl = '';
   let currentlyLinkedProjectId = null;
@@ -347,6 +348,19 @@
     } else if (currentlyLinkedProjectId) {
       startPolling();
     }
+  });
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────────
+
+  dashboardBtn.addEventListener('click', async function () {
+    if (!currentlyLinkedProjectId) {
+      console.warn('[Loom] No project linked — cannot open dashboard');
+      return;
+    }
+    const creds = await Storage.getCredentials();
+    const apiKey = creds ? creds.api_key : LOOM_CONFIG.DEFAULT_API_KEY;
+    const path = LOOM_CONFIG.DASHBOARD_BASE_PATH.replace('{project_id}', currentlyLinkedProjectId);
+    chrome.tabs.create({ url: LOOM_CONFIG.LOOM_SERVER_URL + path + '#token=' + apiKey });
   });
 
   // ── Load projects ───────────────────────────────────────────────────────

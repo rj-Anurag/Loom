@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from loom.api.routers import agents, branches, conflicts, context, extension, projects, tasks
 
@@ -32,3 +33,8 @@ app.include_router(tasks.router, prefix="/v1/projects", tags=["tasks"])
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/v1/projects/{project_id}/dashboard")
+async def project_dashboard(project_id: str):
+    return FileResponse("loom/web/dashboard.html")

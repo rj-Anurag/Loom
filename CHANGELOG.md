@@ -269,3 +269,11 @@
   - **Code Review fixes** — HTML attribute injection patched, CSS class injection patched, polling stops on panel hide, conflict timestamps updated via DOM (no 1Hz full re-render), badge background color set once
   - **No backend changes** — all 234 backend tests unchanged
   - **6 files modified** — all in `extension/` (manifest.json, config.js, storage.js, background.js, popup.html, popup.js, content.js)
+
+- **Phase 2.5b — Push-to-Loom from Chat + Project Dashboard** (2026-07-26)
+  - **Push-to-Loom** — right-click context menu on any page → "Send to Loom as context" — writes selected text to the linked project via `POST /v1/projects/{id}/context` with `trust_tier: "user"`, `type: "decision"`, deterministic SHA-256 client UUID for idempotency
+  - **Project Dashboard** — full-page SPA at `/v1/projects/{id}/dashboard` showing project overview, active agents (from presence endpoint), recent context feed (from chrono read), and pending conflicts — auth via URL fragment (`#token=xxx`) cleared after load
+  - **Backend** — new `GET /v1/projects/{id}` endpoint (200/401/404), `source_url` field on write endpoint (forward-compat), dashboard HTML served via `FileResponse` at `/v1/projects/{id}/dashboard`
+  - **Extension changes** — `contextMenus` permission, context menu creation in `onInstalled`, `contextMenus.onClicked` handler in background.js, "Open Dashboard" button in popup, `PUSH_TO_LOOM` config with text normalization and 100KB truncation
+  - **4 new tests** for `GET /v1/projects/{id}` (success, no auth, not found, wrong agent)
+  - **238 total tests**, zero regressions (234 + 4 new)

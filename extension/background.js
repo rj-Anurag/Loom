@@ -227,11 +227,72 @@ async function generateClientUuid(chatUrl, index) {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
 }
 
+/**
+ * Generate a deterministic UUID for Push-to-Loom idempotency.
+ * Uses SHA-256 hash of a 'push-to-loom' prefix + pageUrl + normalized content.
+ */
+async function generatePushUuid(pageUrl, content) {
+  const str = 'push-to-loom:' + pageUrl + ':' + content;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const bytes = hashArray.slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+  return hex.slice(0,8) + '-' + hex.slice(8,12) + '-' + hex.slice(12,16) + '-' + hex.slice(16,20) + '-' + hex.slice(20,32);
+}
+
 // ── Conflict Alarm ────────────────────────────────────────────────────────────
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'LOOM_CONFLICT_POLL') {
     pollConflictsAndUpdateBadge();
+  }
+});
+
+// ── Context Menu (Push-to-Loom) ──────────────────────────────────────────────
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== LOOM_CONFIG.PUSH_TO_LOOM.MENU_ITEM_ID) return;
+  if (!info.selectionText) return;
+
+  const project = await Storage.getCurrentProject();
+  if (!project) {
+    console.warn('[Loom] Push-to-Loom: No project linked');
+    return;
+  }
+
+  // Normalize and truncate text
+  let content = info.selectionText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+  if (content.length > LOOM_CONFIG.PUSH_TO_LOOM.MAX_CONTENT_LENGTH) {
+    content = content.slice(0, LOOM_CONFIG.PUSH_TO_LOOM.MAX_CONTENT_LENGTH);
+  }
+
+  const clientUuid = await generatePushUuid(info.pageUrl, content);
+
+  try {
+    const result = await api(
+      '/v1/projects/' + project.projectId + '/context',
+      {
+        method: 'POST',
+        body: {
+          client_uuid: clientUuid,
+          type: LOOM_CONFIG.PUSH_TO_LOOM.TYPE,
+          content: content,
+          trust_tier: LOOM_CONFIG.PUSH_TO_LOOM.TRUST_TIER,
+          version: LOOM_CONFIG.PUSH_TO_LOOM.VERSION,
+          source_url: info.pageUrl,
+        },
+      }
+    );
+    console.log('[Loom] Pushed to', project.projectName || project.projectId, '- id:', result.id);
+  } catch (err) {
+    console.error('[Loom] Push-to-Loom failed:', err.message);
   }
 });
 
@@ -281,6 +342,13 @@ chrome.alarms.get('LOOM_CONFLICT_POLL', (alarm) => {
 
 // Also register on install/update to handle fresh installs
 chrome.runtime.onInstalled.addListener(() => {
+  // Register right-click context menu for Push-to-Loom
+  chrome.contextMenus.create({
+    id: LOOM_CONFIG.PUSH_TO_LOOM.MENU_ITEM_ID,
+    title: LOOM_CONFIG.PUSH_TO_LOOM.TITLE,
+    contexts: ['selection'],
+  });
+
   chrome.alarms.create('LOOM_CONFLICT_POLL', {
     periodInMinutes: LOOM_CONFIG.POLL_INTERVALS.CONFLICT_BG_ALARM_MINUTES,
   });

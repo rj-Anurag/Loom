@@ -38,6 +38,23 @@ const LOOM_CONFIG = {
     CONFLICT_BG_ALARM_MINUTES: 1,
   },
 
+  /** Context menu (right-click) configuration for Push-to-Loom. */
+  PUSH_TO_LOOM: {
+    MENU_ITEM_ID: 'loom-push-to-loom',
+    TITLE: 'Send to Loom as context',
+    /** Max content length matching the API limit. */
+    MAX_CONTENT_LENGTH: 100000,
+    /** Context unit type for pushed content. */
+    TYPE: 'decision',
+    /** Trust tier for user-initiated pushes. */
+    TRUST_TIER: 'user',
+    /** Starting version for new root context units. */
+    VERSION: 1,
+  },
+
+  /** Base path for the project dashboard (served by Loom server). */
+  DASHBOARD_BASE_PATH: '/v1/projects/{project_id}/dashboard',
+
   /** Storage keys. */
   STORAGE_KEYS: {
     CHAT_LINKS: 'loom_chat_links',       // { [chatUrl]: projectId }
