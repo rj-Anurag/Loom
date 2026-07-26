@@ -9,7 +9,9 @@ Provides:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,10 +20,12 @@ import redis.asyncio as redis_async
 
 from loom.api.auth import AuthContext, require_auth
 from loom.api.dependencies import get_redis
+from loom.schemas.events import ProjectEvent
 from loom.services.coordination.presence import (
     get_active_agents,
     record_heartbeat,
 )
+from loom.services.events.manager import connection_manager
 
 router = APIRouter()
 
@@ -78,6 +82,22 @@ async def agent_heartbeat(
         status=body.status,
         task_id=body.task_id,
     )
+
+    # ── Fire-and-forget broadcast ────────────────────────────────────────
+    if recorded and auth.project_id:
+        event = ProjectEvent(
+            type="agent_heartbeat",
+            project_id=str(auth.project_id),
+            payload={
+                "agent_id": str(agent_id),
+                "status": body.status,
+                "task_id": body.task_id,
+            },
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ).model_dump()
+        asyncio.create_task(
+            connection_manager.broadcast(str(auth.project_id), event)
+        )
 
     return {
         "status": "ok",
