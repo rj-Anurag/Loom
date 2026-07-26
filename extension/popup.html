@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Loom — Context Bridge</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://localhost:8000">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:8000">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -54,6 +54,12 @@
       color: #e0e0e0;
       font-size: 13px;
     }
+    .mono-input {
+      font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+    }
+    .linked-label { font-size: 13px; }
+    .muted-text { color: #888; }
+    .dim-text { color: #555; }
     button {
       width: 100%;
       padding: 10px;
@@ -285,19 +291,19 @@
   </div>
 
   <div id="link-section">
-    <label for="project-select">Link to project</label>
+    <label for="project-select">Select existing project</label>
     <select id="project-select">
       <option value="">— Loading projects —</option>
     </select>
-    <label for="new-project-name">Or create new project</label>
-    <input type="text" id="new-project-name" placeholder="Project name..." />
+    <label for="project-id-input">Or enter project ID</label>
+    <input type="text" id="project-id-input" placeholder="e.g. 6f4f8594-9237-4609-8378-a092de7604a1" class="mono-input" />
 
     <button id="link-btn" class="primary">Link Chat</button>
     <div id="error-msg" class="error-text hidden"></div>
   </div>
 
   <div id="linked-section" class="hidden">
-    <p style="font-size:13px;">
+    <p class="linked-label">
       ✅ Linked to <strong id="linked-project-name">—</strong>
     </p>
     <button id="unlink-btn" class="secondary">Unlink</button>
