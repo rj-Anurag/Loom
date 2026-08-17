@@ -14,6 +14,7 @@ from io import StringIO
 from typing import Any
 
 import pytest
+import pytest_asyncio
 from starlette.testclient import TestClient
 
 from loom.models import Agent, Project

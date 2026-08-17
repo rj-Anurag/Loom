@@ -29,18 +29,12 @@
   const agentsList = document.getElementById('agents-list');
   const agentCountBadge = document.getElementById('agent-count-badge');
   const agentsSectionHeader = document.getElementById('agents-section-header');
-  const conflictsList = document.getElementById('conflicts-list');
-  const conflictCountBadge = document.getElementById('conflict-count-badge');
-  const conflictsSectionHeader = document.getElementById('conflicts-section-header');
 
   // Polling state
   let agentsPollInterval = null;
-  let conflictsPollInterval = null;
   let timeTickerInterval = null;
   let agentsSectionExpanded = true;
-  let conflictsSectionExpanded = true;
   let cachedAgents = [];
-  let cachedConflicts = [];
 
   // ── Initialisation ──────────────────────────────────────────────────────
 
@@ -172,40 +166,6 @@
     agentsList.innerHTML = html;
   }
 
-  // ── Conflict Rendering ────────────────────────────────────────────────────
-
-  function renderConflicts(conflicts) {
-    cachedConflicts = conflicts || [];
-    const count = cachedConflicts.length;
-    conflictCountBadge.textContent = count;
-
-    if (count === 0) {
-      conflictsList.innerHTML = '<div class="activity-empty">No pending conflicts.</div>';
-      return;
-    }
-
-    var html = '';
-    for (var i = 0; i < conflicts.length; i++) {
-      var conflict = conflicts[i];
-      var created = conflict.created_at
-        ? relativeTime(conflict.created_at)
-        : '\u2014';
-      var type = conflict.conflict_type || 'unknown';
-
-      html +=
-        '<div class="conflict-item">' +
-          '<div class="conflict-type">\u26A0\uFE0F ' + escapeHtml(type) + '</div>' +
-          '<div class="conflict-meta">' +
-            '<span>Created: <span class="conflict-time" data-timestamp="' + escapeHtml(conflict.created_at || '') + '">' + created + '</span></span>' +
-            (conflict.context_unit_id
-              ? '<span class="dim-text">ID: ' + escapeHtml(conflict.context_unit_id.slice(0, 8)) + '\u2026</span>'
-              : '') +
-          '</div>' +
-        '</div>';
-    }
-    conflictsList.innerHTML = html;
-  }
-
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   /**
@@ -255,21 +215,6 @@
     }
   }
 
-  async function fetchConflicts() {
-    if (!currentlyLinkedProjectId) return;
-    try {
-      const resp = await chrome.runtime.sendMessage({
-        type: 'GET_CONFLICTS',
-        projectId: currentlyLinkedProjectId,
-      });
-      if (!resp?.error) {
-        renderConflicts(resp?.conflicts || []);
-      }
-    } catch (err) {
-      console.warn('[Loom] Conflict poll failed:', err.message);
-    }
-  }
-
   /**
    * Refresh all displayed relative timestamps without re-fetching.
    */
@@ -278,25 +223,17 @@
       const ts = el.getAttribute('data-timestamp');
       el.textContent = relativeTime(ts);
     });
-    // Update conflict created timestamps without full DOM rebuild
-    document.querySelectorAll('.conflict-item .conflict-meta .conflict-time[data-timestamp]').forEach(function (el) {
-      const ts = el.getAttribute('data-timestamp');
-      el.textContent = relativeTime(ts);
-    });
   }
 
   function startPolling() {
     stopPolling();
     fetchAgentPresence();
-    fetchConflicts();
     agentsPollInterval = setInterval(fetchAgentPresence, LOOM_CONFIG.POLL_INTERVALS.AGENT_PRESENCE_POPUP_MS);
-    conflictsPollInterval = setInterval(fetchConflicts, LOOM_CONFIG.POLL_INTERVALS.CONFLICT_POPUP_MS);
     timeTickerInterval = setInterval(refreshRelativeTimes, 1000);
   }
 
   function stopPolling() {
     if (agentsPollInterval) { clearInterval(agentsPollInterval); agentsPollInterval = null; }
-    if (conflictsPollInterval) { clearInterval(conflictsPollInterval); conflictsPollInterval = null; }
     if (timeTickerInterval) { clearInterval(timeTickerInterval); timeTickerInterval = null; }
   }
 
@@ -328,20 +265,13 @@
     if (arrow) arrow.classList.toggle('expanded', agentsSectionExpanded);
   });
 
-  conflictsSectionHeader.addEventListener('click', function () {
-    conflictsSectionExpanded = !conflictsSectionExpanded;
-    const arrow = conflictsSectionHeader.querySelector('.section-arrow');
-    conflictsList.style.display = conflictsSectionExpanded ? '' : 'none';
-    if (arrow) arrow.classList.toggle('expanded', conflictsSectionExpanded);
-  });
-
   // ── Activity Panel Toggle ──────────────────────────────────────────────────
 
   toggleActivityBtn.addEventListener('click', function () {
     const isHidden = activityPanel.classList.toggle('hidden');
     toggleActivityBtn.textContent = isHidden ? '\uD83D\uDCCA' : '\uD83D\uDCCB';
     toggleActivityBtn.title = isHidden
-      ? 'Show agent activity & conflicts'
+      ? 'Show agent activity'
       : 'Hide activity panel';
     if (isHidden) {
       stopPolling();

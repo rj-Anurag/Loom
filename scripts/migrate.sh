@@ -24,10 +24,12 @@ ensure_migrations_table() {
 
 apply_migration() {
     local file="$1"
-    echo "  Applying: $file"
-    psql_loom -f "$file" 2>/dev/null
+    local filename
+    filename=$(basename "$file")
+    echo "  Applying: $filename"
+    cat "$file" | psql_loom 2>/dev/null
     psql_loom -c "
-        INSERT INTO _migrations (filename) VALUES ('$file');
+        INSERT INTO _migrations (filename) VALUES ('$filename');
     " 2>/dev/null
 }
 
