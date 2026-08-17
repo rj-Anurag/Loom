@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from loom.api.routers import agents, branches, conflicts, context, events, extension, projects, tasks
 
@@ -115,6 +116,8 @@ app.include_router(projects.router, prefix="/v1/projects", tags=["projects"])
 app.include_router(extension.router, tags=["extension"])
 app.include_router(branches.router, prefix="/v1/projects", tags=["branches"])
 app.include_router(tasks.router, prefix="/v1/projects", tags=["tasks"])
+
+app.mount("/static", StaticFiles(directory="loom/web"), name="static")
 
 
 @app.get("/health")
