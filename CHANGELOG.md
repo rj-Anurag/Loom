@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — 2026-08-24
+
+### Fixed & Enhanced
+
+- **Extension Chat History Sync & Dashboard Visualization**:
+  - `extension/content.js`: Rescan and sync all pre-existing DOM chat messages upon linking a chat session to a Loom project.
+  - `loom/services/context/service.py`: Preserved timestamp sequence for chronological context reads when no search query is specified (preventing score-based role splitting).
+  - `loom/web/dashboard.html`: Enhanced dashboard context feed with distinct **👤 Human Message** vs **🤖 AI Message** styling, multi-line pre-wrap rendering, expandable message toggles, and conversation flow sorting.
+
 ## v0.1.0 — 2026-07-24
 
 ### Added

@@ -20,25 +20,6 @@ pytestmark = pytest.mark.asyncio
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
-@pytest_asyncio.fixture
-async def redis_client():
-    """Provide a Redis client pointing at the test/Dev Redis instance.
-
-    Skips the test if Redis is unreachable.
-    """
-    import redis.asyncio as redis_async
-
-    from loom.config import settings
-
-    r = redis_async.from_url(settings.redis_url, decode_responses=True)
-    try:
-        await r.ping()
-    except Exception as exc:
-        pytest.skip(f"Redis unreachable: {exc}")
-    # Flush any stale data from previous test runs
-    await r.flushdb()
-    yield r
-    await r.aclose()
 
 
 @pytest_asyncio.fixture

@@ -48,22 +48,46 @@
   }
   .agent-list li:last-child { border-bottom: none; }
   .agent-id { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8125rem; }
-  .context-list { list-style: none; }
-  .context-list li {
-    padding: 10px 0; border-bottom: 1px solid #1e293b;
+  .context-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+  .context-item {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 14px 16px;
+    transition: border-color 0.15s ease;
   }
-  .context-list li:last-child { border-bottom: none; }
+  .context-item.role-human { border-left: 4px solid #3b82f6; }
+  .context-item.role-ai { border-left: 4px solid #a855f7; }
+  .context-item.role-other { border-left: 4px solid #64748b; }
+  .context-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px; font-size: 0.8125rem;
+  }
   .context-type {
-    display: inline-block; font-size: 0.75rem; font-weight: 500;
-    padding: 1px 6px; border-radius: 3px; margin-bottom: 4px;
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px;
   }
-  .context-type.type-user { background: #1e3a5f; color: #93c5fd; }
-  .context-type.type-ai { background: #3b1f4e; color: #d8b4fe; }
-  .context-preview {
-    font-size: 0.875rem; color: #cbd5e1;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  .context-type.type-user { background: #1e3a8a; color: #bfdbfe; border: 1px solid #3b82f6; }
+  .context-type.type-ai { background: #581c87; color: #e9d5ff; border: 1px solid #a855f7; }
+  .context-type.type-other { background: #1e293b; color: #94a3b8; border: 1px solid #475569; }
+  .context-body {
+    font-size: 0.875rem; color: #e2e8f0; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word; font-family: inherit;
   }
-  .context-meta { font-size: 0.75rem; color: #6b7280; margin-top: 4px; }
+  .context-body.collapsed {
+    max-height: 120px; overflow: hidden; position: relative;
+  }
+  .context-body.collapsed::after {
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 40px;
+    background: linear-gradient(transparent, #0f172a);
+  }
+  .expand-btn {
+    background: transparent; border: none; color: #60a5fa;
+    font-size: 0.75rem; cursor: pointer; margin-top: 6px; padding: 2px 0;
+    font-weight: 500; display: inline-block;
+  }
+  .expand-btn:hover { text-decoration: underline; }
+  .context-meta { font-size: 0.75rem; color: #64748b; }
   .empty-state { color: #6b7280; font-style: italic; font-size: 0.875rem; }
   .loading { color: #6b7280; font-size: 0.875rem; }
   .error-state { color: #fca5a5; font-size: 0.875rem; }
@@ -78,6 +102,15 @@
   .conflict-item:last-child { border-bottom: none; }
   .conflict-type { font-size: 0.8125rem; color: #fca5a5; }
   .conflict-time { font-size: 0.75rem; color: #6b7280; }
+  .context-controls {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .sort-btn {
+    background: #1e293b; color: #94a3b8; border: 1px solid #334155;
+    padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer;
+  }
+  .sort-btn:hover { background: #334155; color: #f1f5f9; }
 </style>
 </head>
 <body>
@@ -97,7 +130,10 @@
     </div>
   </div>
   <div class="card" id="context-card">
-    <h2>Recent Context</h2>
+    <div class="context-controls">
+      <h2>Chat History & Context</h2>
+      <button id="sort-toggle-btn" class="sort-btn">Sort: Newest First</button>
+    </div>
     <div id="context-content"><span class="loading">Loading...</span></div>
   </div>
 </div>
@@ -123,6 +159,7 @@
 
   // ── Helpers ───────────────────────────────────────────────────────────
   const API_BASE = window.location.origin;
+  let contextSortAscending = false;
 
   async function api(url) {
     const res = await fetch(API_BASE + url, {
@@ -139,6 +176,45 @@
     const d = document.createElement('div');
     d.textContent = text;
     return d.innerHTML;
+  }
+
+  function parseMessageRole(u) {
+    var rawContent = u.content || '';
+    if (/^(User|Human|user|human):/i.test(rawContent)) {
+      return {
+        roleLabel: 'Human Message',
+        roleClass: 'role-human',
+        typeClass: 'type-user',
+        icon: '👤',
+        bodyText: rawContent.replace(/^(User|Human|user|human):\s*/i, '')
+      };
+    }
+    if (/^(AI|Assistant|ai|assistant):/i.test(rawContent)) {
+      return {
+        roleLabel: 'AI Message',
+        roleClass: 'role-ai',
+        typeClass: 'type-ai',
+        icon: '🤖',
+        bodyText: rawContent.replace(/^(AI|Assistant|ai|assistant):\s*/i, '')
+      };
+    }
+    if (u.trust_tier === 'user') {
+      return {
+        roleLabel: 'Human Message',
+        roleClass: 'role-human',
+        typeClass: 'type-user',
+        icon: '👤',
+        bodyText: rawContent
+      };
+    }
+    var typeLabel = u.type ? u.type.toUpperCase() : 'AGENT';
+    return {
+      roleLabel: typeLabel,
+      roleClass: 'role-other',
+      typeClass: 'type-other',
+      icon: '⚡',
+      bodyText: rawContent
+    };
   }
 
   // ── Extract project_id from path ──────────────────────────────────────
@@ -196,29 +272,63 @@
       const ctx = await api('/v1/projects/' + projectId + '/context?budget=32000');
       const el = document.getElementById('context-content');
       if (!ctx || !ctx.units || ctx.units.length === 0) {
-        el.innerHTML = '<span class="empty-state">No context units</span>';
+        el.innerHTML = '<span class="empty-state">No context units captured yet for this project.</span>';
         return;
       }
-      const items = ctx.units.slice(0, 50).map(function(u) {
-        var content = u.content || '';
-        var preview = content.slice(0, 200);
+
+      var units = ctx.units.slice(0, 100);
+      if (contextSortAscending) {
+        units.reverse();
+      }
+
+      const items = units.map(function(u, idx) {
+        var parsed = parseMessageRole(u);
         var time = u.created_at ? new Date(u.created_at).toLocaleString() : '';
-        // Determine display type from the content prefix (User:/AI:)
-        var displayType = u.type || 'unknown';
-        var typeClass = '';
-        if (content.indexOf('AI:') === 0) { displayType = 'AI'; typeClass = 'type-ai'; }
-        else if (content.indexOf('User:') === 0) { displayType = 'User'; typeClass = 'type-user'; }
-        return '<li>'
-          + '<div class="context-type ' + escapeHtml(typeClass) + '">' + escapeHtml(displayType) + '</div>'
-          + '<div class="context-preview">' + escapeHtml(preview) + '</div>'
-          + '<div class="context-meta">' + escapeHtml(time) + ' &middot; score: ' + (u.relevance_score || 0) + '</div>'
+        var isLong = parsed.bodyText.length > 350;
+        var bodyClass = isLong ? 'context-body collapsed' : 'context-body';
+        var bodyId = 'ctx-body-' + idx;
+        var btnHtml = isLong ? '<button class="expand-btn" data-target="' + bodyId + '">+ Show full message</button>' : '';
+
+        return '<li class="context-item ' + escapeHtml(parsed.roleClass) + '">'
+          + '<div class="context-header">'
+          +   '<span class="context-type ' + escapeHtml(parsed.typeClass) + '">' + parsed.icon + ' ' + escapeHtml(parsed.roleLabel) + '</span>'
+          +   '<span class="context-meta">' + escapeHtml(time) + ' &middot; Tier: ' + escapeHtml(u.trust_tier || 'agent') + '</span>'
+          + '</div>'
+          + '<div id="' + bodyId + '" class="' + bodyClass + '">' + escapeHtml(parsed.bodyText) + '</div>'
+          + btnHtml
           + '</li>';
       }).join('');
+
       el.innerHTML = '<ul class="context-list">' + items + '</ul>';
+
+      // Attach event listeners to expand/collapse buttons
+      document.querySelectorAll('.expand-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var targetId = btn.getAttribute('data-target');
+          var targetEl = document.getElementById(targetId);
+          if (targetEl) {
+            var isCollapsed = targetEl.classList.contains('collapsed');
+            if (isCollapsed) {
+              targetEl.classList.remove('collapsed');
+              btn.textContent = '- Collapse message';
+            } else {
+              targetEl.classList.add('collapsed');
+              btn.textContent = '+ Show full message';
+            }
+          }
+        });
+      });
     } catch (err) {
       document.getElementById('context-content').innerHTML = '<span class="error-state">' + escapeHtml(err.message) + '</span>';
     }
   }
+
+  // Sort toggle handler
+  document.getElementById('sort-toggle-btn').addEventListener('click', function() {
+    contextSortAscending = !contextSortAscending;
+    this.textContent = contextSortAscending ? 'Sort: Oldest First (Conversation Flow)' : 'Sort: Newest First';
+    loadContext();
+  });
 
   async function loadConflicts() {
     try {

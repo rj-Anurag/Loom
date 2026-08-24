@@ -630,8 +630,9 @@ async def read_context(
             "relevance_score": round(score, 4),
         })
 
-    # Sort by score descending
-    scored.sort(key=lambda u: u["relevance_score"], reverse=True)
+    # Sort by score descending only when a query was provided
+    if query:
+        scored.sort(key=lambda u: u["relevance_score"], reverse=True)
 
     # ── Batch-load parent edges ─────────────────────────────────────────
     unit_ids = [uuid.UUID(u["id"]) for u in scored]

@@ -263,6 +263,7 @@
       });
       if (response && response.linked) {
         console.log('[Loom] Chat linked to project:', response.projectId);
+        document.querySelectorAll('[data-loom-synced]').forEach(function (el) { delete el.dataset.loomSynced; });
         stopObserver();
         startObserver();
       } else {
@@ -342,6 +343,7 @@
     if (msg.type === 'LOOM_LINKED') {
       console.log('[Loom] Received LOOM_LINKED:', msg.projectName);
       showLinkedConfirmation(msg.projectName || 'project');
+      document.querySelectorAll('[data-loom-synced]').forEach(function (el) { delete el.dataset.loomSynced; });
       stopObserver();
       startObserver();
       sendResponse({ ok: true });
