@@ -287,8 +287,12 @@
       console.warn('[Loom] No project linked — cannot open dashboard');
       return;
     }
-    const creds = await Storage.getCredentials();
-    const apiKey = creds ? creds.api_key : LOOM_CONFIG.DEFAULT_API_KEY;
+    const linkInfo = await Storage.getProjectForChat(currentTabUrl);
+    let apiKey = linkInfo?.apiKey;
+    if (!apiKey) {
+      const creds = await Storage.getCredentials();
+      apiKey = creds ? creds.api_key : LOOM_CONFIG.DEFAULT_API_KEY;
+    }
     const path = LOOM_CONFIG.DASHBOARD_BASE_PATH.replace('{project_id}', currentlyLinkedProjectId);
     chrome.tabs.create({ url: LOOM_CONFIG.LOOM_SERVER_URL + path + '#token=' + apiKey });
   });
@@ -417,7 +421,10 @@
 
       // Store link locally
       if (data.chat_url) {
-        await Storage.setChatLink(data.chat_url, projectId, projectName);
+        if (data.api_key) {
+          await Storage.setCredentials(data.api_key, data.api_key);
+        }
+        await Storage.setChatLink(data.chat_url, projectId, projectName, data.api_key);
       }
 
       // Notify content script

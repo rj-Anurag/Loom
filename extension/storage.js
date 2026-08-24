@@ -25,16 +25,17 @@ const Storage = {
   },
 
   /**
-   * Store a chat URL → { projectId, projectName } mapping.
+   * Store a chat URL → { projectId, projectName, apiKey } mapping.
    * @param {string} chatUrl
    * @param {string} projectId
    * @param {string} [projectName]
+   * @param {string} [apiKey]
    */
-  async setChatLink(chatUrl, projectId, projectName) {
+  async setChatLink(chatUrl, projectId, projectName, apiKey) {
     const key = LOOM_CONFIG.STORAGE_KEYS.CHAT_LINKS;
     const result = await chrome.storage.local.get(key);
     const links = result[key] || {};
-    links[chatUrl] = { projectId, projectName: projectName || projectId };
+    links[chatUrl] = { projectId, projectName: projectName || projectId, apiKey: apiKey || null };
     await chrome.storage.local.set({ [key]: links });
   },
 

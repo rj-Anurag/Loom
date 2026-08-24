@@ -127,9 +127,12 @@ const MESSAGE_HANDLERS = {
       },
     });
 
-    // Persist the link locally
+    // Persist the link locally and save project api_key credentials
     if (data.chat_url) {
-      await Storage.setChatLink(data.chat_url, msg.projectId, msg.projectName);
+      if (data.api_key) {
+        await Storage.setCredentials(data.api_key, data.api_key);
+      }
+      await Storage.setChatLink(data.chat_url, msg.projectId, msg.projectName, data.api_key);
     }
 
     return data;

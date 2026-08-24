@@ -8,8 +8,9 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.models.projects import Project
+from loom.models.agents import Agent
 from loom.models.chat_links import ChatLink
+from loom.models.projects import Project
 
 
 async def link_chat(
@@ -29,6 +30,18 @@ async def link_chat(
     if project is None:
         raise ValueError("PROJECT_NOT_FOUND")
 
+    # Get or create a browser agent for this project to ensure a valid api_key is returned
+    agent_res = await session.execute(
+        select(Agent).where(Agent.project_id == project.id, Agent.kind == "browser")
+    )
+    agent = agent_res.scalars().first()
+    if agent is None:
+        agent = Agent(project_id=project.id, kind="browser", name="Chrome Extension")
+        session.add(agent)
+        await session.commit()
+        await session.refresh(agent)
+    api_key = str(agent.id)
+
     # Check if already linked (idempotent)
     result = await session.execute(
         select(ChatLink).where(ChatLink.chat_url == chat_url)
@@ -42,6 +55,7 @@ async def link_chat(
             "title": existing.title,
             "platform": existing.platform,
             "linked_at": existing.linked_at.isoformat() if existing.linked_at else "",
+            "api_key": api_key,
         }
 
     # Create the link
@@ -63,4 +77,6 @@ async def link_chat(
         "title": link.title,
         "platform": link.platform,
         "linked_at": link.linked_at.isoformat() if link.linked_at else "",
+        "api_key": api_key,
     }
+
