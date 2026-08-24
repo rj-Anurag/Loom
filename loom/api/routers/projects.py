@@ -60,6 +60,7 @@ class LinkChatResponse(BaseModel):
     title: str
     platform: str
     linked_at: str
+    api_key: str = ""
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
