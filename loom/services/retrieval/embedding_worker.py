@@ -22,15 +22,14 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from loom.models.context_units import ContextUnit
-
 from loom.config import settings
+from loom.models.context_units import ContextUnit
 from loom.services.retrieval.providers import from_config
 from loom.services.retrieval.queue import (
     DLQ_KEY,
     INPROGRESS_KEY,
-    QUEUE_KEY,
     MAX_ATTEMPTS,
+    QUEUE_KEY,
     get_redis,
 )
 
@@ -86,7 +85,7 @@ async def process_embedding_job(
     call it with a synthetic unit without running the full worker loop.
     """
     # Fetch the unit to ensure it exists
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(settings.async_database_url, echo=False)
     async_session_factory = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
@@ -119,8 +118,9 @@ async def process_embedding_job(
                 )
                 return
 
-            # Validate dimension (LocalProvider.DIMENSION vs OpenAIProvider.DIMENSION)
-            expected_dim = 384 if settings.embedding_provider.lower() == "local" else 1536
+            # All providers must produce vectors compatible with the shared
+            # pgvector column. LocalProvider pads its native 384 dimensions.
+            expected_dim = 1536
             if len(vector) != expected_dim:
                 raise ValueError(
                     f"Expected {expected_dim}-dim vector, got {len(vector)} dim "
@@ -184,6 +184,8 @@ async def main() -> None:
             )
             if job_data is None:
                 continue
+            if isinstance(job_data, bytes):
+                job_data = job_data.decode("utf-8")
 
             job: dict[str, Any] = json.loads(job_data)
             unit_id = uuid.UUID(job["context_unit_id"])

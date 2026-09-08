@@ -1,16 +1,22 @@
-from typing import Optional
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from loom.config import settings
 
-_engine: Optional[AsyncEngine] = None
-_session_factory: Optional[async_sessionmaker[AsyncSession]] = None
+_engine: AsyncEngine | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def _init_db():
+def _init_db() -> None:
     """Lazy-initialize the engine and session factory on the calling event loop.
 
     Uses ``NullPool`` so every session opens a new asyncpg connection (no
@@ -22,16 +28,17 @@ def _init_db():
     if _engine is not None:
         return
     _engine = create_async_engine(
-        settings.database_url,
+        settings.async_database_url,
         echo=False,
         poolclass=NullPool,
+        connect_args={"timeout": settings.database_connect_timeout_seconds},
     )
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 # Module-level __getattr__ preserves existing `from loom.db import async_session_factory` imports
 # while deferring engine creation until first use (fixes asyncpg + TestClient event loop conflict).
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name == "engine":
         _init_db()
         assert _engine is not None
@@ -47,7 +54,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_session():
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     _init_db()
     factory = _session_factory
     assert factory is not None

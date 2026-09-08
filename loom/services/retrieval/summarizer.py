@@ -136,8 +136,16 @@ async def run_summarization_cycle(
         Result with the count of summaries created.
     """
     # Resolve parameters from settings if not overridden
-    _window = window_minutes if window_minutes is not None else settings.summarization_window_minutes
-    _max_units = max_units_per_group if max_units_per_group is not None else settings.summarization_max_units_per_group
+    _window = (
+        window_minutes
+        if window_minutes is not None
+        else settings.summarization_window_minutes
+    )
+    _max_units = (
+        max_units_per_group
+        if max_units_per_group is not None
+        else settings.summarization_max_units_per_group
+    )
     _min_units = min_units if min_units is not None else settings.summarization_min_units
 
     # Resolve LLM provider
@@ -307,7 +315,7 @@ async def run_summarization_loop() -> None:
     loop.add_signal_handler(signal.SIGTERM, _handle_sigterm, signal.SIGTERM, None)
 
     # Create DB engine + session factory
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(settings.async_database_url, echo=False)
     async_session_factory = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )

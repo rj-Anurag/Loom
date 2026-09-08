@@ -1,5 +1,51 @@
 # Changelog
 
+## Unreleased
+
+- Added a Render Blueprint for the free MVP deployment path with FastAPI,
+  PostgreSQL 16, and Redis-compatible Key Value wiring.
+- Added a hosted migration runner and production API entrypoint so migrations
+  run through `DATABASE_URL` before Uvicorn starts.
+- Normalized standard hosted Postgres URLs to SQLAlchemy's asyncpg driver URL
+  and declared the required `pgvector` Python dependency.
+- Backfill complete pre-existing browser conversations when linking by combining
+  mixed-generation chat selectors, materializing lazy-loaded older turns, and
+  using project-scoped replay IDs when a conversation moves between projects.
+- Fixed extension linking after access verification, including the conflicting
+  dropdown/direct-ID state shown by the popup.
+- Made initial chat-history capture reliable for already-open tabs, retry-safe
+  on extension messaging failures, and idempotent without dropping repeated
+  messages at different conversation positions.
+- Added a project-authorized, cursor-paginated context history endpoint so the
+  dashboard can display the complete archive without a 32k-token/100-item cap.
+- Included dashboard and migration assets in built Python wheels.
+- Moved the heavyweight local sentence-transformers/PyTorch stack to the
+  `local-embeddings` optional extra so the default API image stays lean.
+- Aligned the documented `local` embedding-provider setting with runtime
+  configuration, retained the legacy alias, and reject unknown providers
+  instead of silently falling back to test embeddings.
+- Hardened agent authentication with opaque hashed API keys while retaining
+  opt-in legacy UUID-token compatibility for existing installations.
+- Enforced project ownership for context parents, tasks, branches, conflicts,
+  and chat links; branch merges now use explicit `branch_id` membership.
+- Persisted context provenance URLs and full event-log content for reliable
+  projection rebuilds, with migration `014_add_context_source_url.sql`.
+- Aligned local embeddings with the shared 1536-dimensional pgvector schema.
+- Removed the committed extension credential and refreshed the dashboard with a
+  Vercel/shadcn-inspired dark visual system.
+- Added native Claude Code MCP plus `/loom` installation, Codex MCP/`AGENTS.md`
+  setup, and a single `loom init` project/key onboarding flow.
+- Added semantic capture adapters for Claude, ChatGPT, DeepSeek, and Perplexity,
+  including role-preserving idempotency and an offline retry queue.
+- Protected first-run credential bootstrap with an operator token in production
+  and restricted project creation to that identity while retaining
+  zero-configuration local development.
+- Added a production container image, deterministic migration rollback scripts,
+  dependency readiness checks, and replaced the fake deploy workflow with an
+  executable image validation job.
+- Added a vendor-neutral production Compose topology for the API, embedding
+  worker, and summarizer; application containers now run as a non-root user.
+
 ## Unreleased — 2026-08-24
 
 ### Fixed & Enhanced
