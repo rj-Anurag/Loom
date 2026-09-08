@@ -46,8 +46,19 @@ def get_redis() -> redis_async.Redis:
         _redis = redis_async.from_url(
             settings.redis_url,
             decode_responses=True,
+            socket_connect_timeout=settings.redis_connect_timeout_seconds,
+            socket_timeout=settings.redis_socket_timeout_seconds,
         )
     return _redis
+
+
+async def close_redis() -> None:
+    """Close and clear the process-wide Redis client during app shutdown."""
+    global _redis  # noqa: PLW0603
+    client = _redis
+    _redis = None
+    if client is not None:
+        await client.aclose()
 
 
 # ── Enqueue ────────────────────────────────────────────────────────────────────
