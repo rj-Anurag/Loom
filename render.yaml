@@ -6,7 +6,6 @@ services:
     dockerfilePath: ./infra/Dockerfile
     dockerCommand: python -m loom.api.start
     healthCheckPath: /health
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: DATABASE_URL
         fromDatabase:
