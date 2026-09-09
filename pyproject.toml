@@ -51,6 +51,7 @@ include = ["loom*", "agents*"]
 
 [tool.setuptools.package-data]
 loom = [
+    "browser_extension/*",
     "web/**/*.html",
     "web/**/*.css",
     "services/context/migrations/*.sql",
