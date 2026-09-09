@@ -9,15 +9,12 @@ def load_dotenv(path: str | None = None) -> None:
 
     Does not override already-set environment variables.
     """
-    if path is None:
-        path = Path.cwd() / ".env"
-    else:
-        path = Path(path)
+    env_path = Path.cwd() / ".env" if path is None else Path(path)
 
-    if not path.exists():
+    if not env_path.exists():
         return
 
-    for line in path.read_text().splitlines():
+    for line in env_path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue

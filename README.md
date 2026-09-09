@@ -20,6 +20,45 @@ to that same ID with its own project-scoped API key.
 
 See [loom-architecture.md](loom-architecture.md) for the detailed architecture.
 
+## Install Loom as a user
+
+Python 3.11 or newer is required. On macOS or Linux, install the `loom` command
+directly from GitHub without cloning the repository:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rj-Anurag/Loom/main/install.sh | bash
+```
+
+The installer uses `pipx` so Loom receives an isolated Python environment. It
+installs `pipx` with Homebrew when Homebrew is available, or into the current
+Python user's site directory otherwise. It never uses `sudo`. Restart the
+terminal if `loom` is not immediately on `PATH`, then verify the installation:
+
+```bash
+loom --help
+```
+
+The equivalent manual commands are:
+
+```bash
+brew install pipx       # macOS; skip when pipx is already installed
+pipx ensurepath
+pipx install "git+https://github.com/rj-Anurag/Loom.git"
+```
+
+To upgrade or uninstall:
+
+```bash
+pipx upgrade loom
+pipx uninstall loom
+```
+
+This installs the client tools only. The hosted API owns the database and
+Redis services, so users do not need Docker or a local server. Until Loom has
+self-service accounts, a project owner must provide collaborators with a
+project-scoped `LOOM_PROJECT_ID` and `LOOM_API_KEY`; never share the Render
+`BOOTSTRAP_TOKEN`.
+
 ## Local setup
 
 Requirements: Python 3.11+, Docker with Compose, and Google Chrome or another
@@ -94,9 +133,21 @@ used to create unlimited projects.
 
 ## Browser extension
 
+The CLI includes the complete extension, so a user does not need to clone Loom.
+Install a credential-free copy configured for the hosted MVP:
+
+```bash
+loom extension install --api-url https://loom-api-zzy0.onrender.com
+loom extension status --check-api
+loom extension path
+```
+
+Then:
+
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
-3. Choose **Load unpacked** and select this repository's `extension/` folder.
+3. Choose **Load unpacked** and select the directory printed by
+   `loom extension path` (normally `~/.loom/extension`).
 4. Open a conversation on Claude, ChatGPT, DeepSeek, or Perplexity.
 5. Open Loom from the browser toolbar.
 6. Under **Connect an existing project**, paste `LOOM_PROJECT_ID` and
@@ -114,9 +165,27 @@ extension background worker. The popup shows whether anything is still queued.
 The dashboard reads the complete paginated history instead of the token-limited
 agent retrieval view.
 
-For a hosted server, change `LOOM_SERVER_URL` in `extension/config.js` and the
-localhost host permissions in `extension/manifest.json` before packaging the
-extension. Do not put an API key or bootstrap token in the extension bundle.
+To reconfigure an existing install for another Loom server, repeat the install
+with `--force`. Loom validates the server URL, updates Chrome's host permission,
+and preserves the old extension directory as a backup:
+
+```bash
+loom extension install --api-url https://loom.example.com --force
+```
+
+To make a zip for private distribution or Chrome Web Store submission:
+
+```bash
+loom extension package \
+  --api-url https://loom-api-zzy0.onrender.com \
+  --output loom-extension.zip
+```
+
+The package command places `manifest.json` at the zip root and removes any
+default credential. Project API keys remain in Chrome's local extension storage
+after the user verifies access; they are never written into the distributed
+bundle. For repository development, the original `extension/` directory can
+still be loaded unpacked directly.
 
 ## Claude Code
 
@@ -313,12 +382,19 @@ project API key to `.env`. Keep `.env` private.
 
 ### Point the extension at the hosted API
 
-Before packaging or loading the extension for the hosted deployment:
+Install or refresh the unpacked extension for the hosted deployment:
 
-1. Set `LOOM_SERVER_URL` in `extension/config.js` to the Render API URL.
-2. Add the Render origin to `host_permissions` in `extension/manifest.json`.
-3. Reload the unpacked extension in `chrome://extensions`.
-4. Paste the hosted `LOOM_PROJECT_ID` and `LOOM_API_KEY`, verify access, and
+```bash
+loom extension install --api-url "$LOOM_API_URL" --force
+loom extension status --check-api
+loom extension path
+```
+
+Then:
+
+1. Open or reload the directory printed by `loom extension path` in
+   `chrome://extensions`.
+2. Paste the hosted `LOOM_PROJECT_ID` and `LOOM_API_KEY`, verify access, and
    link the chat.
 
 ### Hosted smoke test

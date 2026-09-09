@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added a no-clone `install.sh` flow that installs the Loom CLI through `pipx`
+  without requiring privileged shell access.
+- Added `loom extension install`, `path`, `status`, and `package` commands for
+  credential-free Chrome extension distribution, custom API origins,
+  recoverable upgrades, and Web Store-ready zip creation.
+- Bundled the complete Chrome extension inside the Python wheel so third-party
+  users no longer need a repository checkout to load the extension.
+- Kept extension onboarding compatible with legacy UUID credentials issued by
+  existing MVP deployments while preferring opaque `loom_` API keys.
 - Added a Render Blueprint for the free MVP deployment path with FastAPI,
   PostgreSQL 16, and Redis-compatible Key Value wiring.
 - Added a hosted migration runner and production API entrypoint so migrations

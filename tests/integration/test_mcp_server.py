@@ -6,14 +6,12 @@ Tests the MCP tools against the live API (via ASGI transport).
 from __future__ import annotations
 
 import os
-import uuid
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from loom.models import Agent, Project
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -65,6 +63,9 @@ class TestMCPTools:
         assert "write_context" in tool_names
         assert "get_project_summary" in tool_names
 
+        prompts = await mcp.list_prompts()
+        assert any(prompt.name == "loom" for prompt in prompts)
+
     @pytest.mark.asyncio
     async def test_read_context_no_query_returns_no_results(
         self,
@@ -73,6 +74,7 @@ class TestMCPTools:
     ) -> None:
         """read_context returns empty for a project with no context."""
         import httpx
+
         from loom.mcp.server import read_context
 
         # Set up env for the MCP server
@@ -95,6 +97,7 @@ class TestMCPTools:
             class MockAsyncClient(old_aclient):
                 def __init__(self, **kwargs):
                     from loom.api.main import app
+
                     super().__init__(transport=ASGITransport(app=app), base_url="http://test")
 
             httpx.AsyncClient = MockAsyncClient
@@ -125,6 +128,7 @@ class TestMCPTools:
     ) -> None:
         """Write context via MCP tool, then read it back."""
         import httpx
+
         from loom.mcp.server import read_context, write_context
 
         old_key = os.environ.get("LOOM_API_KEY")
@@ -137,6 +141,7 @@ class TestMCPTools:
         class MockAsyncClient(httpx.AsyncClient):
             def __init__(self, **kwargs):
                 from loom.api.main import app
+
                 super().__init__(transport=ASGITransport(app=app), base_url="http://test")
 
         old_aclient = httpx.AsyncClient
@@ -181,6 +186,7 @@ class TestMCPTools:
     ) -> None:
         """get_project_summary returns project info."""
         import httpx
+
         from loom.mcp.server import get_project_summary
 
         old_key = os.environ.get("LOOM_API_KEY")
@@ -193,6 +199,7 @@ class TestMCPTools:
         class MockAsyncClient(httpx.AsyncClient):
             def __init__(self, **kwargs):
                 from loom.api.main import app
+
                 super().__init__(transport=ASGITransport(app=app), base_url="http://test")
 
         old_aclient = httpx.AsyncClient
