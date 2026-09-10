@@ -153,8 +153,9 @@
   @keyframes loomPulse { 0%, 100% { opacity: .55; transform: scaleY(.82); } 50% { opacity: 1; transform: scaleY(1); } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
+<link rel="stylesheet" href="/static/shared/product.css">
 </head>
-<body>
+<body class="dashboard-page">
 <div class="container" id="app">
   <div id="project-header">
     <div class="header-main">
@@ -446,12 +447,9 @@
     if (!el) {
       el = document.createElement('div');
       el.id = 'ws-status';
-      el.style.cssText = 'position:fixed;bottom:8px;right:8px;font-size:0.7rem;padding:3px 7px;border-radius:4px;z-index:100;font-family:monospace';
       document.body.appendChild(el);
     }
     el.textContent = '\u25CB ' + state;
-    el.style.background = '#374151';
-    el.style.color = '#9ca3af';
   }
 
   function startPolling() {

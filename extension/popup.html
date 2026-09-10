@@ -1,406 +1,112 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Loom — Context Bridge</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: http:">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      width: 320px;
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
-      padding: 16px;
-    }
-    h1 {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .status {
-      background: #16213e;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 12px;
-      font-size: 13px;
-    }
-    .status.linked {
-      border-left: 3px solid #22c55e;
-    }
-    .status.unlinked {
-      border-left: 3px solid #f59e0b;
-    }
-    .status.error {
-      border-left: 3px solid #ef4444;
-    }
-    label {
-      display: block;
-      font-size: 12px;
-      color: #999;
-      margin-bottom: 4px;
-      margin-top: 8px;
-    }
-    select, input {
-      width: 100%;
-      padding: 8px;
-      border-radius: 6px;
-      border: 1px solid #444;
-      background: #0f3460;
-      color: #e0e0e0;
-      font-size: 13px;
-    }
-    .mono-input {
-      font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
-    }
-    .linked-label { font-size: 13px; }
-    .muted-text { color: #888; }
-    .dim-text { color: #555; }
-    button {
-      width: 100%;
-      padding: 10px;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      margin-top: 12px;
-    }
-    button.primary {
-      background: #4f46e5;
-      color: white;
-    }
-    button.primary:hover {
-      background: #4338ca;
-    }
-    button.primary:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    button.secondary {
-      background: transparent;
-      color: #999;
-      border: 1px solid #444;
-    }
-    .dashboard-btn {
-      margin-top: 4px;
-    }
-    .error-text {
-      color: #ef4444;
-      font-size: 12px;
-      margin-top: 8px;
-    }
-    .hidden {
-      display: none;
-    }
-    .account-card {
-      padding: 14px;
-      margin-bottom: 12px;
-      border: 1px solid #36333f;
-      border-radius: 12px;
-      background: #111116;
-    }
-    .account-card h2 { font-size: 14px; margin-bottom: 4px; }
-    .account-card p { color: #92909b; font-size: 12px; line-height: 1.45; }
-    .account-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .account-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 12px;
-      color: #aaa7b3;
-      font-size: 11px;
-    }
-    .account-bar button { width: auto; margin: 0; padding: 5px 9px; font-size: 11px; }
-    .spinner {
-      display: inline-block;
-      width: 12px; height: 12px;
-      border: 2px solid #444;
-      border-top-color: #4f46e5;
-      border-radius: 50%;
-      animation: spin 0.6s linear infinite;
-      margin-right: 6px;
-      vertical-align: middle;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    /* ── Icon Button ──────────────────────────────────────────── */
-    .icon-btn {
-      background: transparent;
-      border: 1px solid #444;
-      color: #e0e0e0;
-      border-radius: 6px;
-      padding: 4px 8px;
-      cursor: pointer;
-      font-size: 14px;
-      line-height: 1;
-    }
-    .icon-btn:hover {
-      background: #0f3460;
-    }
-
-    /* ── Activity Panel ───────────────────────────────────────── */
-    .activity-panel {
-      margin-top: 12px;
-      border-top: 1px solid #333;
-      padding-top: 8px;
-    }
-
-    .activity-section {
-      margin-bottom: 8px;
-    }
-
-    .activity-section-header {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 8px;
-      background: #16213e;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      user-select: none;
-    }
-    .activity-section-header:hover {
-      background: #1a2744;
-    }
-
-    .section-arrow {
-      font-size: 10px;
-      color: #888;
-      transition: transform 0.15s ease;
-      width: 12px;
-      text-align: center;
-    }
-    .section-arrow.expanded {
-      transform: rotate(90deg);
-    }
-
-    .section-badge {
-      margin-left: auto;
-      background: #333;
-      color: #ccc;
-      font-size: 11px;
-      padding: 1px 6px;
-      border-radius: 10px;
-      min-width: 18px;
-      text-align: center;
-    }
-    .section-badge.conflict-badge {
-      background: #7f1d1d;
-      color: #fca5a5;
-    }
-
-    .activity-section-body {
-      padding: 6px 0 6px 8px;
-      font-size: 12px;
-    }
-
-    .activity-empty {
-      color: #666;
-      font-style: italic;
-      padding: 8px 4px;
-    }
-
-    /* ── Agent Card ───────────────────────────────────────────── */
-    .agent-card {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      padding: 8px 8px;
-      margin-bottom: 4px;
-      background: #16213e;
-      border-radius: 6px;
-      border-left: 3px solid #666;
-    }
-    .agent-card.status-online  { border-left-color: #22c55e; }
-    .agent-card.status-idle    { border-left-color: #f59e0b; }
-    .agent-card.status-working { border-left-color: #3b82f6; }
-    .agent-card.status-blocked { border-left-color: #ef4444; }
-
-    .agent-name {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: 600;
-      font-size: 12px;
-      color: #e0e0e0;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .status-dot.online  { background: #22c55e; box-shadow: 0 0 4px #22c55e66; }
-    .status-dot.idle    { background: #f59e0b; }
-    .status-dot.working { background: #3b82f6; box-shadow: 0 0 4px #3b82f666; }
-    .status-dot.blocked { background: #ef4444; }
-    .status-dot.offline { background: #555; }
-
-    .agent-task {
-      color: #aaa;
-      font-size: 11px;
-      margin-left: 14px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .agent-meta {
-      display: flex;
-      gap: 12px;
-      margin-left: 14px;
-      font-size: 10px;
-      color: #777;
-    }
-    .agent-meta span {
-      display: flex;
-      align-items: center;
-      gap: 3px;
-    }
-    .agent-meta .label {
-      color: #555;
-    }
-    .agent-meta .time {
-      color: #999;
-    }
-
-    /* ── Conflict Item ────────────────────────────────────────── */
-    .conflict-item {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      padding: 6px 8px;
-      margin-bottom: 4px;
-      background: #1a1a2e;
-      border-radius: 6px;
-      border: 1px solid #333;
-      border-left: 3px solid #ef4444;
-      font-size: 11px;
-    }
-    .conflict-item .conflict-type {
-      font-weight: 600;
-      color: #fca5a5;
-    }
-    .conflict-item .conflict-meta {
-      color: #777;
-      font-size: 10px;
-      display: flex;
-      gap: 8px;
-    }
-  </style>
-  <link rel="stylesheet" href="popup.css" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; connect-src 'self' https: http:">
+  <link rel="stylesheet" href="popup.css">
 </head>
-<body>
-  <header class="app-header">
-    <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-    <div class="brand-copy">
-      <h1>Loom</h1>
-      <p>Shared agent context</p>
-    </div>
-    <button id="toggle-activity" class="icon-btn" title="Show agent activity and conflicts" aria-label="Toggle activity">⌁</button>
-  </header>
-
-  <div id="status" class="status unlinked">
-    <span id="status-text">Checking...</span>
-  </div>
-
-  <div id="account-section" class="account-card hidden">
-    <h2>Start with your Loom account</h2>
-    <p>Sign up once. Loom creates your first project and connects this extension automatically.</p>
-    <label for="account-email">Email</label>
-    <input type="email" id="account-email" placeholder="you@example.com" autocomplete="email" />
-    <label for="account-password">Password</label>
-    <input type="password" id="account-password" placeholder="At least 8 characters" autocomplete="current-password" />
-    <label for="account-display-name">Display name <span class="muted-text">(for signup)</span></label>
-    <input type="text" id="account-display-name" placeholder="Your name" maxlength="120" autocomplete="name" />
-    <div class="account-actions">
-      <button id="login-btn" class="secondary">Log in</button>
-      <button id="signup-btn" class="primary">Sign up</button>
-    </div>
-    <div id="account-error" class="error-text hidden"></div>
-  </div>
-
-  <div id="account-bar" class="account-bar hidden">
-    <span>Signed in as <strong id="account-name">—</strong></span>
-    <button id="logout-btn" class="secondary">Log out</button>
-  </div>
-
-  <div id="link-section" class="hidden">
-    <div class="section-kicker">Link this conversation</div>
-    <label for="project-select">Available project</label>
-    <select id="project-select">
-      <option value="">— Loading projects —</option>
-    </select>
-
-    <details class="disclosure">
-      <summary>Connect an existing project</summary>
-      <label for="project-id-input">Project ID</label>
-      <input type="text" id="project-id-input" placeholder="Project UUID" class="mono-input" autocomplete="off" />
-      <label for="project-key-input">Loom API key</label>
-      <input type="password" id="project-key-input" placeholder="loom_…" class="mono-input" autocomplete="off" />
-      <button id="connect-project-btn" class="secondary">Verify access</button>
-    </details>
-
-    <details class="disclosure">
-      <summary>Create a project</summary>
-      <label for="project-name-input">Project name</label>
-      <input type="text" id="project-name-input" placeholder="e.g. Loom" maxlength="120" />
-      <button id="create-project-btn" class="secondary">Create project</button>
-    </details>
-
-    <button id="link-btn" class="primary">Link conversation</button>
-    <div id="error-msg" class="error-text hidden"></div>
-  </div>
-
-  <div id="linked-section" class="hidden">
-    <div class="linked-card">
-      <span class="linked-orb" aria-hidden="true"></span>
-      <div><span>Live sync enabled</span><strong id="linked-project-name">—</strong></div>
-    </div>
-    <div id="sync-status" class="sync-status">All captured messages are synced</div>
-    <button id="dashboard-btn" class="primary dashboard-btn">Open dashboard</button>
-    <button id="unlink-btn" class="secondary">Unlink conversation</button>
-  </div>
-
-  <!-- ── Activity & Conflicts Panel ─────────────────────────────────────── -->
-  <div id="activity-panel" class="activity-panel hidden">
-
-    <!-- Agent Activity -->
-    <div class="activity-section">
-      <div class="activity-section-header" id="agents-section-header">
-        <span class="section-arrow">▶</span>
-        <span>Agent activity</span>
-        <span class="section-badge" id="agent-count-badge">0</span>
+<body class="popup-page">
+  <main class="app-shell">
+    <header class="app-header">
+      <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="brand-copy">
+        <h1>Loom</h1>
+        <p>Context bridge</p>
       </div>
-      <div class="activity-section-body" id="agents-list">
-        <div class="activity-empty">No project linked — agent activity available after linking.</div>
-      </div>
+      <button id="toggle-activity" class="icon-btn" title="Show agent activity and conflicts" aria-label="Toggle activity">⌁</button>
+    </header>
+
+    <div id="status" class="status unlinked" role="status" aria-live="polite">
+      <span id="status-text">Checking...</span>
     </div>
 
-    <!-- Conflicts -->
-    <div class="activity-section">
-      <div class="activity-section-header" id="conflicts-section-header">
-        <span class="section-arrow">▶</span>
-        <span>Conflicts</span>
-        <span class="section-badge conflict-badge" id="conflict-count-badge">0</span>
+    <section id="account-section" class="account-card hidden">
+      <div class="section-index"><span>01 / Account</span><span>New connection</span></div>
+      <h2>Bring your context with you.</h2>
+      <p>Sign up once. Loom creates your first project and connects this extension automatically.</p>
+      <label for="account-email">Email</label>
+      <input type="email" id="account-email" placeholder="you@example.com" autocomplete="email">
+      <label for="account-password">Password</label>
+      <input type="password" id="account-password" placeholder="At least 8 characters" autocomplete="current-password">
+      <label for="account-display-name">Display name <span class="muted-text">(for signup)</span></label>
+      <input type="text" id="account-display-name" placeholder="Your name" maxlength="120" autocomplete="name">
+      <div class="account-actions">
+        <button id="login-btn" class="secondary">Log in</button>
+        <button id="signup-btn" class="primary">Sign up</button>
       </div>
-      <div class="activity-section-body" id="conflicts-list">
-        <div class="activity-empty">No pending conflicts.</div>
-      </div>
+      <div id="account-error" class="error-text hidden" role="alert"></div>
+    </section>
+
+    <div id="account-bar" class="account-bar hidden">
+      <span>Signed in as <strong id="account-name">—</strong></span>
+      <button id="logout-btn" class="secondary">Log out</button>
     </div>
 
-  </div>
+    <section id="link-section" class="hidden">
+      <div class="section-index"><span>02 / Conversation</span><span>Ready to link</span></div>
+      <h2 class="section-title">Link this conversation</h2>
+      <label for="project-select">Available project</label>
+      <select id="project-select">
+        <option value="">— Loading projects —</option>
+      </select>
+
+      <details class="disclosure">
+        <summary>Connect an existing project</summary>
+        <label for="project-id-input">Project ID</label>
+        <input type="text" id="project-id-input" placeholder="Project UUID" class="mono-input" autocomplete="off">
+        <label for="project-key-input">Loom API key</label>
+        <input type="password" id="project-key-input" placeholder="loom_…" class="mono-input" autocomplete="off">
+        <button id="connect-project-btn" class="secondary">Verify access</button>
+      </details>
+
+      <details class="disclosure">
+        <summary>Create a project</summary>
+        <label for="project-name-input">Project name</label>
+        <input type="text" id="project-name-input" placeholder="e.g. Loom" maxlength="120">
+        <button id="create-project-btn" class="secondary">Create project</button>
+      </details>
+
+      <button id="link-btn" class="primary action-primary">Link conversation</button>
+      <div id="error-msg" class="error-text hidden" role="alert"></div>
+    </section>
+
+    <section id="linked-section" class="hidden">
+      <div class="section-index"><span>02 / Conversation</span><span>Connected</span></div>
+      <div class="linked-card">
+        <span class="linked-orb" aria-hidden="true"></span>
+        <div><span>Live sync enabled</span><strong id="linked-project-name">—</strong></div>
+      </div>
+      <div id="sync-status" class="sync-status">All captured messages are synced</div>
+      <button id="dashboard-btn" class="primary dashboard-btn">Open dashboard</button>
+      <button id="unlink-btn" class="secondary">Unlink conversation</button>
+    </section>
+
+    <aside id="activity-panel" class="activity-panel hidden">
+      <div class="activity-section">
+        <button type="button" class="activity-section-header" id="agents-section-header" aria-expanded="true">
+          <span class="section-arrow">▶</span>
+          <span>Agent activity</span>
+          <span class="section-badge" id="agent-count-badge">0</span>
+        </button>
+        <div class="activity-section-body" id="agents-list">
+          <div class="activity-empty">No project linked — agent activity available after linking.</div>
+        </div>
+      </div>
+
+      <div class="activity-section">
+        <button type="button" class="activity-section-header" id="conflicts-section-header" aria-expanded="true">
+          <span class="section-arrow">▶</span>
+          <span>Conflicts</span>
+          <span class="section-badge conflict-badge" id="conflict-count-badge">0</span>
+        </button>
+        <div class="activity-section-body" id="conflicts-list">
+          <div class="activity-empty">No pending conflicts.</div>
+        </div>
+      </div>
+    </aside>
+  </main>
 
   <script src="config.js"></script>
   <script src="shared.js"></script>
