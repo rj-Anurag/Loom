@@ -17,3 +17,12 @@ test('extension can inject its scanner into an already-open conversation', () =>
   const popup = fs.readFileSync(path.join(root, 'extension/popup.html'), 'utf8');
   assert.ok(popup.indexOf('shared.js') < popup.indexOf('popup.js'));
 });
+
+test('extension declares Chrome Identity Google OAuth', () => {
+  assert.ok(manifest.permissions.includes('identity'));
+  assert.equal(typeof manifest.key, 'string');
+  assert.equal(manifest.oauth2.scopes.includes('openid'), true);
+  assert.equal(manifest.oauth2.scopes.includes('email'), true);
+  assert.equal(manifest.oauth2.scopes.includes('profile'), true);
+  assert.match(manifest.oauth2.client_id, /googleusercontent\.com$/);
+});

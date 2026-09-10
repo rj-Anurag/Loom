@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Replaced the public email/password happy path with verified Google identity:
+  CLI Authorization Code + PKCE, Chrome Identity for the extension, and Google
+  ID token exchange for the web dashboard.
+- Separated account and project lifecycles: Google login creates only an
+  account session, `loom init` creates terminal-owned projects, and the
+  extension can only discover projects and link conversations.
+- Added immutable Google subject identity, verified-email/profile metadata,
+  client-kind session authorization, and migration `018_add_google_identity`.
+- Added private per-server CLI project configuration under `~/.loom`, plus
+  `loom switch`, so normal users no longer copy project IDs or API keys into a
+  repository `.env` file.
+- Added server-driven Chrome OAuth packaging and a stable unpacked extension
+  ID, while retaining manual project credentials and email/password only as
+  explicit development or migration fallbacks.
+- Constrained the MCP Python SDK to its compatible 1.x API so clean production
+  installs cannot resolve the breaking MCP 2.x `FastMCP` removal.
+- Made the production image install from `uv.lock` with frozen resolution,
+  preventing deployed dependency versions from drifting away from verified
+  local and CI versions.
 - Unified the public account page, project dashboard, and packaged browser
   extension around Loom's final dark exaggerated-minimalism design system,
   with responsive layouts, accessible focus states, reduced-motion support,

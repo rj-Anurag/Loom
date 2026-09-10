@@ -22,6 +22,7 @@ from loom.security import (
     password_hash_needs_upgrade,
     verify_password,
 )
+from loom.services.accounts.google import GoogleIdentity
 
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _DUMMY_PASSWORD_HASH = hash_password("loom-dummy-password-for-timing-equality")
@@ -44,11 +45,14 @@ def _agent_kind(client_kind: str) -> str:
     return "local" if client_kind == "cli" else "browser"
 
 
-def _user_payload(user: User) -> dict[str, str]:
+def _user_payload(user: User) -> dict[str, Any]:
     return {
         "id": str(user.id),
         "email": user.email,
         "display_name": user.display_name,
+        "avatar_url": user.avatar_url,
+        "email_verified": user.email_verified,
+        "google_connected": bool(user.google_sub),
     }
 
 
@@ -115,6 +119,8 @@ async def signup(
 
     if not settings.public_signups_enabled:
         raise AccountError("PUBLIC_SIGNUPS_DISABLED")
+    if not settings.email_password_auth_enabled:
+        raise AccountError("EMAIL_PASSWORD_AUTH_DISABLED")
     normalized_email = normalize_email(email)
     if await session.scalar(select(User.id).where(User.email == normalized_email)):
         raise AccountError("EMAIL_ALREADY_REGISTERED")
@@ -163,6 +169,8 @@ async def login(
 ) -> dict[str, Any]:
     """Verify credentials and issue a new revocable user session."""
 
+    if not settings.email_password_auth_enabled:
+        raise AccountError("EMAIL_PASSWORD_AUTH_DISABLED")
     try:
         normalized_email = normalize_email(email)
     except AccountError:
@@ -172,11 +180,15 @@ async def login(
     user = (
         await session.execute(select(User).where(User.email == normalized_email))
     ).scalar_one_or_none()
-    password_hash = user.password_hash if user is not None else _DUMMY_PASSWORD_HASH
+    password_hash = (
+        user.password_hash
+        if user is not None and user.password_hash
+        else _DUMMY_PASSWORD_HASH
+    )
     password_valid = verify_password(password, password_hash)
     if user is None or not password_valid or user.disabled_at is not None:
         raise AccountError("INVALID_CREDENTIALS")
-    if password_hash_needs_upgrade(user.password_hash):
+    if user.password_hash and password_hash_needs_upgrade(user.password_hash):
         user.password_hash = hash_password(password)
 
     user_session, raw_session_token = await _new_session(session, user, client_kind)
@@ -185,6 +197,67 @@ async def login(
     return {
         "user": _user_payload(user),
         "projects": projects,
+        "session_token": raw_session_token,
+        "session_expires_at": user_session.expires_at.isoformat(),
+    }
+
+
+async def google_login(
+    session: AsyncSession,
+    *,
+    identity: GoogleIdentity,
+    client_kind: str,
+) -> dict[str, Any]:
+    """Create or find a user by immutable Google subject and issue a Loom session."""
+
+    normalized_email = normalize_email(identity.email)
+    user = (
+        await session.execute(select(User).where(User.google_sub == identity.sub))
+    ).scalar_one_or_none()
+    email_owner = (
+        await session.execute(select(User).where(User.email == normalized_email))
+    ).scalar_one_or_none()
+    if user is not None and email_owner is not None and email_owner.id != user.id:
+        raise AccountError("GOOGLE_ACCOUNT_CONFLICT")
+    if user is None:
+        user = email_owner
+        if user is not None and user.google_sub not in {None, identity.sub}:
+            raise AccountError("GOOGLE_ACCOUNT_CONFLICT")
+        if user is None:
+            if not settings.public_signups_enabled:
+                raise AccountError("PUBLIC_SIGNUPS_DISABLED")
+            user = User(
+                email=normalized_email,
+                display_name=identity.display_name,
+                password_hash=None,
+                google_sub=identity.sub,
+                email_verified=identity.email_verified,
+                avatar_url=identity.avatar_url,
+            )
+            session.add(user)
+            try:
+                await session.flush()
+            except IntegrityError as exc:
+                await session.rollback()
+                user = (
+                    await session.execute(select(User).where(User.google_sub == identity.sub))
+                ).scalar_one_or_none()
+                if user is None:
+                    raise AccountError("GOOGLE_ACCOUNT_CONFLICT") from exc
+        else:
+            user.google_sub = identity.sub
+
+    if user.disabled_at is not None:
+        raise AccountError("INVALID_CREDENTIALS")
+    user.email = normalized_email
+    user.email_verified = identity.email_verified
+    user.display_name = identity.display_name or user.display_name
+    user.avatar_url = identity.avatar_url
+    user_session, raw_session_token = await _new_session(session, user, client_kind)
+    await session.commit()
+    return {
+        "user": _user_payload(user),
+        "projects": await list_user_projects(session, user.id),
         "session_token": raw_session_token,
         "session_expires_at": user_session.expires_at.isoformat(),
     }

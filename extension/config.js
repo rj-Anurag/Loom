@@ -9,6 +9,9 @@ const LOOM_CONFIG = {
   /** Base URL of the Loom context server (no trailing slash). */
   LOOM_SERVER_URL: 'https://loom-api-zzy0.onrender.com',
 
+  /** Must match manifest.json oauth2.client_id in an installed bundle. */
+  GOOGLE_OAUTH_CLIENT_ID: 'REPLACE_WITH_GOOGLE_EXTENSION_CLIENT_ID.apps.googleusercontent.com',
+
   /** Optional development override. Leave empty in distributed builds. */
   // Never commit a bearer credential to the extension bundle. The background
   // worker bootstraps a development credential when none has been stored.

@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from loom.config import settings
 from loom.models import Agent
 from loom.security import hash_api_key
 
@@ -119,6 +120,26 @@ async def test_signup_requires_email_password_and_display_name(
     )
 
     assert response.status_code == 422, response.text
+
+
+async def test_email_password_signup_can_be_disabled_for_public_google_deployments(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "email_password_auth_enabled", False)
+
+    response = await client.post(
+        "/v1/auth/signup",
+        json={
+            "email": _unique_email("google-only"),
+            "password": PASSWORD,
+            "display_name": "Google Only",
+            "client_kind": "cli",
+        },
+    )
+
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "EMAIL_PASSWORD_AUTH_DISABLED"
 
 
 async def test_login_returns_session_but_never_reissues_project_api_key(

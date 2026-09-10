@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Superseded by ADR-003 for public onboarding. The session, membership, and
+agent-credential separation remains accepted.
 
 ## Context
 

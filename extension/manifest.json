@@ -3,12 +3,18 @@
   "name": "Loom — Context Bridge",
   "version": "0.2.2",
   "description": "Sync AI conversations into project-scoped Loom context for Claude Code, Codex, and other MCP clients.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsgF6mqkuqZm/n7gzuNLa3Nge717lPhaFK5sflnPJ0LO7UYOr3otWZjD+41duk/L9Ko/Si+eMQ3LrIhecrZCl+8kM/0tJPwEBKBuynyOOvI+U5WWgwX86jbk2pN1nnvqEAWz1SNmrMfgfuaRo7MWZl+wsxeta7zKk3EtBnkSkNC8X3WROPh6MO0LzmHu9M23Ji/MylhgYtSWEEl4gL+fSzBidTkhPjNoByfov7M5BwIxnDoIuXwvluc/4FginuuuhSkoFwIzkvdUUEJoZ1iWzhlQcEjP8ojBfZ+nM1oUILRCorJT4IUfxOgeGZrG3KXAUzAmwCvGLA7rGnJrjOZAfvQIDAQAB",
   "permissions": [
     "storage",
+    "identity",
     "scripting",
     "alarms",
     "contextMenus"
   ],
+  "oauth2": {
+    "client_id": "REPLACE_WITH_GOOGLE_EXTENSION_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": ["openid", "email", "profile"]
+  },
   "host_permissions": [
     "https://claude.ai/*",
     "https://chatgpt.com/*",

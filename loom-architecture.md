@@ -2,7 +2,8 @@
 
 **Project:** Loom — a context layer for the agentic era that bridges browser AI chats (Claude.ai, ChatGPT) and CLI agents (Claude Code, opencode) into a shared, persistent context store.
 **Author role:** Senior Staff Architect review
-**Status:** v2 design (updated for browser extension + @loom CLI integration), pre-implementation
+**Status:** v2 implementation architecture (updated for Google identity,
+terminal-owned projects, browser extension, and Loom CLI/MCP integration)
 
 ---
 
@@ -168,7 +169,11 @@ Rationale:
 - Artifacts too large or binary for the context store (files, generated assets), referenced by Context Units via pointer, not inlined
 
 ### Authentication Service
-- Issues per-agent credentials scoped to a project; extension uses standard API key auth
+- Exchanges verified Google identity for revocable, client-specific Loom user
+  sessions (`cli`, `extension`, or `web`)
+- Authorizes project membership separately from runtime access
+- Issues per-client agent credentials scoped to a project; raw credentials are
+  returned once and only their hashes are stored server-side
 
 ### Monitoring Stack
 - See §12
@@ -274,6 +279,11 @@ projects
 **Architecture:** REST at the Gateway for extension/CLI simplicity, MCP as the agent-facing tool interface layer.
 
 **Endpoint structure (REST, Gateway-facing):**
+- `GET /v1/auth/google/config` — client-specific public OAuth configuration
+- `POST /v1/auth/google/exchange` — verify Google identity and issue a Loom session
+- `GET /v1/projects` — list projects visible to the authenticated user
+- `POST /v1/projects` — create a terminal/dashboard-owned project; extension
+  sessions are explicitly rejected
 - `POST /projects/{id}/context` — write (used by extension to sync chats and by agents)
 - `GET /projects/{id}/context?query=...&budget=...` — retrieval
 - `GET /projects/{id}/events` (WebSocket) — live updates
@@ -281,7 +291,13 @@ projects
 
 **MCP tools (agent-facing):** `read_context`, `write_context`, `get_project_summary`
 
-**Authentication model:** per-agent API keys scoped to a project; extension uses project-scoped API key stored in extension preferences
+**Authentication model:** Google OIDC establishes the human account and issues
+a revocable Loom session. Account sessions list memberships and create projects;
+they cannot read or write runtime context. CLI and extension clients separately
+provision project-scoped agent keys for context and chat-link operations. The
+CLI stores its key in a private user-level file, and the extension stores its
+browser key in Chrome local storage. See
+`docs/architecture/ADR-003-google-identity-terminal-projects.md`.
 
 **Versioning strategy:** URL-path versioning (`/v1/...`) for the REST API; MCP tool schemas versioned via a `schema_version` field so older agents degrade gracefully rather than breaking
 
@@ -307,7 +323,9 @@ projects
 
 ## 10. Security Architecture
 
-- **Authentication:** per-agent scoped API keys; extension uses project-scoped API key
+- **Authentication:** verified Google OIDC for human identity, hashed revocable
+  Loom sessions for account operations, and separately revocable per-agent API
+  keys for project context operations
 - **Authorization:** every read/write checked against `project_id` + agent's granted scope; no agent can address another project's context
 - **Secrets management:** API keys and credentials in a managed secrets store (e.g., cloud provider's secrets manager), never in Context Units or logs
 - **Encryption at rest:** database and object storage encryption enabled by default

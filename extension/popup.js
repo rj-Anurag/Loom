@@ -2,7 +2,7 @@
  * Loom Extension — Popup Logic
  *
  * Handles the one-tap linking UI: checks current tab, fetches project list,
- * links chat to selected project, or creates a new project.
+ * links chat to a terminal-created project.
  */
 
 (function () {
@@ -15,9 +15,9 @@
   const projectSelect = document.getElementById('project-select');
   const projectIdInput = document.getElementById('project-id-input');
   const projectKeyInput = document.getElementById('project-key-input');
-  const projectNameInput = document.getElementById('project-name-input');
   const connectProjectBtn = document.getElementById('connect-project-btn');
-  const createProjectBtn = document.getElementById('create-project-btn');
+  const noProjects = document.getElementById('no-projects');
+  const refreshProjectsBtn = document.getElementById('refresh-projects-btn');
   const linkBtn = document.getElementById('link-btn');
   const errorMsg = document.getElementById('error-msg');
   const linkedProjectName = document.getElementById('linked-project-name');
@@ -27,12 +27,8 @@
   const accountSection = document.getElementById('account-section');
   const accountBar = document.getElementById('account-bar');
   const accountName = document.getElementById('account-name');
-  const accountEmail = document.getElementById('account-email');
-  const accountPassword = document.getElementById('account-password');
-  const accountDisplayName = document.getElementById('account-display-name');
   const accountError = document.getElementById('account-error');
-  const signupBtn = document.getElementById('signup-btn');
-  const loginBtn = document.getElementById('login-btn');
+  const googleAuthBtn = document.getElementById('google-auth-btn');
   const logoutBtn = document.getElementById('logout-btn');
 
   let currentTabUrl = '';
@@ -104,7 +100,7 @@
         } else {
           accountSection.classList.remove('hidden');
           linkSection.classList.add('hidden');
-          setStatus('Create an account to start', 'unlinked');
+          setStatus('Continue with Google to start', 'unlinked');
         }
       }
     } catch (err) {
@@ -142,9 +138,9 @@
 
   function showAccountError(text) {
     const labels = {
-      EMAIL_ALREADY_REGISTERED: 'This email already has an account. Choose Log in.',
-      INVALID_CREDENTIALS: 'Email or password is incorrect.',
-      INVALID_EMAIL: 'Enter a valid email address.',
+      INVALID_GOOGLE_CREDENTIAL: 'Google sign-in could not be verified.',
+      GOOGLE_AUTH_NOT_CONFIGURED: 'Google sign-in is not configured yet.',
+      GOOGLE_AUTH_DISABLED: 'Google sign-in is not enabled on this server.',
       TOO_MANY_ATTEMPTS: 'Too many attempts. Wait a few minutes and try again.',
     };
     accountError.textContent = labels[text] || text;
@@ -159,7 +155,6 @@
 
   async function finishAccountAuth(result) {
     if (result?.error) throw new Error(result.error);
-    accountPassword.value = '';
     accountError.classList.add('hidden');
     showSignedInAccount(result.user);
     linkSection.classList.remove('hidden');
@@ -169,48 +164,18 @@
     setStatus('Account connected. Select a project.', 'unlinked');
   }
 
-  signupBtn.addEventListener('click', async function () {
-    const email = accountEmail.value.trim();
-    const password = accountPassword.value;
-    if (!email || password.length < 8) {
-      showAccountError('Enter a valid email and a password with at least 8 characters.');
-      return;
-    }
-    signupBtn.disabled = true;
-    signupBtn.textContent = 'Creating…';
+  googleAuthBtn.addEventListener('click', async function () {
+    googleAuthBtn.disabled = true;
+    googleAuthBtn.textContent = 'Connecting…';
     try {
       await finishAccountAuth(await chrome.runtime.sendMessage({
-        type: 'SIGNUP',
-        email: email,
-        password: password,
-        displayName: accountDisplayName.value.trim(),
+        type: 'GOOGLE_AUTH',
       }));
     } catch (err) {
       showAccountError(err.message);
     } finally {
-      signupBtn.disabled = false;
-      signupBtn.textContent = 'Sign up';
-    }
-  });
-
-  loginBtn.addEventListener('click', async function () {
-    const email = accountEmail.value.trim();
-    const password = accountPassword.value;
-    if (!email || !password) {
-      showAccountError('Enter your email and password.');
-      return;
-    }
-    loginBtn.disabled = true;
-    loginBtn.textContent = 'Logging in…';
-    try {
-      await finishAccountAuth(await chrome.runtime.sendMessage({
-        type: 'LOGIN', email: email, password: password,
-      }));
-    } catch (err) {
-      showAccountError(err.message);
-    } finally {
-      loginBtn.disabled = false;
-      loginBtn.textContent = 'Log in';
+      googleAuthBtn.disabled = false;
+      googleAuthBtn.textContent = 'Continue with Google';
     }
   });
 
@@ -459,7 +424,7 @@
     try {
       const resp = await chrome.runtime.sendMessage({ type: 'GET_PROJECTS' });
       if (resp?.error) {
-        setStatus('Server unreachable — create a new project to start', 'error');
+        setStatus('Server unreachable — try again shortly', 'error');
       } else {
         const projects = resp?.projects || [];
         projectSelect.innerHTML = '<option value="">— Select a project —</option>';
@@ -469,12 +434,20 @@
           opt.textContent = p.name;
           projectSelect.appendChild(opt);
         });
+        noProjects.classList.toggle('hidden', projects.length !== 0);
+        projectSelect.classList.toggle('hidden', projects.length === 0);
+        linkBtn.classList.toggle('hidden', projects.length === 0);
+        if (projects.length === 0) {
+          setStatus('No projects yet — create one from the Loom CLI', 'unlinked');
+        }
       }
     } catch (err) {
-      setStatus('Server unreachable — create a new project to start', 'error');
+      setStatus('Server unreachable — try again shortly', 'error');
       console.error('[Loom] Load projects error:', err);
     }
   }
+
+  refreshProjectsBtn.addEventListener('click', loadProjects);
 
   // ── Clear competing inputs on focus ──────────────────────────────────
 
@@ -514,30 +487,6 @@
     } finally {
       connectProjectBtn.disabled = false;
       connectProjectBtn.textContent = 'Verify access';
-    }
-  });
-
-  createProjectBtn.addEventListener('click', async function () {
-    hideError();
-    const name = projectNameInput.value.trim();
-    if (!name) {
-      showError('Enter a project name.');
-      return;
-    }
-    createProjectBtn.disabled = true;
-    createProjectBtn.textContent = 'Creating…';
-    try {
-      const project = await chrome.runtime.sendMessage({ type: 'CREATE_PROJECT', name: name });
-      if (project?.error) throw new Error(project.error);
-      await loadProjects();
-      projectSelect.value = project.id;
-      projectNameInput.value = '';
-      setStatus('Project created. Link this conversation when ready.', 'unlinked');
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      createProjectBtn.disabled = false;
-      createProjectBtn.textContent = 'Create project';
     }
   });
 

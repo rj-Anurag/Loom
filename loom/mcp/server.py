@@ -28,6 +28,8 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from loom.cli.project_config import load_current_project
+
 # ── Configuration (lazy — read from env on each call) ─────────────────────────
 
 
@@ -36,11 +38,15 @@ def _api_url() -> str:
 
 
 def _api_key() -> str:
-    return os.environ.get("LOOM_API_KEY", "")
+    return os.environ.get("LOOM_API_KEY", "") or load_current_project(_api_url()).get(
+        "api_key", ""
+    )
 
 
 def _project_id() -> str:
-    return os.environ.get("LOOM_PROJECT_ID", "")
+    return os.environ.get("LOOM_PROJECT_ID", "") or load_current_project(_api_url()).get(
+        "project_id", ""
+    )
 
 
 def _check_config() -> None:

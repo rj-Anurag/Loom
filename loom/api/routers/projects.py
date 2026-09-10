@@ -144,6 +144,8 @@ async def create_project_endpoint(
     """Create a project and return one-time opaque browser credentials."""
     if auth.kind == "user":
         assert auth.user_id is not None
+        if auth.client_kind not in {"cli", "web"}:
+            raise HTTPException(status_code=403, detail="PROJECT_CREATION_NOT_ALLOWED")
         try:
             await enforce_rate_limit(
                 redis,

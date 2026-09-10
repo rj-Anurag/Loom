@@ -146,45 +146,32 @@ const MESSAGE_HANDLERS = {
     return { account, legacyConnected: Boolean(credentials?.api_key) };
   },
 
-  async SIGNUP(msg) {
-    const resp = await fetch(`${API}/v1/auth/signup`, {
+  async GOOGLE_AUTH() {
+    if (LOOM_CONFIG.GOOGLE_OAUTH_CLIENT_ID.indexOf('REPLACE_WITH_') === 0) {
+      throw new Error('Google sign-in is not configured in this extension build.');
+    }
+    const authResult = await chrome.identity.getAuthToken({
+      interactive: true,
+      scopes: ['openid', 'email', 'profile'],
+    });
+    const accessToken = typeof authResult === 'string' ? authResult : authResult?.token;
+    if (!accessToken) throw new Error('Google did not return an access token.');
+    const resp = await fetch(`${API}/v1/auth/google/exchange`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: msg.email,
-        password: msg.password,
-        display_name: msg.displayName || '',
-        project_name: msg.projectName || '',
         client_kind: 'extension',
-        client_name: 'Loom Chrome Extension',
+        access_token: accessToken,
       }),
     });
-    if (!resp.ok) throw await responseError(resp);
-    const data = await resp.json();
-    await storeAccountIdentity(data);
-    await Storage.setCredentials(data.agent_id, data.project_api_key);
-    await Storage.setProjectCredentials(
-      data.project_id,
-      data.agent_id,
-      data.project_api_key,
-    );
-    return data;
-  },
-
-  async LOGIN(msg) {
-    const resp = await fetch(`${API}/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: msg.email,
-        password: msg.password,
-        client_kind: 'extension',
-      }),
-    });
-    if (!resp.ok) throw await responseError(resp);
-    const data = await resp.json();
-    await storeAccountIdentity(data);
-    return data;
+    try {
+      if (!resp.ok) throw await responseError(resp);
+      const data = await resp.json();
+      await storeAccountIdentity(data);
+      return data;
+    } finally {
+      await chrome.identity.removeCachedAuthToken({ token: accessToken }).catch(function () {});
+    }
   },
 
   async LOGOUT() {
@@ -220,28 +207,6 @@ const MESSAGE_HANDLERS = {
   async GET_PROJECTS() {
     const data = await api('/v1/projects');
     return { projects: data };
-  },
-
-  /**
-   * CREATE_PROJECT — Create a new project (returns browser agent credentials).
-   */
-  async CREATE_PROJECT(msg) {
-    const data = await api('/v1/projects', {
-      method: 'POST',
-      body: {
-        name: msg.name,
-        client_kind: 'extension',
-        client_name: 'Loom Chrome Extension',
-      },
-    });
-
-    // Store the returned browser agent credentials
-    if (data.agent_id && data.api_key) {
-      await Storage.setCredentials(data.agent_id, data.api_key);
-      await Storage.setProjectCredentials(data.id, data.agent_id, data.api_key);
-    }
-
-    return data;
   },
 
   async GET_PROJECT_CREDENTIALS(msg) {
