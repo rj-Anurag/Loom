@@ -407,14 +407,16 @@
   agentsSectionHeader.addEventListener('click', function () {
     agentsSectionExpanded = !agentsSectionExpanded;
     const arrow = agentsSectionHeader.querySelector('.section-arrow');
-    agentsList.style.display = agentsSectionExpanded ? '' : 'none';
+    agentsList.classList.toggle('collapsed', !agentsSectionExpanded);
+    agentsSectionHeader.setAttribute('aria-expanded', String(agentsSectionExpanded));
     if (arrow) arrow.classList.toggle('expanded', agentsSectionExpanded);
   });
 
   conflictsSectionHeader.addEventListener('click', function () {
     conflictsSectionExpanded = !conflictsSectionExpanded;
     const arrow = conflictsSectionHeader.querySelector('.section-arrow');
-    conflictsList.style.display = conflictsSectionExpanded ? '' : 'none';
+    conflictsList.classList.toggle('collapsed', !conflictsSectionExpanded);
+    conflictsSectionHeader.setAttribute('aria-expanded', String(conflictsSectionExpanded));
     if (arrow) arrow.classList.toggle('expanded', conflictsSectionExpanded);
   });
 

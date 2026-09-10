@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Unified the public account page, project dashboard, and packaged browser
+  extension around Loom's final dark exaggerated-minimalism design system,
+  with responsive layouts, accessible focus states, reduced-motion support,
+  and a stricter extension content-security policy.
 - Added public email/password signup that atomically creates the user, owner
   membership, first project, revocable session, and one-time client API key.
 - Added a public account dashboard, secure HttpOnly web sessions, Redis-backed

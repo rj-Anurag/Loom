@@ -4,51 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Loom — Shared agent context</title>
-  <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; color: #f4f4f5; background: radial-gradient(circle at 50% -20%, #28223e, #09090b 40%); }
-    button, input { font: inherit; }
-    button { cursor: pointer; }
-    .shell { width: min(1040px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 70px; }
-    nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 72px; }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
-    .mark { display: grid; grid-template-columns: repeat(3, 5px); align-items: end; gap: 3px; width: 32px; height: 32px; padding: 7px; border: 1px solid #34343b; border-radius: 9px; background: #17171b; }
-    .mark i { display: block; border-radius: 5px; background: #8b5cf6; }.mark i:nth-child(1){height:9px}.mark i:nth-child(2){height:17px}.mark i:nth-child(3){height:13px}
-    .muted { color: #a1a1aa; }
-    .hero { max-width: 680px; margin-bottom: 34px; }
-    h1 { font-size: clamp(36px, 7vw, 66px); line-height: 1.02; letter-spacing: -.055em; margin: 0 0 18px; }
-    .hero p { max-width: 600px; font-size: 18px; line-height: 1.65; margin: 0; }
-    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 18px; align-items: start; }
-    .card { border: 1px solid #2b2b31; border-radius: 16px; background: rgba(18,18,22,.84); box-shadow: 0 24px 80px rgba(0,0,0,.25); padding: 22px; backdrop-filter: blur(18px); }
-    h2 { font-size: 18px; margin: 0 0 6px; } h3 { margin: 0; font-size: 15px; }
-    label { display: block; margin: 15px 0 6px; color: #b4b4bd; font-size: 12px; font-weight: 600; }
-    input { width: 100%; padding: 11px 12px; color: #f4f4f5; border: 1px solid #36363d; border-radius: 9px; outline: none; background: #0d0d10; }
-    input:focus { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,.14); }
-    .actions { display: flex; gap: 9px; margin-top: 18px; }
-    button { border: 1px solid #3b3b43; border-radius: 9px; padding: 10px 14px; color: #eeeef0; background: #1d1d22; font-weight: 650; }
-    button.primary { border-color: #7c3aed; background: linear-gradient(135deg,#8b5cf6,#6d28d9); }
-    button:hover { filter: brightness(1.12); } button:disabled { opacity: .55; cursor: wait; }
-    .error { margin-top: 14px; color: #fda4af; font-size: 13px; }.hidden { display: none !important; }
-    .topline { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .projects { display: grid; gap: 10px; margin-top: 18px; }
-    .project { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px; border: 1px solid #2d2d34; border-radius: 11px; background: #0d0d10; }
-    .project p { margin: 4px 0 0; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: #7f7f89; }
-    .history { display: grid; gap: 8px; margin-top: 16px; }.history-item { padding: 12px; border-left: 2px solid #6d28d9; border-radius: 8px; background: #0d0d10; }.history-item p { margin: 5px 0 0; color: #d4d4d8; white-space: pre-wrap; font-size: 13px; line-height: 1.5; }.history-item span { color: #85858f; font-size: 11px; }
-    .secret { margin: 14px 0 0; padding: 14px; border: 1px solid #5b3d91; border-radius: 10px; background: #171126; }
-    .secret code { display: block; overflow-wrap: anywhere; margin: 9px 0; color: #ddd6fe; font-size: 12px; }
-    .steps { display: grid; gap: 14px; margin-top: 18px; }.step { display: grid; grid-template-columns: 26px 1fr; gap: 10px; color: #b4b4bd; line-height: 1.45; font-size: 13px; }
-    .step b { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid #3a3a42; border-radius: 50%; color: #c4b5fd; background: #18181d; }
-    pre { overflow-x: auto; margin: 10px 0 0; padding: 11px; border-radius: 9px; color: #d4d4d8; background: #09090b; font-size: 11px; white-space: pre-wrap; }
-    @media (max-width: 760px) { nav { margin-bottom: 42px; }.grid { grid-template-columns: 1fr; } }
-  </style>
+  <link rel="stylesheet" href="/static/shared/product.css">
 </head>
-<body>
+<body class="account-page">
   <main class="shell">
-    <nav><div class="brand"><span class="mark"><i></i><i></i><i></i></span>Loom</div><button id="logout" class="hidden">Log out</button></nav>
-    <section class="hero"><h1>Your project context, everywhere.</h1><p class="muted">Bring browser conversations and terminal agents into one persistent project memory.</p></section>
+    <nav>
+      <div class="brand"><span class="mark"><i></i><i></i><i></i></span>Loom</div>
+      <div class="nav-meta">Context network online</div>
+      <button id="logout" class="hidden">Log out</button>
+    </nav>
+    <section class="hero">
+      <p class="eyebrow">Project memory / for every agent</p>
+      <h1>Context that <span>moves with you.</span></h1>
+      <p class="muted">Bring browser conversations and terminal agents into one persistent project memory. Start once, continue anywhere.</p>
+    </section>
     <div class="grid">
       <section id="auth-card" class="card">
+        <div class="card-index"><span>01 / Account</span><span>Self-service</span></div>
         <h2>Create your Loom account</h2><p class="muted">Your first project and secure client key are created automatically.</p>
         <label for="email">Email</label><input id="email" type="email" autocomplete="email" placeholder="you@example.com">
         <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" placeholder="At least 8 characters">
@@ -58,12 +30,14 @@
         <div id="auth-error" class="error hidden"></div>
       </section>
       <section id="projects-card" class="card hidden">
+        <div class="card-index"><span>01 / Projects</span><span>Live memory</span></div>
         <div class="topline"><div><h2>Your projects</h2><span id="identity" class="muted"></span></div><button id="new-project">New project</button></div>
         <div id="projects" class="projects"></div>
         <div id="history" class="history hidden"></div>
         <div id="secret" class="secret hidden"><strong>Save this key now</strong><p class="muted">It is shown once. Loom stores only its digest.</p><code id="secret-value"></code><button id="copy-secret">Copy key</button></div>
       </section>
-      <aside class="card">
+      <aside class="card steps-card">
+        <div class="card-index"><span>02 / Connect</span><span>3 steps</span></div>
         <h2>Connect in minutes</h2>
         <div class="steps">
           <div class="step"><b>1</b><div>Install the CLI.<pre>curl -fsSL https://raw.githubusercontent.com/rj-Anurag/Loom/main/install.sh | bash</pre></div></div>
@@ -72,6 +46,7 @@
         </div>
       </aside>
     </div>
+    <footer class="product-footer"><span>Loom / Shared agent context</span><span>Browser → Project memory → Terminal</span></footer>
   </main>
   <script>
     const api = '';
