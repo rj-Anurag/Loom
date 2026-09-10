@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import uuid
+from typing import Any, cast
 
 import httpx
 from openai import AsyncOpenAI
@@ -52,7 +53,7 @@ class LoomClient:
         project_id: str,
         task_description: str,
         budget: int = 4096,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Call GET /v1/projects/{id}/context and return the units list."""
         resp = await self._http.get(
             f"/v1/projects/{project_id}/context",
@@ -60,8 +61,8 @@ class LoomClient:
             headers=self._headers(),
         )
         resp.raise_for_status()
-        data = resp.json()
-        return data.get("units", [])
+        data = cast(dict[str, Any], resp.json())
+        return cast(list[dict[str, Any]], data.get("units", []))
 
     async def write_context(
         self,
@@ -72,9 +73,9 @@ class LoomClient:
         type_: str = "task_result",
         parent_ids: list[str] | None = None,
         parent_relations: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Call POST /v1/projects/{id}/context and return the response."""
-        body: dict = {
+        body: dict[str, Any] = {
             "client_uuid": str(uuid.uuid4()),
             "type": type_,
             "content": content,
@@ -91,7 +92,7 @@ class LoomClient:
             headers=self._headers(),
         )
         resp.raise_for_status()
-        return resp.json()
+        return cast(dict[str, Any], resp.json())
 
     async def close(self) -> None:
         if self._owns_client:
@@ -106,14 +107,29 @@ class GroqLLM:
 
     def __init__(self, cfg: AgentConfig) -> None:
         self.model = cfg.llm_model
-        self._client = AsyncOpenAI(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=cfg.groq_api_key,
+        self.api_key = cfg.groq_api_key
+        self._client: AsyncOpenAI | None = (
+            AsyncOpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=self.api_key,
+            )
+            if self.api_key
+            else None
         )
+
+    def _get_client(self) -> AsyncOpenAI:
+        if not self.api_key:
+            raise ValueError("GROQ_API_KEY is required for non-dry-run agent execution")
+        if self._client is None:
+            self._client = AsyncOpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=self.api_key,
+            )
+        return self._client
 
     async def generate(self, prompt: str) -> str:
         """Send a prompt to Groq and return the text response."""
-        resp = await self._client.chat.completions.create(
+        resp = await self._get_client().chat.completions.create(
             model=self.model,
             messages=[
                 {
@@ -152,7 +168,7 @@ class LocalAgent:
         project_id: str | None = None,
         *,
         dry_run: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Execute the full read → LLM → write loop.
 
         Parameters

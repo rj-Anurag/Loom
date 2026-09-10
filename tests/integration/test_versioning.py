@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -143,8 +142,7 @@ async def test_no_pending_branch_on_successful_write(
     # Verify NO PendingBranch was created for this parent
     result = await db_session.execute(
         text(
-            "SELECT id FROM pending_branches "
-            "WHERE context_unit_id = :pid ORDER BY created_at DESC"
+            "SELECT id FROM pending_branches WHERE context_unit_id = :pid ORDER BY created_at DESC"
         ),
         {"pid": parent_id},
     )
@@ -193,10 +191,7 @@ async def test_multiple_conflicts_create_multiple_branches(
 
     # Verify two PendingBranches exist for this parent
     result = await db_session.execute(
-        text(
-            "SELECT id FROM pending_branches "
-            "WHERE context_unit_id = :pid ORDER BY created_at"
-        ),
+        text("SELECT id FROM pending_branches WHERE context_unit_id = :pid ORDER BY created_at"),
         {"pid": parent_id},
     )
     branches = result.all()

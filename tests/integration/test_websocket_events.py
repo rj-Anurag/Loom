@@ -15,25 +15,30 @@ import json
 import uuid
 
 import pytest
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 from starlette.websockets import WebSocket
-
 
 # ── Mock auth dependencies ────────────────────────────────────────────────
 
 
-async def _mock_auth_ok(websocket: WebSocket, project_id: uuid.UUID, token: str = "ignored") -> uuid.UUID | None:
+async def _mock_auth_ok(
+    websocket: WebSocket, project_id: uuid.UUID, token: str = "ignored"
+) -> uuid.UUID | None:
     """Return a fixed agent UUID — WS 'sees' this agent as authenticated."""
     return uuid.UUID("11111111-1111-4111-8111-111111111111")
 
 
-async def _mock_auth_unknown(websocket: WebSocket, project_id: uuid.UUID, token: str = "ignored") -> uuid.UUID | None:
+async def _mock_auth_unknown(
+    websocket: WebSocket, project_id: uuid.UUID, token: str = "ignored"
+) -> uuid.UUID | None:
     """Simulate 'agent not found' — close WS with 4001."""
     await websocket.close(code=4001, reason="UNKNOWN_AGENT")
     return None
 
 
-async def _mock_auth_wrong_project(websocket: WebSocket, project_id: uuid.UUID, token: str = "ignored") -> uuid.UUID | None:
+async def _mock_auth_wrong_project(
+    websocket: WebSocket, project_id: uuid.UUID, token: str = "ignored"
+) -> uuid.UUID | None:
     """Simulate project mismatch — close WS with 4001."""
     await websocket.close(code=4001, reason="PROJECT_MISMATCH")
     return None
@@ -42,15 +47,15 @@ async def _mock_auth_wrong_project(websocket: WebSocket, project_id: uuid.UUID, 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def setup_project(client: TestClient) -> tuple[str, str]:
+def setup_project(client: TestClient) -> tuple[str, str, str]:
     """Create a project + agent via the extension setup endpoint.
 
-    Returns (project_id, agent_token).
+    Returns (project_id, agent_id, agent_token).
     """
     resp = client.get("/v1/extension/setup")
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    return data["id"], data["api_key"]
+    return data["id"], data["agent_id"], data["api_key"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -71,7 +76,12 @@ class TestWSAuth:
         from loom.api.main import app
 
         cls.app = app
-        cls.client = TestClient(app)
+        cls._client_context = TestClient(app)
+        cls.client = cls._client_context.__enter__()
+
+    @classmethod
+    def teardown_class(cls) -> None:
+        cls._client_context.__exit__(None, None, None)
 
     # NOTE: do NOT call app.dependency_overrides.clear() in teardown_class()
     # because tests that don't set overrides rely on the original get_ws_agent.
@@ -82,7 +92,7 @@ class TestWSAuth:
 
         self.app.dependency_overrides[get_ws_agent] = _mock_auth_ok
         try:
-            pid, _ = setup_project(self.client)
+            pid, _, _ = setup_project(self.client)
             with self.client.websocket_connect(
                 f"/v1/projects/{pid}/events?token=mock-ignored",
             ) as ws:
@@ -100,7 +110,7 @@ class TestWSAuth:
         code 4001.  The close causes ``WebSocketTestSession.__enter__``
         to raise.
         """
-        pid, _ = setup_project(self.client)
+        pid, _, _ = setup_project(self.client)
         with pytest.raises(Exception):
             with self.client.websocket_connect(
                 f"/v1/projects/{pid}/events?token=not-a-uuid",
@@ -113,7 +123,7 @@ class TestWSAuth:
 
         self.app.dependency_overrides[get_ws_agent] = _mock_auth_wrong_project
         try:
-            pid, _ = setup_project(self.client)
+            pid, _, _ = setup_project(self.client)
             other_id = uuid.uuid4()
             with pytest.raises(Exception):
                 with self.client.websocket_connect(
@@ -129,7 +139,7 @@ class TestWSAuth:
 
         self.app.dependency_overrides[get_ws_agent] = _mock_auth_unknown
         try:
-            pid, _ = setup_project(self.client)
+            pid, _, _ = setup_project(self.client)
             with pytest.raises(Exception):
                 with self.client.websocket_connect(
                     f"/v1/projects/{pid}/events?token=whatever",
@@ -144,7 +154,7 @@ class TestWSAuth:
         FastAPI rejects the request before the handler runs (``token`` is
         a required ``Query(...)`` param), so the WebSocket never connects.
         """
-        pid, _ = setup_project(self.client)
+        pid, _, _ = setup_project(self.client)
         with pytest.raises(Exception):
             with self.client.websocket_connect(f"/v1/projects/{pid}/events"):
                 pass
@@ -163,7 +173,12 @@ class TestEventEmission:
         from loom.api.main import app
 
         cls.app = app
-        cls.client = TestClient(app)
+        cls._client_context = TestClient(app)
+        cls.client = cls._client_context.__enter__()
+
+    @classmethod
+    def teardown_class(cls) -> None:
+        cls._client_context.__exit__(None, None, None)
 
     def test_context_write_emits_event(self) -> None:
         """Writing context while WS is connected emits ``context_created``."""
@@ -171,7 +186,7 @@ class TestEventEmission:
 
         self.app.dependency_overrides[get_ws_agent] = _mock_auth_ok
         try:
-            pid, token = setup_project(self.client)
+            pid, agent_id, token = setup_project(self.client)
 
             with self.client.websocket_connect(
                 f"/v1/projects/{pid}/events?token=mock-ignored",
@@ -195,7 +210,7 @@ class TestEventEmission:
                 assert event["project_id"] == pid
                 assert "context_unit_id" in event["payload"]
                 assert event["payload"]["type"] == "decision"
-                assert event["payload"]["agent_id"] == token
+                assert event["payload"]["agent_id"] == agent_id
                 assert "timestamp" in event
         finally:
             self.app.dependency_overrides.clear()
@@ -211,13 +226,13 @@ class TestEventEmission:
         queue_module._redis = None
         self.app.dependency_overrides[get_ws_agent] = _mock_auth_ok
         try:
-            pid, token = setup_project(self.client)
+            pid, agent_id, token = setup_project(self.client)
 
             with self.client.websocket_connect(
                 f"/v1/projects/{pid}/events?token=mock-ignored",
             ) as ws:
                 resp = self.client.post(
-                    f"/v1/agents/{token}/heartbeat",
+                    f"/v1/agents/{agent_id}/heartbeat",
                     json={"status": "working"},
                     headers={"Authorization": f"Bearer {token}"},
                 )
@@ -227,7 +242,7 @@ class TestEventEmission:
                 event = json.loads(raw)
                 assert event["type"] == "agent_heartbeat"
                 assert event["project_id"] == pid
-                assert event["payload"]["agent_id"] == token
+                assert event["payload"]["agent_id"] == agent_id
                 assert event["payload"]["status"] == "working"
         finally:
             loom.config.settings.redis_url = original_url
@@ -240,7 +255,7 @@ class TestEventEmission:
 
         self.app.dependency_overrides[get_ws_agent] = _mock_auth_ok
         try:
-            pid, token = setup_project(self.client)
+            pid, _, token = setup_project(self.client)
 
             # First write a context unit to establish a parent
             body = {

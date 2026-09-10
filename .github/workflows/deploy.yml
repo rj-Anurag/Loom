@@ -1,26 +1,14 @@
-name: Deploy
+name: Container validation
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-      - run: pip install build
-      - run: python -m build
-
       - name: Build Docker image
         run: docker build -t loom-api:latest -f infra/Dockerfile .
-
-      - name: Run migrations
-        run: echo "Stub: run database migrations"
-
-      - name: Deploy
-        run: echo "Stub: deploy to production"

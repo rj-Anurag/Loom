@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,7 +80,7 @@ async def vector_search(
     query_embedding: list[float],
     *,
     scope_type_filter: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Perform vector ANN search using pgvector cosine similarity.
 
     Parameters
@@ -111,6 +112,7 @@ async def vector_search(
         ContextUnit.type,
         ContextUnit.trust_tier,
         ContextUnit.content,
+        ContextUnit.source_url,
         ContextUnit.created_at,
         ContextUnit.agent_id,
         ContextUnit.version,
@@ -137,6 +139,7 @@ async def vector_search(
             "type": row["type"],
             "trust_tier": row["trust_tier"],
             "content": row["content"],
+            "source_url": row.get("source_url"),
             "created_at": row["created_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
             "version": int(row["version"]),
@@ -152,7 +155,7 @@ async def keyword_search(
     query: str,
     *,
     scope_type_filter: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Perform GIN full-text keyword search.
 
     Parameters
@@ -176,7 +179,7 @@ async def keyword_search(
         "u.project_id = :project_id",
         "to_tsvector('english', u.content) @@ plainto_tsquery('english', :query)",
     ]
-    params: dict = {"project_id": project_id, "query": query}
+    params: dict[str, Any] = {"project_id": project_id, "query": query}
 
     if scope_type_filter:
         conditions.append("u.type = :scope_type")
@@ -185,7 +188,7 @@ async def keyword_search(
     where_clause = " AND ".join(conditions)
 
     sql = text(f"""
-        SELECT u.id, u.type, u.trust_tier, u.content, u.created_at, u.agent_id,
+        SELECT u.id, u.type, u.trust_tier, u.content, u.source_url, u.created_at, u.agent_id,
                u.version,
                ts_rank(to_tsvector('english', u.content),
                        plainto_tsquery('english', :query)) AS keyword_score
@@ -205,6 +208,7 @@ async def keyword_search(
             "type": row["type"],
             "trust_tier": row["trust_tier"],
             "content": row["content"],
+            "source_url": row.get("source_url"),
             "created_at": row["created_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
             "version": int(row["version"]),
@@ -221,10 +225,10 @@ RRF_K = 60
 
 
 def rrf_fusion(
-    vector_results: list[dict],
-    keyword_results: list[dict],
+    vector_results: list[dict[str, Any]],
+    keyword_results: list[dict[str, Any]],
     k: int = RRF_K,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Combine two ranked result lists using Reciprocal Rank Fusion.
 
     Parameters
@@ -245,7 +249,7 @@ def rrf_fusion(
         scores summed from both lists.
     """
     scores: dict[str, float] = {}
-    seen: dict[str, dict] = {}
+    seen: dict[str, dict[str, Any]] = {}
 
     # Process vector results preserving first-seen order
     for rank, item in enumerate(vector_results, start=1):
@@ -273,7 +277,9 @@ def rrf_fusion(
     return result
 
 
-def _normalize_rrf_scores(units: list[dict]) -> list[dict]:
+def _normalize_rrf_scores(
+    units: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Normalize RRF scores to [0, 1] by dividing by the max score.
 
     This ensures the 0.4 weight in :func:`_compute_score` is meaningful
@@ -294,7 +300,7 @@ def _normalize_rrf_scores(units: list[dict]) -> list[dict]:
     return units
 
 
-def compute_final_scores(units: list[dict]) -> list[dict]:
+def compute_final_scores(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Apply the full ranking formula to RRF-fused results.
 
     Delegates to :func:`loom.services.context.service._compute_score`
@@ -345,9 +351,9 @@ def _token_count(text_content: str) -> int:
 
 
 def pack_results(
-    units: list[dict],
+    units: list[dict[str, Any]],
     budget: int,
-) -> dict:
+) -> dict[str, Any]:
     """Pack ranked units into the token budget.
 
     Parameters
@@ -365,7 +371,7 @@ def pack_results(
         where ``total_tokens`` is the number of tokens consumed by
         the packed units (≤ budget).
     """
-    packed: list[dict] = []
+    packed: list[dict[str, Any]] = []
     budget_used = 0
     truncated = False
 
@@ -404,7 +410,7 @@ async def hybrid_search(
     *,
     scope_type_filter: str | None = None,
     budget: int,
-) -> dict:
+) -> dict[str, Any]:
     """Run a hybrid vector+keyword search with Reciprocal Rank Fusion.
 
     This is the main entry point for hybrid retrieval.  Callers should

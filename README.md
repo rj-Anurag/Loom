@@ -17,6 +17,7 @@ to that same ID with its own project-scoped API key.
 - CLI for initialization, reads, writes, and harness installation
 - Chrome MV3 extension for Claude, ChatGPT, DeepSeek, and Perplexity
 - Project dashboard with context, active-agent, and conflict views
+- Public self-service accounts with automatic first-project provisioning
 
 See [loom-architecture.md](loom-architecture.md) for the detailed architecture.
 
@@ -54,10 +55,42 @@ pipx uninstall loom
 ```
 
 This installs the client tools only. The hosted API owns the database and
-Redis services, so users do not need Docker or a local server. Until Loom has
-self-service accounts, a project owner must provide collaborators with a
-project-scoped `LOOM_PROJECT_ID` and `LOOM_API_KEY`; never share the Render
-`BOOTSTRAP_TOKEN`.
+Redis services, so users do not need Docker or a local server.
+
+## Public self-service quick start
+
+Set the hosted server URL, then create an account directly from the repository
+you want to connect:
+
+```bash
+export LOOM_API_URL="https://loom-api-zzy0.onrender.com"
+loom signup \
+  --email you@example.com \
+  --display-name "Your Name" \
+  --name "My Project" \
+  --write-env .env \
+  --install all
+```
+
+Loom prompts for a password, creates the account, first project, owner
+membership, user session, and local-agent key in one transaction. The
+revocable account session is stored in `~/.loom/account.json` with private
+file permissions. The project-scoped agent key is written to the requested
+`.env` file and is the credential used by Codex, Claude Code, and MCP.
+
+If the account already exists, connect another machine or repository with:
+
+```bash
+loom login --email you@example.com --write-env .env --install all
+```
+
+When the account has one project Loom selects it automatically. With several
+projects, choose one interactively or pass `--project-id`.
+
+This public-preview account flow does not yet send verification or password
+reset emails. Deployments that require verified ownership or account recovery
+must configure an email/identity provider before treating signup as a
+production-grade identity boundary.
 
 ## Local setup
 
@@ -87,15 +120,18 @@ curl http://localhost:8000/ready
 
 ## Create the project and get its key
 
-Run this inside the repository whose context you want Loom to share:
+Run this inside the repository whose context you want Loom to share. For a
+public server, `loom init` signs up or logs in and then connects the project;
+operators may still pass `--bootstrap` for self-hosted recovery:
 
 ```bash
 source .venv/bin/activate
 loom init "Loom" --write-env .env --install all
 ```
 
-This creates a real project, creates a local-agent credential, prints the three
-values below, and installs the Claude/Codex project integration files:
+This creates or selects a real project, creates a distinct local-agent
+credential, prints the three values below, and installs the Claude/Codex
+project integration files:
 
 ```dotenv
 LOOM_API_URL=http://localhost:8000
@@ -123,13 +159,9 @@ loom config
 loom projects
 ```
 
-The extension needs the same project ID and any valid API key for that project.
-It verifies the key, then creates and stores a separate browser-agent key so the
-CLI credential does not need to remain in the extension.
-
-Project creation itself is limited to the protected bootstrap identity. A
-normal project key can enroll agents only inside its own project and cannot be
-used to create unlimited projects.
+User sessions own and list projects. Runtime clients still use separate
+project-scoped API keys so every browser and coding agent retains its own audit
+identity. Raw API keys are shown once; only SHA-256 digests are stored.
 
 ## Browser extension
 
@@ -150,9 +182,12 @@ Then:
    `loom extension path` (normally `~/.loom/extension`).
 4. Open a conversation on Claude, ChatGPT, DeepSeek, or Perplexity.
 5. Open Loom from the browser toolbar.
-6. Under **Connect an existing project**, paste `LOOM_PROJECT_ID` and
-   `LOOM_API_KEY` from `loom init`, then choose **Verify access**.
-7. Select the project and choose **Link conversation**.
+6. Sign up or log in with the same Loom account used by the CLI.
+7. Loom loads the account projects and provisions a separate browser key.
+8. Select the project and choose **Link conversation**.
+
+Manual project ID/API-key connection remains available under the advanced
+section for older installations and self-hosted recovery.
 
 Existing messages are backfilled immediately after linking. Loom combines all
 known message layouts and briefly walks the conversation to the top so older
@@ -276,7 +311,7 @@ With PostgreSQL and Redis running and migrations applied:
 
 ```bash
 ruff check .
-mypy .
+mypy loom
 pytest -q
 node --check extension/config.js
 node --check extension/shared.js
@@ -308,6 +343,13 @@ The complete local template is [.env.example](.env.example). Important values:
 - `GROQ_API_KEY` — required for Groq summarization/agent calls
 - `BOOTSTRAP_TOKEN` — required on a non-development server
 - `ALLOW_LEGACY_UUID_TOKENS` — temporary upgrade compatibility; keep `false`
+- `ALLOW_AGENT_KEY_ENROLLMENT` — legacy project-key credential minting; keep
+  `false` in public production so only account members can provision keys
+- `PUBLIC_SIGNUPS_ENABLED` — enables public account creation
+- `USER_SESSION_TTL_DAYS` — absolute lifetime of revocable account sessions
+- `AGENT_KEY_TTL_DAYS` — lifetime of newly issued CLI/extension credentials
+- `AUTH_RATE_LIMIT_ATTEMPTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS` — Redis-backed
+  signup/login abuse limits
 
 The local `sentence-transformers` provider is intentionally optional because
 its PyTorch runtime is large. Install it only on workers that use it:
@@ -316,10 +358,8 @@ its PyTorch runtime is large. Install it only on workers that use it:
 pip install ".[local-embeddings]"
 ```
 
-For production, set a long random `BOOTSTRAP_TOKEN` on the server. Operators
-running `loom init` set the same value as `LOOM_BOOTSTRAP_TOKEN` in their local
-shell. It is used only for first-run project creation and is not a project API
-key.
+For production, keep a long random `BOOTSTRAP_TOKEN` as an operator recovery
+credential. Public users never receive or need it. It is not a project API key.
 
 ## Deployment
 
@@ -362,23 +402,21 @@ migrations and then starts Uvicorn on Render's injected `PORT`.
 `/health` should return `{"status":"ok"}`. `/ready` should return database and
 Redis status as `ok`.
 
-### Create the first hosted Loom project
+### Create a hosted account and project
 
-Render generates `BOOTSTRAP_TOKEN` for the API service. Copy it from
-**Render > loom-api > Environment**, then run this locally:
+Open the deployed API URL in a browser to use the account dashboard, or run:
 
 ```bash
 export LOOM_API_URL="https://<your-render-service>.onrender.com"
-export LOOM_BOOTSTRAP_TOKEN="<BOOTSTRAP_TOKEN_FROM_RENDER>"
-
-loom init "Loom MVP" --write-env .env --install all
+loom signup --email you@example.com --name "Loom MVP" --write-env .env --install all
 set -a
 source .env
 set +a
 ```
 
-This writes the hosted `LOOM_API_URL`, the new `LOOM_PROJECT_ID`, and the
-project API key to `.env`. Keep `.env` private.
+This writes the hosted `LOOM_API_URL`, new `LOOM_PROJECT_ID`, and local-agent
+key to `.env`. Keep `.env` private. The Render `BOOTSTRAP_TOKEN` is needed only
+for the explicit operator command `loom init --bootstrap`.
 
 ### Point the extension at the hosted API
 
@@ -394,8 +432,8 @@ Then:
 
 1. Open or reload the directory printed by `loom extension path` in
    `chrome://extensions`.
-2. Paste the hosted `LOOM_PROJECT_ID` and `LOOM_API_KEY`, verify access, and
-   link the chat.
+2. Sign up or log in, select the automatically discovered project, and link
+   the chat. No project ID or API key copying is required.
 
 ### Hosted smoke test
 
@@ -412,10 +450,10 @@ loom write "Decision: hosted Loom MVP smoke test is connected" --type decision
 loom context "hosted Loom MVP smoke test" --scope full
 ```
 
-Open the dashboard at:
+Open the public account dashboard at:
 
 ```bash
-open "$LOOM_API_URL/v1/projects/$LOOM_PROJECT_ID/dashboard"
+open "$LOOM_API_URL/"
 ```
 
 You should see the linked chat and the terminal-written decision in the same

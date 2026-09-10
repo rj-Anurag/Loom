@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -115,24 +114,36 @@ async def test_read_context_tool_returns_units(
 ) -> None:
     """read_context tool returns ranked context units."""
     # First write some data via the tool
-    await tool_registry.call("write_context", {
-        "content": "Decision: use FastAPI for the API layer",
-        "type": "decision",
-    })
-    await tool_registry.call("write_context", {
-        "content": "Message: I think we should use FastAPI",
-        "type": "message",
-    })
-    await tool_registry.call("write_context", {
-        "content": "Summary: Tech stack overview",
-        "type": "summary",
-    })
+    await tool_registry.call(
+        "write_context",
+        {
+            "content": "Decision: use FastAPI for the API layer",
+            "type": "decision",
+        },
+    )
+    await tool_registry.call(
+        "write_context",
+        {
+            "content": "Message: I think we should use FastAPI",
+            "type": "message",
+        },
+    )
+    await tool_registry.call(
+        "write_context",
+        {
+            "content": "Summary: Tech stack overview",
+            "type": "summary",
+        },
+    )
 
     # Now read with a query
-    result = await tool_registry.call("read_context", {
-        "task_description": "FastAPI decision",
-        "token_budget": 5000,
-    })
+    result = await tool_registry.call(
+        "read_context",
+        {
+            "task_description": "FastAPI decision",
+            "token_budget": 5000,
+        },
+    )
     assert "units" in result
     assert len(result["units"]) > 0
     assert result["total_tokens"] <= 5000
@@ -148,10 +159,13 @@ async def test_read_context_tool_respects_budget(
 ) -> None:
     """read_context respects a tight token budget."""
     budget = 100
-    result = await tool_registry.call("read_context", {
-        "task_description": "test",
-        "token_budget": budget,
-    })
+    result = await tool_registry.call(
+        "read_context",
+        {
+            "task_description": "test",
+            "token_budget": budget,
+        },
+    )
     assert "units" in result
     assert result["total_tokens"] <= budget
     assert result["budget_used"] <= budget
@@ -173,7 +187,9 @@ async def test_read_context_tool_min_trust_tier(
 
     # Write a unit with trust_tier='agent'
     unit_agent, _ = await write_context(
-        db_session, test_project.id, test_agent.id,
+        db_session,
+        test_project.id,
+        test_agent.id,
         client_uuid=uuid.uuid4(),
         type_="message",
         content="Agent analysis of architecture decision",
@@ -183,7 +199,9 @@ async def test_read_context_tool_min_trust_tier(
 
     # Write a unit with trust_tier='external_tool'
     unit_ext, _ = await write_context(
-        db_session, test_project.id, test_agent.id,
+        db_session,
+        test_project.id,
+        test_agent.id,
         client_uuid=uuid.uuid4(),
         type_="message",
         content="External linter report on code quality",
@@ -192,16 +210,17 @@ async def test_read_context_tool_min_trust_tier(
     )
 
     # Query with min_trust_tier='agent' — should filter out external_tool
-    result = await tool_registry.call("read_context", {
-        "task_description": "architecture",
-        "token_budget": 5000,
-        "min_trust_tier": "agent",
-    })
+    result = await tool_registry.call(
+        "read_context",
+        {
+            "task_description": "architecture",
+            "token_budget": 5000,
+            "min_trust_tier": "agent",
+        },
+    )
     assert len(result["units"]) > 0
     for unit in result["units"]:
-        assert unit["trust_tier"] == "agent", (
-            f"Expected agent tier, got {unit['trust_tier']}"
-        )
+        assert unit["trust_tier"] == "agent", f"Expected agent tier, got {unit['trust_tier']}"
 
 
 # ── write_context tool ────────────────────────────────────────────────────────
@@ -212,10 +231,13 @@ async def test_write_context_tool_creates_unit(
     tool_registry: Any,
 ) -> None:
     """write_context creates a unit and returns its ID."""
-    result = await tool_registry.call("write_context", {
-        "content": "Decision: use asyncpg for PostgreSQL access",
-        "type": "decision",
-    })
+    result = await tool_registry.call(
+        "write_context",
+        {
+            "content": "Decision: use asyncpg for PostgreSQL access",
+            "type": "decision",
+        },
+    )
     assert "id" in result
     assert "client_uuid" in result
     assert "created_at" in result
@@ -228,14 +250,20 @@ async def test_write_context_tool_idempotent(
     tool_registry: Any,
 ) -> None:
     """Same content + type produces the same ID (idempotent)."""
-    result1 = await tool_registry.call("write_context", {
-        "content": "Identical content for idempotency test",
-        "type": "message",
-    })
-    result2 = await tool_registry.call("write_context", {
-        "content": "Identical content for idempotency test",
-        "type": "message",
-    })
+    result1 = await tool_registry.call(
+        "write_context",
+        {
+            "content": "Identical content for idempotency test",
+            "type": "message",
+        },
+    )
+    result2 = await tool_registry.call(
+        "write_context",
+        {
+            "content": "Identical content for idempotency test",
+            "type": "message",
+        },
+    )
     assert result1["id"] == result2["id"]
     assert result1["client_uuid"] == result2["client_uuid"]
 
@@ -246,17 +274,23 @@ async def test_write_context_tool_with_parents(
 ) -> None:
     """write_context accepts parent_ids and parent_relations."""
     # Write a parent
-    parent = await tool_registry.call("write_context", {
-        "content": "Parent: use Redis caching",
-        "type": "decision",
-    })
+    parent = await tool_registry.call(
+        "write_context",
+        {
+            "content": "Parent: use Redis caching",
+            "type": "decision",
+        },
+    )
     # Write a child referencing it
-    child = await tool_registry.call("write_context", {
-        "content": "Implemented Redis caching layer",
-        "type": "task_result",
-        "parent_ids": [parent["id"]],
-        "parent_relations": ["derived_from"],
-    })
+    child = await tool_registry.call(
+        "write_context",
+        {
+            "content": "Implemented Redis caching layer",
+            "type": "task_result",
+            "parent_ids": [parent["id"]],
+            "parent_relations": ["derived_from"],
+        },
+    )
     assert child["id"] != parent["id"]
 
 
@@ -265,10 +299,13 @@ async def test_write_context_tool_missing_required_field(
     tool_registry: Any,
 ) -> None:
     """write_context returns structured error for missing required field."""
-    result = await tool_registry.call("write_context", {
-        "type": "message",
-        # missing "content"
-    })
+    result = await tool_registry.call(
+        "write_context",
+        {
+            "type": "message",
+            # missing "content"
+        },
+    )
     assert "error" in result
 
 
@@ -283,23 +320,30 @@ async def test_get_project_summary_tool(
 ) -> None:
     """get_project_summary returns summary-type units."""
     # Write some units via the tool, including a summary
-    await tool_registry.call("write_context", {
-        "content": "Project overview: building an AI context server",
-        "type": "summary",
-    })
-    await tool_registry.call("write_context", {
-        "content": "Technical stack: Python, FastAPI, PostgreSQL",
-        "type": "summary",
-    })
-    await tool_registry.call("write_context", {
-        "content": "A random message for testing",
-        "type": "message",
-    })
+    await tool_registry.call(
+        "write_context",
+        {
+            "content": "Project overview: building an AI context server",
+            "type": "summary",
+        },
+    )
+    await tool_registry.call(
+        "write_context",
+        {
+            "content": "Technical stack: Python, FastAPI, PostgreSQL",
+            "type": "summary",
+        },
+    )
+    await tool_registry.call(
+        "write_context",
+        {
+            "content": "A random message for testing",
+            "type": "message",
+        },
+    )
 
     result = await tool_registry.call("get_project_summary", {})
     assert "units" in result
     assert len(result["units"]) > 0
     for unit in result["units"]:
-        assert unit["type"] == "summary", (
-            f"Expected summary type, got {unit['type']}"
-        )
+        assert unit["type"] == "summary", f"Expected summary type, got {unit['type']}"

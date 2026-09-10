@@ -60,6 +60,7 @@ const LOOM_CONFIG = {
     CHAT_LINKS: 'loom_chat_links',       // { [chatUrl]: { projectId, apiKey, ... } }
     AGENT_CREDENTIALS: 'loom_credentials', // { agent_id, api_key }
     PROJECT_CREDENTIALS: 'loom_project_credentials', // { [projectId]: { agent_id, api_key } }
+    ACCOUNT_SESSION: 'loom_account_session', // { session_token, user }
     PENDING_SYNC: 'loom_pending_sync', // [{ chatUrl, message, queuedAt, attempts }]
     /** Project ID to use for background polling. Updated by popup on link/unlink. */
     CURRENT_PROJECT: 'loom_current_project',

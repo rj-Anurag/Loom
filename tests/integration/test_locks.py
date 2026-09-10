@@ -41,7 +41,7 @@ async def redis_client() -> redis_async.Redis:
     await r.flushdb()
     yield r
     await r.flushdb()
-    await r.close()
+    await r.aclose()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ async def test_multi_lock_ordering(redis_client: redis_async.Redis) -> None:
 async def test_multi_lock_all_or_nothing(redis_client: redis_async.Redis) -> None:
     """If any lock cannot be acquired, all previously-acquired locks are released
     (all-or-nothing semantics)."""
-    from loom.services.coordination.locks import acquire_locks, acquire_lock, release_lock
+    from loom.services.coordination.locks import acquire_lock, acquire_locks, release_lock
 
     aid_a = _agent_id()
     aid_b = _agent_id()
@@ -250,7 +250,9 @@ async def test_lock_retry_backoff(redis_client: redis_async.Redis) -> None:
     # Schedule Agent B's acquire with retries (it should retry)
     async def acquire_with_retries() -> bool:
         result = await acquire_lock(
-            redis_client, uid, aid_b,
+            redis_client,
+            uid,
+            aid_b,
             ttl=5,
             retry_delay=0.1,
             max_retries=10,  # enough retries to outlast a short hold
@@ -286,7 +288,9 @@ async def test_redis_down_fallback(redis_client: redis_async.Redis) -> None:
 
     # Create a client pointed at a non-existent Redis instance
     dead_client = redis_async.from_url(
-        "redis://localhost:16379/1", decode_responses=True, socket_connect_timeout=1,
+        "redis://localhost:16379/1",
+        decode_responses=True,
+        socket_connect_timeout=1,
     )
 
     uid = _unit_id()
@@ -298,4 +302,4 @@ async def test_redis_down_fallback(redis_client: redis_async.Redis) -> None:
         assert result.acquired is True, "Must fall back to optimistic (acquired=True)"
         assert result.mode == "optimistic", "Fallback mode must be 'optimistic'"
     finally:
-        await dead_client.close()
+        await dead_client.aclose()

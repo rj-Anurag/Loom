@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Added public email/password signup that atomically creates the user, owner
+  membership, first project, revocable session, and one-time client API key.
+- Added a public account dashboard, secure HttpOnly web sessions, Redis-backed
+  authentication rate limiting, project discovery, and one-time key display.
+- Added `loom signup`, `loom login`, and `loom logout`; CLI login now discovers
+  account projects and provisions a distinct local-agent key automatically.
+- Added extension signup/login/logout and automatic browser-agent enrollment,
+  removing the production dependency on anonymous bootstrap credentials while
+  retaining manual project-key connection for self-hosted compatibility.
+- Added project agent-key metadata, one-time provisioning, and soft revocation;
+  revoked keys retain provenance records and fail authentication immediately.
+- Hardened public credentials with scrypt password rehashing, expiring agent
+  keys, short-lived single-use bootstrap identities, production-disabled query
+  tokens, and owner/admin-only credential provisioning.
+- Scoped linked-chat uniqueness to each project so separate users can attach
+  the same source conversation without cross-project conflicts.
 - Added a no-clone `install.sh` flow that installs the Loom CLI through `pipx`
   without requiring privileged shell access.
 - Added `loom extension install`, `path`, `status`, and `package` commands for

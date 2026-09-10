@@ -19,8 +19,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.models import Agent, ContextUnitType, Project, TrustTier
-
+from loom.models import Agent, Project
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -62,62 +61,89 @@ async def sample_units(
     units: dict[str, Any] = {}
 
     writes = [
-        ("summary_onboard", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "summary",
-            "content": "Project overview: building a context server for AI agents",
-            "version": 1,
-        }),
-        ("summary_tech", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "summary",
-            "content": "Technical stack: Python, FastAPI, PostgreSQL, pgvector",
-            "version": 1,
-        }),
-        ("decision_bcrypt", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "decision",
-            "content": "Use bcrypt for password hashing to comply with security policies",
-            "version": 1,
-        }),
-        ("decision_cache", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "decision",
-            "content": "Implement Redis caching layer for frequently accessed context",
-            "version": 1,
-        }),
-        ("message_hello", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "message",
-            "content": "Hello, I need to understand the authentication flow",
-            "version": 1,
-        }),
-        ("message_bcrypt_question", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "message",
-            "content": "How was the bcrypt decision implemented?",
-            "version": 1,
-        }),
-        ("task_user_tier", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "task_result",
-            "trust_tier": "agent",
-            "content": "Agent reviewed the bcrypt implementation and approved it",
-            "version": 1,
-        }),
-        ("task_external_tier", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "task_result",
-            "trust_tier": "external_tool",
-            "content": "External linter checked the bcrypt code for vulnerabilities",
-            "version": 1,
-        }),
-        ("summary_noise", {
-            "client_uuid": str(uuid.uuid4()),
-            "type": "summary",
-            "content": "The weather today is sunny with a chance of rain",
-            "version": 1,
-        }),
+        (
+            "summary_onboard",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "summary",
+                "content": "Project overview: building a context server for AI agents",
+                "version": 1,
+            },
+        ),
+        (
+            "summary_tech",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "summary",
+                "content": "Technical stack: Python, FastAPI, PostgreSQL, pgvector",
+                "version": 1,
+            },
+        ),
+        (
+            "decision_bcrypt",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "decision",
+                "content": "Use bcrypt for password hashing to comply with security policies",
+                "version": 1,
+            },
+        ),
+        (
+            "decision_cache",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "decision",
+                "content": "Implement Redis caching layer for frequently accessed context",
+                "version": 1,
+            },
+        ),
+        (
+            "message_hello",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "message",
+                "content": "Hello, I need to understand the authentication flow",
+                "version": 1,
+            },
+        ),
+        (
+            "message_bcrypt_question",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "message",
+                "content": "How was the bcrypt decision implemented?",
+                "version": 1,
+            },
+        ),
+        (
+            "task_user_tier",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "task_result",
+                "trust_tier": "agent",
+                "content": "Agent reviewed the bcrypt implementation and approved it",
+                "version": 1,
+            },
+        ),
+        (
+            "task_external_tier",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "task_result",
+                "trust_tier": "external_tool",
+                "content": "External linter checked the bcrypt code for vulnerabilities",
+                "version": 1,
+            },
+        ),
+        (
+            "summary_noise",
+            {
+                "client_uuid": str(uuid.uuid4()),
+                "type": "summary",
+                "content": "The weather today is sunny with a chance of rain",
+                "version": 1,
+            },
+        ),
     ]
 
     for label, body in writes:

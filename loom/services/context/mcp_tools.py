@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.services.context.service import read_context, write_context
 
-
 _CLIENT_UUID_NAMESPACE = uuid.NAMESPACE_DNS
 """Namespace used for deterministic client_uuid generation (UUID v5)."""
 
@@ -81,7 +80,10 @@ class ReadContextTool(MCPTool):
         "properties": {
             "task_description": {
                 "type": "string",
-                "description": "Description of what the agent is working on — used for full-text relevance ranking",
+                "description": (
+                    "Description of what the agent is working on — used for "
+                    "full-text relevance ranking"
+                ),
             },
             "token_budget": {
                 "type": "integer",
@@ -91,13 +93,19 @@ class ReadContextTool(MCPTool):
             "scope": {
                 "type": "string",
                 "enum": ["task", "onboarding", "full"],
-                "description": "Scope of context to retrieve — 'task' (all types), 'onboarding' (summaries only), 'full' (everything)",
+                "description": (
+                    "Scope of context to retrieve — 'task' (all types), "
+                    "'onboarding' (summaries only), 'full' (everything)"
+                ),
                 "default": "task",
             },
             "min_trust_tier": {
                 "type": "string",
                 "enum": ["user", "agent", "external_tool"],
-                "description": "Minimum trust tier to include — filters out results below this tier",
+                "description": (
+                    "Minimum trust tier to include — filters out results below "
+                    "this tier"
+                ),
                 "default": "external_tool",
             },
         },
@@ -228,7 +236,11 @@ class WriteContextTool(MCPTool):
                 content=content,
                 version=version,
                 trust_tier=None,      # service defaults to "agent"
-                parent_ids=parent_ids,
+                parent_ids=(
+                    [uuid.UUID(parent_id) for parent_id in parent_ids]
+                    if parent_ids
+                    else None
+                ),
                 parent_relations=parent_relations,
             )
         except ValueError as exc:

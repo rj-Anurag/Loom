@@ -29,6 +29,12 @@ SCAN_COUNT = 100
 """Batch size for SCAN iteration."""
 
 
+def _text(value: bytes | str | None) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value or ""
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 
@@ -140,13 +146,13 @@ async def get_active_agents(
                 results = await pipe.execute()
 
                 for key, data in zip(keys, results):
-                    if data and data.get("project_id") == project_id:
-                        agent_id = key[len(PRESENCE_KEY_PREFIX) :]
+                    if data and _text(data.get("project_id")) == project_id:
+                        agent_id = _text(key)[len(PRESENCE_KEY_PREFIX) :]
                         entry: dict[str, str] = {
                             "agent_id": agent_id,
-                            "project_id": data.get("project_id", ""),
-                            "status": data.get("status", ""),
-                            "task_id": data.get("task_id", ""),
+                            "project_id": _text(data.get("project_id")),
+                            "status": _text(data.get("status")),
+                            "task_id": _text(data.get("task_id")),
                         }
                         agents.append(entry)
 
@@ -197,9 +203,9 @@ async def get_agent_presence(
             return None
         return {
             "agent_id": agent_id,
-            "project_id": data.get("project_id", ""),
-            "status": data.get("status", ""),
-            "task_id": data.get("task_id", ""),
+            "project_id": _text(data.get("project_id")),
+            "status": _text(data.get("status")),
+            "task_id": _text(data.get("task_id")),
         }
     except (
         ConnectionError,

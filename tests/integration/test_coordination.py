@@ -218,7 +218,7 @@ async def test_overlapping_writes_create_conflict(
         headers=auth_headers,
     )
     assert resp.status_code == 201
-    b_id = resp.json()["id"]
+    _ = resp.json()["id"]
 
     # 3. Agent A tries to write overlapping content with stale version
     a_body = {
@@ -548,9 +548,7 @@ async def test_write_without_branch_id_backward_compat(
     )
     row = result.one_or_none()
     assert row is not None
-    assert row.branch_id is None, (
-        "Phase 1.8-style conflict should have branch_id IS NULL"
-    )
+    assert row.branch_id is None, "Phase 1.8-style conflict should have branch_id IS NULL"
 
 
 @pytest.mark.asyncio
@@ -630,10 +628,12 @@ async def test_write_context_redis_down(
     """
     # 1. Monkey-patch the Redis connection to point at a dead port
     import loom.config
+
     original_redis_url = loom.config.settings.redis_url
     loom.config.settings.redis_url = "redis://localhost:16379/1"
     # Force re-initialization of the module-level Redis client
     import loom.services.retrieval.queue as queue_module
+
     # Reset the module-level _redis so get_redis() creates a new (broken) connection
     queue_module._redis = None  # type: ignore[attr-defined]
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 
+import httpx
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -16,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agents.demo.stubs import LoginFormAgent, PasswordAgent, SessionAgent
 from agents.local.agent import LoomClient
 from loom.models import Agent, Project
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ class TestMergeAndConflict:
         loom = _make_client(agent_token, http_client=client)
 
         # Write a shared parent
-        parent = await loom.write_context(
+        _ = await loom.write_context(
             project_id=str(test_project.id),
             content="Shared parent: Authentication System",
             version=1,
@@ -178,12 +178,14 @@ class TestRegistrationAuthFlow:
         self,
         client: AsyncClient,
         test_project: Project,
+        agent_token: str,
     ) -> None:
         """Agent registered via API can authenticate with returned api_key."""
         # Register
         resp = await client.post(
             f"/v1/projects/{test_project.id}/agents",
             json={"kind": "local", "name": "E2E Test Agent"},
+            headers={"Authorization": f"Bearer {agent_token}"},
         )
         assert resp.status_code == 201
         data = resp.json()

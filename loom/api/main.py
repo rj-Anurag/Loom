@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from loom.api.dependencies import get_redis
 from loom.api.routers import (
     agents,
+    auth,
     branches,
     conflicts,
     context,
@@ -136,6 +137,7 @@ app.add_middleware(
 )
 
 app.include_router(context.router, prefix="/v1/projects", tags=["context"])
+app.include_router(auth.router, tags=["auth"])
 app.include_router(events.router, prefix="/v1/projects", tags=["events"])
 app.include_router(agents.router, prefix="/v1", tags=["agents"])
 app.include_router(conflicts.router, prefix="/v1/projects", tags=["conflicts"])
@@ -145,6 +147,12 @@ app.include_router(branches.router, prefix="/v1/projects", tags=["branches"])
 app.include_router(tasks.router, prefix="/v1/projects", tags=["tasks"])
 
 app.mount("/static", StaticFiles(directory=str(WEB_ROOT)), name="static")
+
+
+@app.get("/")
+@app.get("/dashboard")
+async def public_dashboard() -> FileResponse:
+    return FileResponse(WEB_ROOT / "account.html")
 
 
 @app.get("/health")

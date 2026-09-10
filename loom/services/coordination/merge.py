@@ -22,7 +22,6 @@ from loom.models import (
     TrustTier,
 )
 
-
 # ── Entity extraction (v1 heuristic) ──────────────────────────────────────────
 
 

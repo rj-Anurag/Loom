@@ -1,14 +1,20 @@
 from collections.abc import AsyncGenerator
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from loom.config import settings
+
+# Historical fixtures authenticate with agent UUIDs. Production defaults this
+# compatibility path off; tests retain it while exercising legacy migrations.
+settings.allow_legacy_uuid_tokens = True
 
 
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     from loom.api.main import app
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
@@ -46,8 +52,9 @@ async def redis_client() -> AsyncGenerator:  # type: ignore[type-arg]
     Import ``redis.asyncio`` lazily to avoid requiring the dependency
     for tests that don't use Redis.
     """
-    import loom.config
     import redis.asyncio as redis_async
+
+    import loom.config
 
     # Point the app's Redis config to DB 1 so get_redis() uses the
     # same database as this test fixture.
@@ -57,11 +64,12 @@ async def redis_client() -> AsyncGenerator:  # type: ignore[type-arg]
     # Reset the module-level singleton so the next get_redis() call
     # picks up the test DB URL.
     import loom.services.retrieval.queue as queue_module
+
     queue_module._redis = None
 
     r = redis_async.from_url("redis://localhost:6379/1", decode_responses=True)
     await r.flushdb()
     yield r
     await r.flushdb()
-    await r.close()
+    await r.aclose()
     loom.config.settings.redis_url = original_url

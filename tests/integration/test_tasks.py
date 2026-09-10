@@ -24,15 +24,12 @@ fixtures defined here.
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING
 import redis.asyncio as redis_async
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.services.coordination.branches import MergeResult, create_branch, get_branch, list_branches, merge_branch
+from loom.services.coordination.branches import (
+    MergeResult,
+    create_branch,
+    get_branch,
+    list_branches,
+    merge_branch,
+)
 from loom.services.coordination.locks import LockResult, acquire_lock, acquire_locks, release_lock
 from loom.services.coordination.tasks import (
     assign_task,

@@ -39,18 +39,17 @@ const Storage = {
   },
 
   /**
-   * Store a chat URL → { projectId, projectName, apiKey } mapping.
+   * Store a chat URL → { projectId, projectName } mapping.
    * @param {string} chatUrl
    * @param {string} projectId
    * @param {string} [projectName]
-   * @param {string} [apiKey]
    */
-  async setChatLink(chatUrl, projectId, projectName, apiKey) {
+  async setChatLink(chatUrl, projectId, projectName) {
     const key = LOOM_CONFIG.STORAGE_KEYS.CHAT_LINKS;
     const result = await chrome.storage.local.get(key);
     const links = result[key] || {};
     const norm = normalizeChatUrl(chatUrl);
-    const val = { projectId, projectName: projectName || projectId, apiKey: apiKey || null };
+    const val = { projectId, projectName: projectName || projectId };
     links[norm] = val;
     if (chatUrl !== norm) links[chatUrl] = val;
     await chrome.storage.local.set({ [key]: links });
@@ -100,6 +99,38 @@ const Storage = {
     const credentials = result[key] || {};
     credentials[projectId] = { agent_id: agentId, api_key: apiKey };
     await chrome.storage.local.set({ [key]: credentials });
+  },
+
+  async removeProjectCredentials(projectId) {
+    const key = LOOM_CONFIG.STORAGE_KEYS.PROJECT_CREDENTIALS;
+    const result = await chrome.storage.local.get(key);
+    const credentials = result[key] || {};
+    delete credentials[projectId];
+    await chrome.storage.local.set({ [key]: credentials });
+  },
+
+  async getAccount() {
+    const key = LOOM_CONFIG.STORAGE_KEYS.ACCOUNT_SESSION;
+    const result = await chrome.storage.local.get(key);
+    return result[key] || null;
+  },
+
+  async setAccount(sessionToken, user) {
+    const key = LOOM_CONFIG.STORAGE_KEYS.ACCOUNT_SESSION;
+    await chrome.storage.local.set({
+      [key]: { session_token: sessionToken, user: user },
+    });
+  },
+
+  async clearAccount() {
+    await chrome.storage.local.remove([
+      LOOM_CONFIG.STORAGE_KEYS.ACCOUNT_SESSION,
+      LOOM_CONFIG.STORAGE_KEYS.AGENT_CREDENTIALS,
+      LOOM_CONFIG.STORAGE_KEYS.PROJECT_CREDENTIALS,
+      LOOM_CONFIG.STORAGE_KEYS.CURRENT_PROJECT,
+      LOOM_CONFIG.STORAGE_KEYS.CHAT_LINKS,
+      LOOM_CONFIG.STORAGE_KEYS.PENDING_SYNC,
+    ]);
   },
 
   async getPendingSync() {

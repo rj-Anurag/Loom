@@ -19,6 +19,7 @@ Configuration via environment variables or ``.env`` file:
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import sys
@@ -26,10 +27,11 @@ import textwrap
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
+from loom.cli.account import clear_account, load_account, save_account
 from loom.cli.dotenv import load_dotenv
 from loom.cli.extension import (
     ExtensionDistributionError,
@@ -61,6 +63,16 @@ def _project_id() -> str:
 def _headers() -> dict[str, str]:
     key = _api_key()
     auth = {"Authorization": f"Bearer {key}"} if key else {}
+    return {"Content-Type": "application/json", **auth}
+
+
+def _user_token() -> str:
+    return os.environ.get("LOOM_USER_TOKEN", "") or load_account(_api_url())
+
+
+def _user_headers(token: str | None = None) -> dict[str, str]:
+    session_token = token or _user_token()
+    auth = {"Authorization": f"Bearer {session_token}"} if session_token else {}
     return {"Content-Type": "application/json", **auth}
 
 
@@ -396,16 +408,65 @@ def cmd_write(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_init(args: argparse.Namespace) -> None:
-    """Create a new project + agent and print configuration.
+def _response_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text or f"HTTP {response.status_code}"
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    return str(detail or payload)
 
-    Uses the short-lived extension bootstrap identity only to create a new
-    project, then creates a distinct local-agent credential for this workspace.
-    """
+
+def _password() -> str:
+    password = os.environ.get("LOOM_PASSWORD", "")
+    return password or getpass.getpass("Loom password: ")
+
+
+def _print_project_config(
+    *,
+    url: str,
+    project_name: str,
+    project_id: str,
+    api_key: str,
+    write_env: str | None,
+    install: str,
+) -> None:
+    print(f"\n✅ Project created or connected: {project_name} ({project_id})\n")
+    print("Add these to your shell profile or .env file:\n")
+    print(f"  export LOOM_API_URL={url}")
+    print(f"  export LOOM_API_KEY={api_key}")
+    print(f"  export LOOM_PROJECT_ID={project_id}")
+    print()
+
+    if write_env:
+        env_path = Path(write_env)
+        existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+        replacements = {
+            "LOOM_API_URL": url,
+            "LOOM_API_KEY": api_key,
+            "LOOM_PROJECT_ID": project_id,
+        }
+        retained = [
+            line
+            for line in existing.splitlines()
+            if line.split("=", 1)[0].strip() not in replacements
+            and line.strip() != "# Loom — added by `loom init`"
+        ]
+        block = [
+            "# Loom — added by `loom init`",
+            *[f"{key}={value}" for key, value in replacements.items()],
+        ]
+        env_path.write_text("\n".join([*retained, *block]).strip() + "\n", encoding="utf-8")
+        os.chmod(env_path, 0o600)
+        print(f"✅ Written to {env_path}")
+
+    if install != "none":
+        cmd_install(argparse.Namespace(target=install, path=str(Path.cwd())))
+
+
+def _bootstrap_init(args: argparse.Namespace, url: str, project_name: str) -> None:
+    """Retain operator/self-hosted project creation as a compatibility path."""
     url = _api_url()
-    project_name = args.name or Path.cwd().name
-    print(f"Creating Loom project '{project_name}' via {url} ...")
-
     bootstrap_headers = {}
     if token := os.environ.get("LOOM_BOOTSTRAP_TOKEN"):
         bootstrap_headers["X-Loom-Bootstrap-Token"] = token
@@ -422,47 +483,256 @@ def cmd_init(args: argparse.Namespace) -> None:
     }
     project_response = httpx.post(
         f"{url}/v1/projects",
-        json={"name": project_name},
+        json={
+            "name": project_name,
+            "client_kind": "cli",
+            "client_name": args.agent_name,
+        },
         headers=bootstrap_headers,
         timeout=30,
     )
     project_response.raise_for_status()
     project = project_response.json()
 
-    local_response = httpx.post(
+    _print_project_config(
+        url=url,
+        project_name=project_name,
+        project_id=project["id"],
+        api_key=project["api_key"],
+        write_env=args.write_env,
+        install=args.install,
+    )
+
+
+def _login_user(url: str, email: str, password: str) -> dict[str, Any]:
+    response = httpx.post(
+        f"{url}/v1/auth/login",
+        json={"email": email, "password": password, "client_kind": "cli"},
+        timeout=30,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(_response_detail(response))
+    data = cast(dict[str, Any], response.json())
+    save_account(url, data["session_token"])
+    return data
+
+
+def _select_project(projects: list[dict[str, Any]], requested_id: str | None) -> dict[str, Any]:
+    if requested_id:
+        match = next((project for project in projects if project["id"] == requested_id), None)
+        if match is None:
+            raise RuntimeError("The requested project is not available to this account.")
+        return match
+    if len(projects) == 1:
+        return projects[0]
+    if not projects:
+        raise RuntimeError("This account has no Loom projects.")
+    if not sys.stdin.isatty():
+        raise RuntimeError("Multiple projects found; rerun with --project-id.")
+    print("Available Loom projects:")
+    for index, project in enumerate(projects, start=1):
+        print(f"  {index}. {project['name']} ({project['id']})")
+    try:
+        selected = int(input("Select project number: ").strip())
+        return projects[selected - 1]
+    except (ValueError, IndexError) as exc:
+        raise RuntimeError("Invalid project selection.") from exc
+
+
+def _provision_local_agent(
+    url: str,
+    session_token: str,
+    project: dict[str, Any],
+    agent_name: str,
+) -> str:
+    response = httpx.post(
         f"{url}/v1/projects/{project['id']}/agents",
-        json={"kind": "local", "name": args.agent_name},
-        headers={
-            "Authorization": f"Bearer {project['api_key']}",
-            "Content-Type": "application/json",
+        json={"kind": "local", "name": agent_name},
+        headers=_user_headers(session_token),
+        timeout=30,
+    )
+    if response.status_code != 201:
+        raise RuntimeError(_response_detail(response))
+    data = cast(dict[str, Any], response.json())
+    return cast(str, data["api_key"])
+
+
+def _create_cli_project(
+    url: str,
+    session_token: str,
+    project_name: str,
+    agent_name: str,
+) -> dict[str, Any]:
+    response = httpx.post(
+        f"{url}/v1/projects",
+        json={
+            "name": project_name,
+            "client_kind": "cli",
+            "client_name": agent_name,
+        },
+        headers=_user_headers(session_token),
+        timeout=30,
+    )
+    if response.status_code != 201:
+        raise RuntimeError(_response_detail(response))
+    return cast(dict[str, Any], response.json())
+
+
+def cmd_signup(args: argparse.Namespace) -> None:
+    """Create an account and automatically connect this CLI to its first project."""
+
+    url = _api_url()
+    email = args.email or input("Email: ").strip()
+    display_name = args.display_name or input("Display name: ").strip()
+    project_name = args.name or Path.cwd().name
+    response = httpx.post(
+        f"{url}/v1/auth/signup",
+        json={
+            "email": email,
+            "password": _password(),
+            "display_name": display_name,
+            "project_name": project_name,
+            "client_kind": "cli",
+            "client_name": args.agent_name,
         },
         timeout=30,
     )
-    local_response.raise_for_status()
-    local_agent = local_response.json()
+    if response.status_code != 201:
+        raise RuntimeError(_response_detail(response))
+    data = response.json()
+    save_account(url, data["session_token"])
+    _print_project_config(
+        url=url,
+        project_name=data["project"]["name"],
+        project_id=data["project_id"],
+        api_key=data["project_api_key"],
+        write_env=args.write_env,
+        install=args.install,
+    )
 
-    project_id = project["id"]
-    api_key = local_agent["api_key"]
 
-    print(f"\n✅ Project created: {project_name} ({project_id})\n")
-    print("Add these to your shell profile or .env file:\n")
-    print(f"  export LOOM_API_URL={url}")
-    print(f"  export LOOM_API_KEY={api_key}")
-    print(f"  export LOOM_PROJECT_ID={project_id}")
-    print()
+def cmd_login(args: argparse.Namespace) -> None:
+    """Sign in and provision a distinct local-agent credential automatically."""
 
-    # Optionally write to .env
-    if args.write_env:
-        env_path = Path(args.write_env)
-        with env_path.open("a", encoding="utf-8") as f:
-            f.write("\n# Loom — added by `loom init`\n")
-            f.write(f"LOOM_API_URL={url}\n")
-            f.write(f"LOOM_API_KEY={api_key}\n")
-            f.write(f"LOOM_PROJECT_ID={project_id}\n")
-        print(f"✅ Written to {env_path}")
+    url = _api_url()
+    email = args.email or input("Email: ").strip()
+    data = _login_user(url, email, _password())
+    project = _select_project(data["projects"], args.project_id)
+    api_key = _provision_local_agent(url, data["session_token"], project, args.agent_name)
+    _print_project_config(
+        url=url,
+        project_name=project["name"],
+        project_id=project["id"],
+        api_key=api_key,
+        write_env=args.write_env,
+        install=args.install,
+    )
 
-    if args.install != "none":
-        cmd_install(argparse.Namespace(target=args.install, path=str(Path.cwd())))
+
+def cmd_logout(args: argparse.Namespace) -> None:
+    """Revoke the current CLI account session and remove it locally."""
+
+    token = _user_token()
+    if token:
+        response = httpx.post(
+            f"{_api_url()}/v1/auth/logout",
+            headers=_user_headers(token),
+            timeout=30,
+        )
+        if response.status_code not in {204, 401}:
+            raise RuntimeError(_response_detail(response))
+    clear_account()
+    print("✅ Signed out of Loom.")
+
+
+def cmd_init(args: argparse.Namespace) -> None:
+    """Connect a project using self-service auth, with bootstrap compatibility."""
+
+    url = _api_url()
+    project_name = args.name or Path.cwd().name
+    print(f"Connecting Loom project '{project_name}' via {url} ...")
+    use_bootstrap = bool(
+        args.bootstrap
+        or os.environ.get("LOOM_BOOTSTRAP_TOKEN")
+        or (not args.email and not _user_token() and not sys.stdin.isatty())
+    )
+    if use_bootstrap:
+        _bootstrap_init(args, url, project_name)
+        return
+
+    session_token = _user_token()
+    projects: list[dict[str, Any]] = []
+    if not session_token:
+        email = args.email or input("Email: ").strip()
+        password = _password()
+        signup_response = httpx.post(
+            f"{url}/v1/auth/signup",
+            json={
+                "email": email,
+                "password": password,
+                "display_name": args.display_name,
+                "project_name": project_name,
+                "client_kind": "cli",
+                "client_name": args.agent_name,
+            },
+            timeout=30,
+        )
+        if signup_response.status_code == 201:
+            data = signup_response.json()
+            save_account(url, data["session_token"])
+            _print_project_config(
+                url=url,
+                project_name=data["project"]["name"],
+                project_id=data["project_id"],
+                api_key=data["project_api_key"],
+                write_env=args.write_env,
+                install=args.install,
+            )
+            return
+        if signup_response.status_code != 409:
+            raise RuntimeError(_response_detail(signup_response))
+        login_data = _login_user(url, email, password)
+        session_token = login_data["session_token"]
+        projects = login_data["projects"]
+
+    if not projects:
+        response = httpx.get(f"{url}/v1/auth/me", headers=_user_headers(session_token), timeout=30)
+        if response.status_code != 200:
+            clear_account()
+            raise RuntimeError("Saved Loom login expired. Run `loom login`.")
+        projects = response.json()["projects"]
+    if args.name and not args.project_id:
+        project = _create_cli_project(url, session_token, project_name, args.agent_name)
+        _print_project_config(
+            url=url,
+            project_name=project["name"],
+            project_id=project["id"],
+            api_key=project["api_key"],
+            write_env=args.write_env,
+            install=args.install,
+        )
+        return
+    if not projects:
+        project = _create_cli_project(url, session_token, project_name, args.agent_name)
+        _print_project_config(
+            url=url,
+            project_name=project["name"],
+            project_id=project["id"],
+            api_key=project["api_key"],
+            write_env=args.write_env,
+            install=args.install,
+        )
+        return
+    project = _select_project(projects, args.project_id)
+    api_key = _provision_local_agent(url, session_token, project, args.agent_name)
+    _print_project_config(
+        url=url,
+        project_name=project["name"],
+        project_id=project["id"],
+        api_key=api_key,
+        write_env=args.write_env,
+        install=args.install,
+    )
 
 
 def cmd_projects(args: argparse.Namespace) -> None:
@@ -534,8 +804,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     # loom init
     p_init = sub.add_parser("init", help="Create a new project and get credentials")
-    p_init.add_argument("name", nargs="?", help="Project name (defaults to the current directory)")
+    p_init.add_argument(
+        "name",
+        nargs="?",
+        help="Create this project name; omit to connect an existing account project",
+    )
     p_init.add_argument("--agent-name", default="Loom CLI", help="Name for this local agent")
+    p_init.add_argument("--email", help="Loom account email (prompts when omitted)")
+    p_init.add_argument("--display-name", default="", help="Display name for a new account")
+    p_init.add_argument("--project-id", help="Existing account project to connect")
+    p_init.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help="Use the operator bootstrap flow for a self-hosted server",
+    )
     p_init.add_argument(
         "--write-env",
         metavar="PATH",
@@ -549,6 +831,32 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Install native harness integration files (default: all)",
     )
+
+    # loom signup
+    p_signup = sub.add_parser("signup", help="Create an account and connect its first project")
+    p_signup.add_argument("--email", help="Account email (prompts when omitted)")
+    p_signup.add_argument("--display-name", help="Public display name (prompts when omitted)")
+    p_signup.add_argument("--name", help="Project name (defaults to current directory)")
+    p_signup.add_argument("--agent-name", default="Loom CLI", help="Name for this local agent")
+    p_signup.add_argument("--write-env", nargs="?", const=".env", metavar="PATH")
+    p_signup.add_argument(
+        "--install",
+        choices=["all", "claude", "codex", "none"],
+        default="all",
+    )
+
+    # loom login/logout
+    p_login = sub.add_parser("login", help="Sign in and connect a project automatically")
+    p_login.add_argument("--email", help="Account email (prompts when omitted)")
+    p_login.add_argument("--project-id", help="Project to connect when the account has several")
+    p_login.add_argument("--agent-name", default="Loom CLI", help="Name for this local agent")
+    p_login.add_argument("--write-env", nargs="?", const=".env", metavar="PATH")
+    p_login.add_argument(
+        "--install",
+        choices=["all", "claude", "codex", "none"],
+        default="all",
+    )
+    sub.add_parser("logout", help="Revoke the saved Loom account session")
 
     # loom projects
     p_projects = sub.add_parser("projects", help="Show the project visible to this key")
@@ -649,6 +957,9 @@ def main() -> None:
         "context": cmd_context,
         "write": cmd_write,
         "init": cmd_init,
+        "signup": cmd_signup,
+        "login": cmd_login,
+        "logout": cmd_logout,
         "projects": cmd_projects,
         "config": cmd_config,
         "install": cmd_install,

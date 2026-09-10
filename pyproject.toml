@@ -3,7 +3,7 @@ name = "loom"
 version = "0.1.0"
 description = "Context layer for the agentic era — bridges browser AI chats and CLI agents into a shared persistent context store"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 readme = "README.md"
 
 dependencies = [

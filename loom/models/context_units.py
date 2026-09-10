@@ -3,16 +3,20 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from loom.db import Base
 
+if TYPE_CHECKING:
+    from loom.models.projects import Project
 
-class ContextUnitType(str, enum.Enum):
+
+class ContextUnitType(enum.StrEnum):
     message = "message"
     decision = "decision"
     artifact_ref = "artifact_ref"
@@ -20,7 +24,7 @@ class ContextUnitType(str, enum.Enum):
     summary = "summary"
 
 
-class TrustTier(str, enum.Enum):
+class TrustTier(enum.StrEnum):
     user = "user"
     agent = "agent"
     external_tool = "external_tool"
@@ -51,9 +55,10 @@ class ContextUnit(Base):
         default=TrustTier.agent,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(384), nullable=True
-    )
+    # Keep this aligned with the initial migration and the OpenAI/stub
+    # providers. Local embeddings are padded to this dimension at the edge.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     branch_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True

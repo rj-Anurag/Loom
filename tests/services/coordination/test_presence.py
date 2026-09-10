@@ -7,7 +7,6 @@ fixture (real Redis on DB 1, flushed between tests).
 
 from __future__ import annotations
 
-import pytest
 import redis.asyncio as redis_async
 
 from loom.services.coordination.presence import (
@@ -24,7 +23,11 @@ class TestRecordHeartbeat:
     async def test_records_presence(self, redis_client: redis_async.Redis) -> None:
         """Heartbeat stores project_id, status, and optional task_id."""
         result = await record_heartbeat(
-            redis_client, "agent-1", "proj-a", "working", task_id="task-42",
+            redis_client,
+            "agent-1",
+            "proj-a",
+            "working",
+            task_id="task-42",
         )
         assert result is True
 
@@ -62,7 +65,8 @@ class TestGetActiveAgents:
     """Tests for get_active_agents."""
 
     async def test_returns_matching_project(
-        self, redis_client: redis_async.Redis,
+        self,
+        redis_client: redis_async.Redis,
     ) -> None:
         """Only agents in the requested project are returned."""
         await record_heartbeat(redis_client, "agent-1", "proj-a", "working")
@@ -75,7 +79,8 @@ class TestGetActiveAgents:
         assert agent_ids == {"agent-1", "agent-2"}
 
     async def test_empty_when_no_matches(
-        self, redis_client: redis_async.Redis,
+        self,
+        redis_client: redis_async.Redis,
     ) -> None:
         """Project with no agents returns empty list."""
         agents = await get_active_agents(redis_client, "proj-none")
@@ -87,7 +92,8 @@ class TestGetActiveAgents:
         assert agents == []
 
     async def test_includes_all_fields(
-        self, redis_client: redis_async.Redis,
+        self,
+        redis_client: redis_async.Redis,
     ) -> None:
         """Each agent dict has agent_id, project_id, status, task_id."""
         await record_heartbeat(redis_client, "agent-1", "proj-a", "blocked", task_id="t1")
@@ -104,7 +110,8 @@ class TestGetAgentPresence:
     """Tests for get_agent_presence."""
 
     async def test_returns_presence_for_active_agent(
-        self, redis_client: redis_async.Redis,
+        self,
+        redis_client: redis_async.Redis,
     ) -> None:
         """Returns presence dict for an agent with a heartbeat."""
         await record_heartbeat(redis_client, "agent-1", "proj-a", "working")
@@ -115,7 +122,8 @@ class TestGetAgentPresence:
         assert presence["project_id"] == "proj-a"
 
     async def test_returns_none_for_unknown_agent(
-        self, redis_client: redis_async.Redis,
+        self,
+        redis_client: redis_async.Redis,
     ) -> None:
         """Non-existent agent returns None."""
         presence = await get_agent_presence(redis_client, "ghost-agent")
@@ -127,7 +135,8 @@ class TestGetAgentPresence:
         assert presence is None
 
     async def test_expired_agent_returns_none(
-        self, redis_client: redis_async.Redis,
+        self,
+        redis_client: redis_async.Redis,
     ) -> None:
         """After TTL expiry, agent presence returns None."""
         await record_heartbeat(redis_client, "agent-1", "proj-a", "working")

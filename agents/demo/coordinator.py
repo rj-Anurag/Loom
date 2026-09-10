@@ -15,14 +15,15 @@ import asyncio
 import logging
 import sys
 import time
-import uuid
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 import httpx
 
 from agents.demo.base import DemoAgentResult
 from agents.demo.stubs import LoginFormAgent, PasswordAgent, SessionAgent
 from agents.local.agent import LoomClient
+from agents.local.config import AgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class DemoReport:
                 print(f"    └─ ... and {len(r.unit_ids) - 2} more")
         print()
 
-    def to_json(self) -> dict:
+    def to_json(self) -> dict[str, Any]:
         return {
             "project_id": self.project_id,
             "project_name": self.project_name,
@@ -86,8 +87,8 @@ async def _bootstrap_project(api_url: str) -> tuple[str, str, str]:
     async with httpx.AsyncClient(base_url=api_url) as client:
         resp = await client.get("/v1/extension/setup")
         resp.raise_for_status()
-        data = resp.json()
-        return data["id"], data["name"], data["api_key"]
+        data = cast(dict[str, Any], resp.json())
+        return str(data["id"]), str(data["name"]), str(data["api_key"])
 
 
 async def _register_demo_agent(
@@ -95,21 +96,23 @@ async def _register_demo_agent(
     project_id: str,
     kind: str,
     name: str,
+    owner_api_key: str,
 ) -> str:
     """Register a new demo agent and return its token (api_key)."""
     async with httpx.AsyncClient(base_url=api_url) as client:
         resp = await client.post(
             f"/v1/projects/{project_id}/agents",
             json={"kind": kind, "name": name},
+            headers={"Authorization": f"Bearer {owner_api_key}"},
         )
         resp.raise_for_status()
-        data = resp.json()
-        return data["api_key"]
+        data = cast(dict[str, Any], resp.json())
+        return str(data["api_key"])
 
 
 def _make_loom_client(api_url: str, api_key: str) -> LoomClient:
     """Create a LoomClient with the given credentials."""
-    cfg = type("Cfg", (), {"loom_api_url": api_url, "loom_api_key": api_key})()
+    cfg = AgentConfig(loom_api_url=api_url, loom_api_key=api_key)
     return LoomClient(cfg)
 
 
@@ -144,10 +147,18 @@ class DemoCoordinator:
         # 2. Register 2 more agents
         print("Registering agents...")
         local_token = await _register_demo_agent(
-            self.api_url, project_id, "local", "Agent A — Password Hashing"
+            self.api_url,
+            project_id,
+            "local",
+            "Agent A — Password Hashing",
+            browser_token,
         )
         cloud_token = await _register_demo_agent(
-            self.api_url, project_id, "cloud", "Agent B — Session Management"
+            self.api_url,
+            project_id,
+            "cloud",
+            "Agent B — Session Management",
+            browser_token,
         )
         print(f"  Agent A (local):  {local_token[:8]}...")
         print(f"  Agent B (cloud):  {cloud_token[:8]}...")
@@ -198,7 +209,7 @@ class DemoCoordinator:
         # Check for errors
         agent_results: list[DemoAgentResult] = []
         for i, r in enumerate(results):
-            if isinstance(r, Exception):
+            if isinstance(r, BaseException):
                 logger.error("Agent %d failed: %s", i, r)
                 print(f"  Agent {i} FAILED: {r}")
             else:

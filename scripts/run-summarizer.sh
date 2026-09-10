@@ -22,5 +22,5 @@ fi
 
 cd "$PROJECT_ROOT"
 
-echo "==> Starting Loom summarization worker (provider: ${LOOM_SUMMARIZATION_PROVIDER:-stub})"
+echo "==> Starting Loom summarization worker (provider: ${SUMMARIZATION_PROVIDER:-stub})"
 python -m loom.services.retrieval.summarizer

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from loom.db import Base
 
 
-class EdgeRelation(str, enum.Enum):
+class EdgeRelation(enum.StrEnum):
     derived_from = "derived_from"
     supersedes = "supersedes"
     references = "references"

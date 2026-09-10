@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 import random
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from loom.config import settings
 
@@ -110,20 +110,29 @@ class LocalProvider:
     for the lifetime of the process.
     """
 
-    DIMENSION = 384
+    MODEL_DIMENSION = 384
+    DIMENSION = 1536
     _model = None
 
     async def embed(self, text: str) -> list[float] | None:
         if not text.strip():
             return None
 
-        from sentence_transformers import SentenceTransformer
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:
+            raise RuntimeError(
+                "Local embeddings require the optional dependency. "
+                'Install it with: pip install "loom[local-embeddings]"'
+            ) from exc
 
         if self._model is None:
             LocalProvider._model = SentenceTransformer("all-MiniLM-L6-v2")
 
         vector: list[float] = self._model.encode(text).tolist()  # type: ignore[union-attr]
-        return vector
+        # The database vector column is 1536-dimensional. Zero-padding keeps
+        # the local model usable without an incompatible schema migration.
+        return vector + [0.0] * (self.DIMENSION - len(vector))
 
 
 # ── Factory ────────────────────────────────────────────────────────────────────
@@ -140,7 +149,7 @@ class LLMProvider(Protocol):
     a condensed summary string preserving key decisions and state.
     """
 
-    async def summarize(self, context_units: list[dict]) -> str:
+    async def summarize(self, context_units: list[dict[str, Any]]) -> str:
         """Generate a summary of the given context units.
 
         Parameters
@@ -165,7 +174,7 @@ class StubLLMProvider:
     external dependencies.
     """
 
-    async def summarize(self, context_units: list[dict]) -> str:
+    async def summarize(self, context_units: list[dict[str, Any]]) -> str:
         if not context_units:
             return ""
         header = f"Stub summary of {len(context_units)} units:\n"
@@ -198,7 +207,7 @@ class GroqLLMProvider:
         self.model = model
         self._api_key = api_key
 
-    async def summarize(self, context_units: list[dict]) -> str:
+    async def summarize(self, context_units: list[dict[str, Any]]) -> str:
         if not context_units:
             return ""
         units_text = self._format_units(context_units)
@@ -215,7 +224,7 @@ class GroqLLMProvider:
         )
         return resp.choices[0].message.content or ""
 
-    def _format_units(self, units: list[dict]) -> str:
+    def _format_units(self, units: list[dict[str, Any]]) -> str:
         lines = []
         for i, u in enumerate(units, 1):
             # Isolate each unit's content behind XML-like boundary markers
@@ -259,10 +268,14 @@ def from_config() -> EmbeddingProvider:
     ``"stub"`` (default) → :class:`StubProvider`
     ``"openai"``         → :class:`OpenAIProvider`
     ``"local"``          → :class:`LocalProvider`
+    ``"sentence_transformers"`` → :class:`LocalProvider` (legacy alias)
     """
     provider_name = settings.embedding_provider.lower()
     if provider_name == "openai":
         return OpenAIProvider()
-    if provider_name == "local":
+    if provider_name in {"local", "sentence_transformers"}:
         return LocalProvider()
-    return StubProvider()
+    if provider_name == "stub":
+        return StubProvider()
+    msg = f"Unrecognised embedding provider: {settings.embedding_provider!r}"
+    raise ValueError(msg)

@@ -7,6 +7,7 @@ created when overlapping version conflicts are detected.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import AuthContext, require_auth
 from loom.db import get_session
-from loom.models import Agent, PendingBranch
+from loom.models import Agent, ContextUnit, PendingBranch
 
 router = APIRouter()
 
@@ -48,7 +49,7 @@ async def list_conflicts(
     project_id: uuid.UUID,
     auth: AuthContext = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """List all unresolved (pending) conflicts for a project."""
     await _verify_project_access(session, project_id, auth.agent_id)
 
@@ -94,11 +95,20 @@ async def resolve_conflict(
     body: ResolveConflictRequest,
     auth: AuthContext = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> dict[str, Any]:
     """Resolve a pending conflict by updating its resolution status."""
     await _verify_project_access(session, project_id, auth.agent_id)
 
-    branch = await session.get(PendingBranch, branch_id)
+    branch = (
+        await session.execute(
+            select(PendingBranch)
+            .join(ContextUnit, ContextUnit.id == PendingBranch.context_unit_id)
+            .where(
+                PendingBranch.id == branch_id,
+                ContextUnit.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
     if branch is None:
         raise HTTPException(status_code=404, detail="Conflict not found")
 

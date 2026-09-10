@@ -9,14 +9,23 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 import redis.asyncio as redis_async
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.models import Branch, ContextEdge, ContextUnit, EdgeRelation, EventLog, EventType, PendingBranch
+from loom.models import (
+    Agent,
+    Branch,
+    ContextEdge,
+    ContextUnit,
+    EdgeRelation,
+    EventLog,
+    EventType,
+    PendingBranch,
+)
 from loom.services.coordination.locks import acquire_locks, release_lock
 
 # ── Public types ──────────────────────────────────────────────────────────────
@@ -83,6 +92,22 @@ async def create_branch(
     )
     if existing.scalar_one_or_none() is not None:
         raise ValueError("BRANCH_NAME_TAKEN")
+
+    creator = await session.get(Agent, agent_id)
+    if creator is None or creator.project_id != project_id:
+        raise ValueError("AGENT_NOT_FOUND")
+
+    if source_branch_id is not None:
+        source = await session.get(Branch, source_branch_id)
+        if source is None or source.project_id != project_id:
+            raise ValueError("SOURCE_BRANCH_NOT_FOUND")
+
+    if task_id is not None:
+        from loom.models import Task
+
+        task = await session.get(Task, task_id)
+        if task is None or task.project_id != project_id:
+            raise ValueError("TASK_NOT_FOUND")
 
     branch = Branch(
         project_id=project_id,
@@ -162,6 +187,10 @@ async def merge_branch(
     if branch is None:
         raise ValueError("BRANCH_NOT_FOUND")
 
+    actor = await session.get(Agent, agent_id)
+    if actor is None or actor.project_id != branch.project_id:
+        raise ValueError("BRANCH_NOT_FOUND")
+
     if branch.status == "merged":
         return MergeResult(status="nothing_to_merge")
 
@@ -172,27 +201,13 @@ async def merge_branch(
     branch.status = "merging"
     await session.flush()
 
-    # Find all context units on this branch
-    # Units belong to a branch if their agent_id matches the branch creator
-    # and they were created >= branch.created_at
-    # (Simple heuristic: branch units are those with branch_id marker)
-    # For Phase 2.1, we use a simpler approach: find context units whose
-    # agent_id matches branch.created_by, within the project, created after
-    # the branch was created.
-
-    # Actually, the cleanest approach: context units have branch_id stored
-    # as a marker. But we don't have schema changes for that yet.
-    # Alternative: find all units with no parent that are on the branch,
-    # or all units written by the branch's agent after branch creation.
-
-    # For now, let's find units that were written by the branch's agent
-    # for this project, after branch creation, that haven't been merged yet.
+    # Branch membership is explicit. A time/agent heuristic would accidentally
+    # merge unrelated writes made by the same agent while the branch was open.
     branch_units = (
         await session.execute(
             select(ContextUnit).where(
                 ContextUnit.project_id == branch.project_id,
-                ContextUnit.agent_id == branch.created_by,
-                ContextUnit.created_at >= branch.created_at,
+                ContextUnit.branch_id == branch.id,
             )
         )
     ).scalars().all()
@@ -200,7 +215,7 @@ async def merge_branch(
     if not branch_units:
         # No units to merge
         branch.status = "merged"
-        branch.merged_at = datetime.now(timezone.utc)
+        branch.merged_at = datetime.now(UTC)
         await session.commit()
         return MergeResult(status="nothing_to_merge")
 
@@ -303,7 +318,7 @@ async def merge_branch(
 
         # Mark branch as merged
         branch.status = "merged"
-        branch.merged_at = datetime.now(timezone.utc)
+        branch.merged_at = datetime.now(UTC)
 
         # Append merge event
         session.add(

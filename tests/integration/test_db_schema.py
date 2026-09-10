@@ -11,7 +11,6 @@ These tests verify:
 import uuid
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +24,6 @@ from loom.models import (
     Project,
     TrustTier,
 )
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,7 +60,10 @@ async def _agent(db_session: AsyncSession, project: Project) -> Agent:
 # ── Schema Existence ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("table", ["projects", "agents", "context_units", "context_edges", "event_log", "pending_branches"])
+@pytest.mark.parametrize(
+    "table",
+    ["projects", "agents", "context_units", "context_edges", "event_log", "pending_branches"],
+)
 @pytest.mark.asyncio
 async def test_table_exists(db_session: AsyncSession, table: str) -> None:
     """All 6 core tables must exist."""
@@ -80,8 +81,17 @@ async def test_context_units_has_all_columns(db_session: AsyncSession) -> None:
     )
     columns = {row.column_name for row in result}
     required = {
-        "id", "project_id", "agent_id", "client_uuid", "type",
-        "trust_tier", "content", "embedding", "version", "branch_id", "created_at",
+        "id",
+        "project_id",
+        "agent_id",
+        "client_uuid",
+        "type",
+        "trust_tier",
+        "content",
+        "embedding",
+        "version",
+        "branch_id",
+        "created_at",
     }
     missing = required - columns
     assert not missing, f"Missing columns in context_units: {missing}"

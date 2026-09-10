@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import AuthContext, require_auth
 from loom.db import get_session
-from loom.models import Agent
+from loom.models import Agent, Task
 from loom.services.coordination import CoordinationService
 
 router = APIRouter()
@@ -36,19 +36,21 @@ class CreateTaskRequest(BaseModel):
 
     title: str = Field(..., min_length=1, description="Task title.")
     description: str | None = Field(None, description="Optional task description.")
-    assigned_to: str | None = Field(None, description="Optional agent UUID to assign immediately.")
+    assigned_to: uuid.UUID | None = Field(
+        None, description="Optional agent UUID to assign immediately."
+    )
 
 
 class AssignTaskRequest(BaseModel):
     """JSON body for POST /v1/projects/{id}/tasks/{id}/assign."""
 
-    agent_id: str = Field(..., description="Agent UUID to assign.")
+    agent_id: uuid.UUID = Field(..., description="Agent UUID to assign.")
 
 
 class StartTaskRequest(BaseModel):
     """JSON body for POST /v1/projects/{id}/tasks/{id}/start."""
 
-    branch_id: str | None = Field(None, description="Optional branch UUID to associate.")
+    branch_id: uuid.UUID | None = Field(None, description="Optional branch UUID to associate.")
 
 
 class TaskResponse(BaseModel):
@@ -89,7 +91,7 @@ async def create_task_endpoint(
             project_id=project_id,
             title=body.title,
             description=body.description,
-            assigned_to=uuid.UUID(body.assigned_to) if body.assigned_to else None,
+            assigned_to=body.assigned_to,
         )
     except ValueError as exc:
         if str(exc) == "AGENT_NOT_FOUND":
@@ -139,7 +141,7 @@ async def get_task_endpoint(
     await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     task = await svc.get_task(task_id)
-    if task is None:
+    if task is None or task.project_id != project_id:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     return _task_to_response(task)
 
@@ -164,10 +166,13 @@ async def assign_task_endpoint(
     """Assign a task to an agent."""
     await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
+    existing_task = await svc.get_task(task_id)
+    if existing_task is None or existing_task.project_id != project_id:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     try:
         task = await svc.assign_task(
             task_id=task_id,
-            agent_id=uuid.UUID(body.agent_id),
+            agent_id=body.agent_id,
         )
     except ValueError as exc:
         error = str(exc)
@@ -200,14 +205,17 @@ async def start_task_endpoint(
     """Start work on a task, optionally linking a branch."""
     await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
+    existing_task = await svc.get_task(task_id)
+    if existing_task is None or existing_task.project_id != project_id:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     try:
         task = await svc.start_task(
             task_id=task_id,
-            branch_id=uuid.UUID(body.branch_id) if body.branch_id else None,
+            branch_id=body.branch_id,
         )
     except ValueError as exc:
         error = str(exc)
-        if error == "TASK_NOT_FOUND":
+        if error in {"TASK_NOT_FOUND", "BRANCH_NOT_FOUND"}:
             raise HTTPException(status_code=404, detail=error)
         raise HTTPException(status_code=400, detail=error)
 
@@ -233,6 +241,9 @@ async def complete_task_endpoint(
     """Mark a task as completed."""
     await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
+    existing_task = await svc.get_task(task_id)
+    if existing_task is None or existing_task.project_id != project_id:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     try:
         task = await svc.complete_task(task_id)
     except ValueError as exc:
@@ -263,6 +274,9 @@ async def fail_task_endpoint(
     """Mark a task as failed."""
     await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
+    existing_task = await svc.get_task(task_id)
+    if existing_task is None or existing_task.project_id != project_id:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     try:
         task = await svc.fail_task(task_id)
     except ValueError as exc:
@@ -277,7 +291,7 @@ async def fail_task_endpoint(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _task_to_response(task) -> TaskResponse:
+def _task_to_response(task: Task) -> TaskResponse:
     return TaskResponse(
         id=str(task.id),
         project_id=str(task.project_id),

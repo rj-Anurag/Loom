@@ -13,13 +13,14 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from loom.models import Agent, Project
 
 pytestmark = pytest.mark.asyncio
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
-
-
 
 
 @pytest_asyncio.fixture
@@ -193,7 +194,10 @@ class TestEmbeddingWorker:
     """Integration tests for the embedding worker loop."""
 
     async def test_worker_processes_job_and_updates_db(
-        self, redis_client, db_session: AsyncSession, test_project: Project,
+        self,
+        redis_client,
+        db_session: AsyncSession,
+        test_project: Project,
         test_agent: Agent,
     ) -> None:
         """Worker picks up a job, computes embedding, and updates the DB row."""
@@ -240,7 +244,9 @@ class TestEmbeddingWorker:
         await process_embedding_job(uuid.uuid4(), "content for ghost unit")
 
     async def test_worker_raises_on_failure(
-        self, db_session: AsyncSession, test_project: Project,
+        self,
+        db_session: AsyncSession,
+        test_project: Project,
         test_agent: Agent,
     ) -> None:
         """When embedding raises, the exception propagates from process_embedding_job."""

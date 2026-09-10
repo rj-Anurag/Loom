@@ -10,6 +10,8 @@ They will fail initially (Red phase)::
 
 from __future__ import annotations
 
+import builtins
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -78,9 +80,8 @@ class TestLLMProviderProtocol:
 
     async def test_from_llm_config_stub(self) -> None:
         """from_llm_config() returns StubLLMProvider when provider is 'stub'."""
-        from loom.services.retrieval.providers import StubLLMProvider, from_llm_config
-
         import loom.config
+        from loom.services.retrieval.providers import StubLLMProvider, from_llm_config
 
         original = loom.config.settings.summarization_provider
         loom.config.settings.summarization_provider = "stub"
@@ -92,9 +93,8 @@ class TestLLMProviderProtocol:
 
     async def test_from_llm_config_groq(self) -> None:
         """from_llm_config() returns GroqLLMProvider when provider is 'groq'."""
-        from loom.services.retrieval.providers import GroqLLMProvider, from_llm_config
-
         import loom.config
+        from loom.services.retrieval.providers import GroqLLMProvider, from_llm_config
 
         original = loom.config.settings.summarization_provider
         loom.config.settings.summarization_provider = "groq"
@@ -142,3 +142,48 @@ class TestLLMProviderRuntimeCheckable:
         from loom.services.retrieval.providers import LLMProvider, StubLLMProvider
 
         assert isinstance(StubLLMProvider(), LLMProvider)
+
+
+class TestEmbeddingProviderConfiguration:
+    """Embedding provider configuration must never fail open to the stub."""
+
+    async def test_local_aliases_select_local_provider(self) -> None:
+        import loom.config
+        from loom.services.retrieval.providers import LocalProvider, from_config
+
+        original = loom.config.settings.embedding_provider
+        try:
+            for provider_name in ("local", "sentence_transformers"):
+                loom.config.settings.embedding_provider = provider_name
+                assert isinstance(from_config(), LocalProvider)
+        finally:
+            loom.config.settings.embedding_provider = original
+
+    async def test_unknown_embedding_provider_is_rejected(self) -> None:
+        import loom.config
+        from loom.services.retrieval.providers import from_config
+
+        original = loom.config.settings.embedding_provider
+        loom.config.settings.embedding_provider = "typo-provider"
+        try:
+            with pytest.raises(ValueError, match="Unrecognised embedding provider"):
+                from_config()
+        finally:
+            loom.config.settings.embedding_provider = original
+
+    async def test_local_provider_explains_missing_optional_dependency(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from loom.services.retrieval.providers import LocalProvider
+
+        real_import = builtins.__import__
+
+        def reject_sentence_transformers(name: str, *args: object, **kwargs: object) -> object:
+            if name == "sentence_transformers":
+                raise ModuleNotFoundError("No module named 'sentence_transformers'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", reject_sentence_transformers)
+
+        with pytest.raises(RuntimeError, match=r"pip install .*local-embeddings"):
+            await LocalProvider().embed("context to embed")

@@ -9,7 +9,6 @@ from __future__ import annotations
 import time
 import uuid
 
-import httpx
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,14 +86,19 @@ class AgentSimulator:
             content = f"{base_content} ({self.name} batch {i}): "
             if parent_ids:
                 # Non-overlapping content for auto-merge validation
-                content += f"Implement feature module-{self.name}-{i} in src/features/{self.name}/{i}.py"
+                content += (
+                    f"Implement feature module-{self.name}-{i} in src/features/{self.name}/{i}.py"
+                )
                 version = 2  # parent is version 1, so children must be version 2
             else:
                 content += f"Independent analysis-{self.name}-{i} about project requirements"
                 version = 1
 
             result = await self.write_context(
-                project_id, content, version=version, parent_ids=parent_ids,
+                project_id,
+                content,
+                version=version,
+                parent_ids=parent_ids,
             )
             results.append(result)
 

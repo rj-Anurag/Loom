@@ -9,20 +9,19 @@ and token-budget-aware packing (v1 — no embeddings yet).
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import logging
 import math
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import redis.asyncio as redis_async
-from sqlalchemy import select, text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from loom.services.retrieval.search import hybrid_search
-
-logger = logging.getLogger(__name__)
 
 from loom.models import (
     Agent,
@@ -36,9 +35,12 @@ from loom.models import (
     Project,
     TrustTier,
 )
+from loom.services.retrieval.search import hybrid_search
+
+logger = logging.getLogger(__name__)
 
 
-class VersionConflict(Exception):
+class VersionConflictError(Exception):
     """Raised when a write's claimed version doesn't match the parent lineage.
 
     Carries structured information about the conflict for the API layer to
@@ -60,6 +62,10 @@ class VersionConflict(Exception):
         super().__init__("VERSION_CONFLICT")
 
 
+# Backwards-compatible import name used by the API and existing integrations.
+VersionConflict = VersionConflictError
+
+
 async def write_context(
     session: AsyncSession,
     project_id: uuid.UUID,
@@ -73,10 +79,59 @@ async def write_context(
     parent_ids: list[uuid.UUID] | None = None,
     parent_relations: list[str] | None = None,
     branch_id: uuid.UUID | None = None,
-    # source_url is accepted for forward compatibility but not yet persisted.
-    # See loom/api/routers/context.py WriteContextRequest.source_url.
     source_url: str | None = None,
     redis: redis_async.Redis | None = None,
+) -> tuple[ContextUnit, bool]:
+    """Write context while releasing advisory parent locks on every exit."""
+
+    acquired_parent_ids = parent_ids or []
+    if acquired_parent_ids and redis is not None:
+        from loom.services.coordination.locks import acquire_locks
+
+        await acquire_locks(
+            redis,
+            [str(pid) for pid in acquired_parent_ids],
+            str(agent_id),
+            ttl=30,
+        )
+
+    try:
+        return await _write_context_impl(
+            session,
+            project_id,
+            agent_id,
+            client_uuid=client_uuid,
+            type_=type_,
+            content=content,
+            version=version,
+            trust_tier=trust_tier,
+            parent_ids=parent_ids,
+            parent_relations=parent_relations,
+            branch_id=branch_id,
+            source_url=source_url,
+        )
+    finally:
+        if acquired_parent_ids and redis is not None:
+            from loom.services.coordination.locks import release_lock
+
+            for parent_id in acquired_parent_ids:
+                await release_lock(redis, str(parent_id), str(agent_id))
+
+
+async def _write_context_impl(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    *,
+    client_uuid: uuid.UUID,
+    type_: str,
+    content: str,
+    version: int,
+    trust_tier: str | None = None,
+    parent_ids: list[uuid.UUID] | None = None,
+    parent_relations: list[str] | None = None,
+    branch_id: uuid.UUID | None = None,
+    source_url: str | None = None,
 ) -> tuple[ContextUnit, bool]:
     """Write a new context unit in a single transaction.
 
@@ -148,18 +203,11 @@ async def write_context(
     ).scalar_one_or_none()
 
     if existing is not None:
+        if existing.project_id != project_id or existing.agent_id != agent_id:
+            raise ValueError("IDEMPOTENCY_KEY_REUSED")
+        if existing.content != content or existing.type.value != type_:
+            raise ValueError("IDEMPOTENCY_KEY_REUSED")
         return existing, False  # idempotent replay — not newly created
-
-    # ── 5b. Acquire Redis locks (before version check — prevent TOCTOU) ──
-    if parent_ids and redis is not None:
-        from loom.services.coordination.locks import acquire_locks
-
-        await acquire_locks(
-            redis,
-            [str(pid) for pid in parent_ids],
-            str(agent_id),
-            ttl=30,
-        )
 
     # ── 6. Version-conflict check ────────────────────────────────────────
     parent_uuids: list[uuid.UUID] = []
@@ -177,6 +225,8 @@ async def write_context(
             parent = await session.get(ContextUnit, pid)
             if parent is None:
                 raise ValueError("PARENT_NOT_FOUND")
+            if parent.project_id != project_id:
+                raise ValueError("PARENT_PROJECT_MISMATCH")
             parent_versions.append(parent.version)
 
         max_parent_version = max(parent_versions)
@@ -256,6 +306,15 @@ async def write_context(
     else:
         tier = TrustTier.agent
 
+    if branch_uuid is not None:
+        from loom.models import Branch
+
+        branch = await session.get(Branch, branch_uuid)
+        if branch is None or branch.project_id != project_id:
+            raise ValueError("BRANCH_PROJECT_MISMATCH")
+        if branch.status not in {"open", "merging"}:
+            raise ValueError("BRANCH_NOT_OPEN")
+
     # ── 8. Create ContextUnit ────────────────────────────────────────────
     unit = ContextUnit(
         project_id=project_id,
@@ -265,6 +324,8 @@ async def write_context(
         trust_tier=tier,
         content=content,
         version=version,
+        branch_id=branch_uuid,
+        source_url=source_url,
     )
     session.add(unit)
     await session.flush()  # materialise the PK so we can use it in edges
@@ -289,7 +350,7 @@ async def write_context(
     if _pending_auto_merge:
         from loom.services.coordination.merge import auto_merge
 
-        merge_unit = await auto_merge(
+        _merge_unit = await auto_merge(
             session, project_id, agent_id, unit.id, parent_uuids
         )
 
@@ -316,23 +377,19 @@ async def write_context(
             "type": type_,
             "trust_tier": tier.value,
             "content_preview": content[:200],
+            "content": content,
             "content_hash": hashlib.sha256(content.encode()).hexdigest(),
             "parent_ids": [str(pid) for pid in parent_ids_list],
             "parent_relations": parent_relations_list,
             "version": version,
+            "branch_id": str(branch_uuid) if branch_uuid else None,
+            "source_url": source_url,
         },
     )
     session.add(event)
 
     await session.commit()
     await session.refresh(unit)
-
-    # ── 11b. Release Redis locks (after commit) ────────────────────────────
-    if parent_ids and redis is not None:
-        from loom.services.coordination.locks import release_lock
-
-        for pid in parent_ids:
-            await release_lock(redis, str(pid), str(agent_id))
 
     # ── 12. Fire-and-forget embedding job ──────────────────────────────────
     try:
@@ -391,9 +448,9 @@ async def rebuild_projections(
             text(
                 "INSERT INTO context_units "
                 "(id, project_id, agent_id, client_uuid, type, trust_tier, "
-                "content, version, created_at) "
+                "content, version, branch_id, source_url, created_at) "
                 "VALUES (:id, :pid, :aid, :cuuid, :type, :tier, "
-                ":content, :version, :created)"
+                ":content, :version, :branch_id, :source_url, :created)"
             ),
             {
                 "id": unit_id,
@@ -402,14 +459,16 @@ async def rebuild_projections(
                 "cuuid": uuid.UUID(p["client_uuid"]),
                 "type": p["type"],
                 "tier": p.get("trust_tier", "agent"),
-                "content": p.get("content_preview", ""),
+                "content": p.get("content", p.get("content_preview", "")),
                 "version": p["version"],
+                "branch_id": p.get("branch_id"),
+                "source_url": p.get("source_url"),
                 "created": event.created_at,
             },
         )
 
         # Rebuild edges
-        for parent_id_str in p.get("parent_ids", []):
+        for index, parent_id_str in enumerate(p.get("parent_ids", [])):
             parent_id = uuid.UUID(parent_id_str)
             # Check edge doesn't already exist (idempotent)
             edge_exists = await session.execute(
@@ -430,7 +489,11 @@ async def rebuild_projections(
                 {
                     "pid": parent_id,
                     "cid": unit_id,
-                    "rel": "derived_from",
+                    "rel": (
+                        p.get("parent_relations", [])[index]
+                        if index < len(p.get("parent_relations", []))
+                        else "derived_from"
+                    ),
                 },
             )
 
@@ -486,7 +549,7 @@ def _compute_score(
           + 0.3 * trust_tier_weight
           + 0.15 (if unit_type == "summary")
     """
-    hours_since = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600.0
+    hours_since = (datetime.now(UTC) - created_at).total_seconds() / 3600.0
     recency = 1.0 / (hours_since + 1.0)
     weight = TRUST_TIER_WEIGHTS.get(trust_tier, 0.4)
 
@@ -494,6 +557,98 @@ def _compute_score(
     if unit_type == "summary":
         score += 0.15
     return score
+
+
+def _encode_history_cursor(created_at: datetime, unit_id: uuid.UUID) -> str:
+    payload = f"{created_at.isoformat()}|{unit_id}".encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_history_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        decoded = base64.b64decode(
+            cursor + padding,
+            altchars=b"-_",
+            validate=True,
+        ).decode()
+        timestamp_text, unit_id_text = decoded.rsplit("|", 1)
+        timestamp = datetime.fromisoformat(timestamp_text)
+        if timestamp.tzinfo is None:
+            raise ValueError
+        return timestamp, uuid.UUID(unit_id_text)
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        raise ValueError("INVALID_CURSOR") from None
+
+
+async def list_context_history(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    agent_id: uuid.UUID | None,
+    *,
+    limit: int = 100,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Return an append-only project's context in stable cursor pages.
+
+    This path is intended for human history browsing. Unlike ``read_context``,
+    it never ranks, summarizes, or truncates content to fit an agent token
+    budget.
+    """
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise ValueError("PROJECT_NOT_FOUND")
+
+    if agent_id is not None:
+        agent = await session.get(Agent, agent_id)
+        if agent is None or agent.project_id != project_id:
+            raise ValueError("AGENT_MISMATCH")
+
+    page_limit = min(max(limit, 1), 200)
+    statement = select(ContextUnit).where(ContextUnit.project_id == project_id)
+    if cursor:
+        cursor_time, cursor_id = _decode_history_cursor(cursor)
+        statement = statement.where(
+            or_(
+                ContextUnit.created_at < cursor_time,
+                and_(
+                    ContextUnit.created_at == cursor_time,
+                    ContextUnit.id < cursor_id,
+                ),
+            )
+        )
+
+    result = await session.execute(
+        statement.order_by(ContextUnit.created_at.desc(), ContextUnit.id.desc()).limit(
+            page_limit + 1
+        )
+    )
+    rows = list(result.scalars().all())
+    has_more = len(rows) > page_limit
+    units = rows[:page_limit]
+    next_cursor = (
+        _encode_history_cursor(units[-1].created_at, units[-1].id)
+        if has_more and units
+        else None
+    )
+
+    return {
+        "units": [
+            {
+                "id": str(unit.id),
+                "type": unit.type.value,
+                "trust_tier": unit.trust_tier.value,
+                "content": unit.content,
+                "source_url": unit.source_url,
+                "created_at": unit.created_at.isoformat(),
+                "agent_id": str(unit.agent_id),
+                "version": unit.version,
+            }
+            for unit in units
+        ],
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+    }
 
 
 async def read_context(
@@ -504,7 +659,7 @@ async def read_context(
     query: str | None = None,
     budget: int = DEFAULT_BUDGET,
     scope: str = "task",
-) -> dict:
+) -> dict[str, Any]:
     """Retrieve context units with keyword filtering and token-budget packing.
 
     Parameters
@@ -581,7 +736,7 @@ async def read_context(
 
     # ── Chronological path (no query, fallback from hybrid) ─────────────
     conditions = ["u.project_id = :project_id"]
-    params: dict = {"project_id": project_id}
+    params: dict[str, Any] = {"project_id": project_id}
 
     if scope_type_filter:
         conditions.append("u.type = :scope_type")
@@ -591,7 +746,7 @@ async def read_context(
 
     chronological_sql = text(f"""
         SELECT
-            u.id, u.type, u.trust_tier, u.content, u.created_at, u.agent_id,
+            u.id, u.type, u.trust_tier, u.content, u.source_url, u.created_at, u.agent_id,
             u.version, 0.0 AS rank
         FROM context_units u
         WHERE {where_clause}
@@ -611,7 +766,7 @@ async def read_context(
         }
 
     # ── Compute scores ──────────────────────────────────────────────────
-    scored: list[dict] = []
+    scored: list[dict[str, Any]] = []
     for row in rows:
         score = _compute_score(
             ts_rank=row["rank"],
@@ -624,6 +779,7 @@ async def read_context(
             "type": row["type"],
             "trust_tier": row["trust_tier"],
             "content": row["content"],
+            "source_url": row.get("source_url"),
             "created_at": row["created_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
             "version": int(row["version"]),
@@ -646,7 +802,7 @@ async def read_context(
         parent_map[str(edge.child_id)].append(str(edge.parent_id))
 
     # ── Pack into token budget ──────────────────────────────────────────
-    packed_units: list[dict] = []
+    packed_units: list[dict[str, Any]] = []
     budget_used = 0
     truncated = False
 

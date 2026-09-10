@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Loom — Context Bridge</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:8000">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: http:">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -97,6 +97,26 @@
     .hidden {
       display: none;
     }
+    .account-card {
+      padding: 14px;
+      margin-bottom: 12px;
+      border: 1px solid #36333f;
+      border-radius: 12px;
+      background: #111116;
+    }
+    .account-card h2 { font-size: 14px; margin-bottom: 4px; }
+    .account-card p { color: #92909b; font-size: 12px; line-height: 1.45; }
+    .account-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .account-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+      color: #aaa7b3;
+      font-size: 11px;
+    }
+    .account-bar button { width: auto; margin: 0; padding: 5px 9px; font-size: 11px; }
     .spinner {
       display: inline-block;
       width: 12px; height: 12px;
@@ -295,7 +315,28 @@
     <span id="status-text">Checking...</span>
   </div>
 
-  <div id="link-section">
+  <div id="account-section" class="account-card hidden">
+    <h2>Start with your Loom account</h2>
+    <p>Sign up once. Loom creates your first project and connects this extension automatically.</p>
+    <label for="account-email">Email</label>
+    <input type="email" id="account-email" placeholder="you@example.com" autocomplete="email" />
+    <label for="account-password">Password</label>
+    <input type="password" id="account-password" placeholder="At least 8 characters" autocomplete="current-password" />
+    <label for="account-display-name">Display name <span class="muted-text">(for signup)</span></label>
+    <input type="text" id="account-display-name" placeholder="Your name" maxlength="120" autocomplete="name" />
+    <div class="account-actions">
+      <button id="login-btn" class="secondary">Log in</button>
+      <button id="signup-btn" class="primary">Sign up</button>
+    </div>
+    <div id="account-error" class="error-text hidden"></div>
+  </div>
+
+  <div id="account-bar" class="account-bar hidden">
+    <span>Signed in as <strong id="account-name">—</strong></span>
+    <button id="logout-btn" class="secondary">Log out</button>
+  </div>
+
+  <div id="link-section" class="hidden">
     <div class="section-kicker">Link this conversation</div>
     <label for="project-select">Available project</label>
     <select id="project-select">
