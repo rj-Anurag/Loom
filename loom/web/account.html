@@ -20,28 +20,23 @@
     </section>
     <div class="grid">
       <section id="auth-card" class="card">
-        <div class="card-index"><span>01 / Account</span><span>Self-service</span></div>
-        <h2>Create your Loom account</h2><p class="muted">Your first project and secure client key are created automatically.</p>
-        <label for="email">Email</label><input id="email" type="email" autocomplete="email" placeholder="you@example.com">
-        <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" placeholder="At least 8 characters">
-        <label for="name">Display name</label><input id="name" autocomplete="name" placeholder="Your name">
-        <label for="project-name">First project</label><input id="project-name" placeholder="My project">
-        <div class="actions"><button id="login">Log in</button><button id="signup" class="primary">Create account</button></div>
+        <div class="card-index"><span>01 / Account</span><span>Google identity</span></div>
+        <h2>Continue to Loom</h2><p class="muted">One Google identity connects your dashboard, CLI, and browser extension.</p>
+        <div id="google-button"></div>
         <div id="auth-error" class="error hidden"></div>
       </section>
       <section id="projects-card" class="card hidden">
         <div class="card-index"><span>01 / Projects</span><span>Live memory</span></div>
-        <div class="topline"><div><h2>Your projects</h2><span id="identity" class="muted"></span></div><button id="new-project">New project</button></div>
+        <div class="topline"><div><h2>Your projects</h2><span id="identity" class="muted"></span></div></div>
         <div id="projects" class="projects"></div>
         <div id="history" class="history hidden"></div>
-        <div id="secret" class="secret hidden"><strong>Save this key now</strong><p class="muted">It is shown once. Loom stores only its digest.</p><code id="secret-value"></code><button id="copy-secret">Copy key</button></div>
       </section>
       <aside class="card steps-card">
         <div class="card-index"><span>02 / Connect</span><span>3 steps</span></div>
         <h2>Connect in minutes</h2>
         <div class="steps">
           <div class="step"><b>1</b><div>Install the CLI.<pre>curl -fsSL https://raw.githubusercontent.com/rj-Anurag/Loom/main/install.sh | bash</pre></div></div>
-          <div class="step"><b>2</b><div>Connect this repository.<pre id="cli-command">loom login --email you@example.com --write-env .env</pre></div></div>
+          <div class="step"><b>2</b><div>Connect this repository.<pre id="cli-command">loom login<br>loom init &quot;My Project&quot;</pre></div></div>
           <div class="step"><b>3</b><div>Install the bundled extension.<pre>loom extension install --force</pre></div></div>
         </div>
       </aside>
@@ -57,32 +52,30 @@
       if (!response.ok) { let detail='Request failed'; try { detail=(await response.json()).detail||detail; } catch (_) {} throw new Error(detail); }
       return response.status === 204 ? null : response.json();
     }
-    function errorMessage(code){ return ({EMAIL_ALREADY_REGISTERED:'This email already has an account. Log in instead.',INVALID_CREDENTIALS:'Email or password is incorrect.',INVALID_EMAIL:'Enter a valid email address.',TOO_MANY_ATTEMPTS:'Too many attempts. Try again in a few minutes.'})[code] || code; }
-    function showSecret(key){ $('secret-value').textContent=key; $('secret').classList.remove('hidden'); }
+    function errorMessage(code){ return ({INVALID_GOOGLE_CREDENTIAL:'Google sign-in could not be verified.',GOOGLE_AUTH_NOT_CONFIGURED:'Google sign-in is not configured yet.',GOOGLE_AUTH_DISABLED:'Google sign-in is disabled.',TOO_MANY_ATTEMPTS:'Too many attempts. Try again in a few minutes.'})[code] || code; }
     function setSignedIn(data){
       $('auth-card').classList.add('hidden'); $('projects-card').classList.remove('hidden'); $('logout').classList.remove('hidden');
       const user=data.user||data; $('identity').textContent=user.display_name+' · '+user.email;
-      $('cli-command').textContent='loom login --email '+user.email+' --write-env .env'; renderProjects(data.projects||[data.project]);
+      $('cli-command').textContent='loom login\nloom init "My Project"'; renderProjects(data.projects||[]);
     }
     function renderProjects(projects){
-      const root=$('projects'); root.textContent='';
+      const root=$('projects'); root.textContent=''; if(!projects.length){ root.textContent='No Loom projects yet. Open your repo and run: loom init "My Project"'; return; }
       projects.filter(Boolean).forEach(project=>{ const row=document.createElement('div'); row.className='project'; const info=document.createElement('div'); const title=document.createElement('h3'); title.textContent=project.name; const id=document.createElement('p'); id.textContent=project.id; info.append(title,id); const open=document.createElement('button'); open.textContent='Open history'; open.onclick=()=>openProject(project); row.append(info,open); root.append(row); });
     }
     async function openProject(project){
       try { const data=await request('/v1/projects/'+project.id+'/history?limit=100',{headers:headers()}); const root=$('history'); root.textContent=''; root.classList.remove('hidden'); if(!data.units.length){root.textContent='No context has been synced yet.';return;} data.units.forEach(unit=>{const row=document.createElement('div');row.className='history-item';const meta=document.createElement('span');meta.textContent=unit.type+' · '+new Date(unit.created_at).toLocaleString();const content=document.createElement('p');content.textContent=unit.content;row.append(meta,content);root.append(row);}); root.scrollIntoView({behavior:'smooth'}); } catch (error){ alert(errorMessage(error.message)); }
     }
-    async function authenticate(kind){
-      $('auth-error').classList.add('hidden'); const body={email:$('email').value.trim(),password:$('password').value,client_kind:'web'};
-      if(kind==='signup'){ body.display_name=$('name').value.trim(); body.project_name=$('project-name').value.trim(); body.client_name='Loom Web'; }
-      const authPaths={signup:'/v1/auth/signup',login:'/v1/auth/login'};
-      try { const data=await request(authPaths[kind],{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); setSignedIn(data); if(data.project_api_key) showSecret(data.project_api_key); }
+    async function authenticateGoogle(result){
+      $('auth-error').classList.add('hidden');
+      try { const data=await request('/v1/auth/google/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_kind:'web',id_token:result.credential})}); setSignedIn(data); }
       catch(error){ $('auth-error').textContent=errorMessage(error.message); $('auth-error').classList.remove('hidden'); }
     }
-    $('signup').onclick=()=>authenticate('signup'); $('login').onclick=()=>authenticate('login');
     $('logout').onclick=async()=>{ try{await request('/v1/auth/logout',{method:'POST',headers:headers()});}catch(_){} location.reload(); };
-    $('copy-secret').onclick=()=>navigator.clipboard.writeText($('secret-value').textContent);
-    $('new-project').onclick=async()=>{ const name=prompt('Project name'); if(!name)return; try{const project=await request('/v1/projects',{method:'POST',headers:headers(),body:JSON.stringify({name,client_kind:'web',client_name:'Loom Web'})}); showSecret(project.api_key); const me=await request('/v1/auth/me',{headers:headers()}); setSignedIn(me);}catch(error){alert(errorMessage(error.message));} };
     request('/v1/auth/me',{headers:headers()}).then(setSignedIn).catch(()=>{});
+    request('/v1/auth/google/config?client_kind=web').then(config=>{
+      if(!config.enabled){throw new Error('GOOGLE_AUTH_NOT_CONFIGURED');}
+      const script=document.createElement('script'); script.src='https://accounts.google.com/gsi/client'; script.async=true; script.onload=()=>{google.accounts.id.initialize({client_id:config.client_id,callback:authenticateGoogle});google.accounts.id.renderButton($('google-button'),{theme:'filled_black',size:'large',width:320});}; document.head.appendChild(script);
+    }).catch(error=>{$('auth-error').textContent=errorMessage(error.message);$('auth-error').classList.remove('hidden');});
   </script>
 </body>
 </html>

@@ -23,6 +23,9 @@ _SERVER_URL_PATTERN = re.compile(
 _DEFAULT_KEY_PATTERN = re.compile(
     r"(?P<prefix>\bDEFAULT_API_KEY\s*:\s*)(?P<quote>['\"])(?P<value>.*?)(?P=quote)"
 )
+_GOOGLE_CLIENT_ID_PATTERN = re.compile(
+    r"(?P<prefix>\bGOOGLE_OAUTH_CLIENT_ID\s*:\s*)(?P<quote>['\"])(?P<value>.*?)(?P=quote)"
+)
 _LOOM_API_KEY_PATTERN = re.compile(r"\bloom_[A-Za-z0-9_-]{40,}\b")
 
 
@@ -36,6 +39,7 @@ class ExtensionInstallResult:
 
     path: Path
     api_url: str
+    google_client_id: str
     backup_path: Path | None = None
 
 
@@ -49,6 +53,7 @@ class ExtensionStatus:
     api_url: str | None
     host_permission: bool
     credentials_embedded: bool
+    google_oauth_configured: bool
     error: str | None = None
 
 
@@ -93,6 +98,7 @@ def install_extension(
     *,
     api_url: str,
     destination: Path,
+    google_client_id: str,
     force: bool = False,
 ) -> ExtensionInstallResult:
     """Install a configured extension, preserving recognized prior installs."""
@@ -119,7 +125,7 @@ def install_extension(
     backup_path: Path | None = None
     try:
         _copy_bundle(_BUNDLED_EXTENSION, staged_path)
-        _configure_bundle(staged_path, normalized_url)
+        _configure_bundle(staged_path, normalized_url, google_client_id)
         _write_marker(staged_path, normalized_url)
         _validate_bundle(staged_path)
 
@@ -139,6 +145,7 @@ def install_extension(
     return ExtensionInstallResult(
         path=destination,
         api_url=normalized_url,
+        google_client_id=google_client_id,
         backup_path=backup_path,
     )
 
@@ -154,6 +161,7 @@ def inspect_extension(path: Path) -> ExtensionStatus:
             api_url=None,
             host_permission=False,
             credentials_embedded=False,
+            google_oauth_configured=False,
             error="Extension path must not be a symbolic link.",
         )
     if not resolved.is_dir():
@@ -164,6 +172,7 @@ def inspect_extension(path: Path) -> ExtensionStatus:
             api_url=None,
             host_permission=False,
             credentials_embedded=False,
+            google_oauth_configured=False,
             error="Extension directory does not exist.",
         )
 
@@ -171,6 +180,7 @@ def inspect_extension(path: Path) -> ExtensionStatus:
     api_url: str | None = None
     host_permission = False
     credentials_embedded = False
+    google_oauth_configured = False
     errors: list[str] = []
 
     try:
@@ -188,6 +198,13 @@ def inspect_extension(path: Path) -> ExtensionStatus:
         api_url = _extract_config_value(config, _SERVER_URL_PATTERN, "LOOM_SERVER_URL")
         api_url = normalize_api_url(api_url)
         default_key = _extract_config_value(config, _DEFAULT_KEY_PATTERN, "DEFAULT_API_KEY")
+        google_client_id = _extract_config_value(
+            config, _GOOGLE_CLIENT_ID_PATTERN, "GOOGLE_OAUTH_CLIENT_ID"
+        )
+        google_oauth_configured = (
+            google_client_id.endswith(".apps.googleusercontent.com")
+            and not google_client_id.startswith("REPLACE_WITH_")
+        )
         credentials_embedded = bool(default_key.strip()) or _contains_api_key(resolved)
     except (OSError, UnicodeError, ExtensionDistributionError) as exc:
         errors.append(str(exc))
@@ -207,6 +224,8 @@ def inspect_extension(path: Path) -> ExtensionStatus:
             errors.append(f"manifest.json is missing {required_permission}")
     if credentials_embedded:
         errors.append("config.js contains a default API credential")
+    if not google_oauth_configured:
+        errors.append("Google OAuth client ID is not configured")
 
     return ExtensionStatus(
         path=resolved,
@@ -215,6 +234,7 @@ def inspect_extension(path: Path) -> ExtensionStatus:
         api_url=api_url,
         host_permission=host_permission,
         credentials_embedded=credentials_embedded,
+        google_oauth_configured=google_oauth_configured,
         error="; ".join(errors) or None,
     )
 
@@ -224,6 +244,7 @@ def package_extension(
     api_url: str | None,
     output: Path,
     source: Path | None = None,
+    google_client_id: str | None = None,
     force: bool = False,
 ) -> Path:
     """Create a Chrome-ready zip whose manifest sits at the archive root."""
@@ -250,7 +271,10 @@ def package_extension(
         staged_extension = Path(temp_dir) / "extension"
         staged_extension.mkdir()
         _copy_bundle(source_path, staged_extension)
-        _configure_bundle(staged_extension, selected_url)
+        selected_google_client_id = google_client_id or _read_google_client_id(
+            source_path / "config.js"
+        )
+        _configure_bundle(staged_extension, selected_url, selected_google_client_id)
         _validate_bundle(staged_extension)
 
         temporary_archive = Path(temp_dir) / "loom-extension.zip"
@@ -262,7 +286,12 @@ def package_extension(
     return output
 
 
-def _configure_bundle(path: Path, api_url: str) -> None:
+def _configure_bundle(path: Path, api_url: str, google_client_id: str) -> None:
+    if (
+        not google_client_id.endswith(".apps.googleusercontent.com")
+        or google_client_id.startswith("REPLACE_WITH_")
+    ):
+        raise ExtensionDistributionError("A valid Google extension OAuth client ID is required.")
     config_path = path / "config.js"
     config = config_path.read_text(encoding="utf-8")
     config, server_replacements = _SERVER_URL_PATTERN.subn(
@@ -275,12 +304,21 @@ def _configure_bundle(path: Path, api_url: str) -> None:
         config,
         count=1,
     )
-    if server_replacements != 1 or key_replacements != 1:
+    config, google_replacements = _GOOGLE_CLIENT_ID_PATTERN.subn(
+        lambda match: match.group("prefix") + json.dumps(google_client_id),
+        config,
+        count=1,
+    )
+    if server_replacements != 1 or key_replacements != 1 or google_replacements != 1:
         raise ExtensionDistributionError("Packaged config.js has an unsupported structure.")
     config_path.write_text(config, encoding="utf-8")
 
     manifest_path = path / "manifest.json"
     manifest = _read_manifest(manifest_path)
+    oauth2 = manifest.get("oauth2")
+    if not isinstance(oauth2, dict):
+        raise ExtensionDistributionError("manifest.json does not define oauth2.")
+    oauth2["client_id"] = google_client_id
     chat_permissions = _content_script_matches(manifest)
     manifest["host_permissions"] = list(
         dict.fromkeys([*chat_permissions, _api_host_permission(api_url)])
@@ -405,6 +443,14 @@ def _read_api_url(config_path: Path) -> str:
     except (OSError, UnicodeError) as exc:
         raise ExtensionDistributionError(f"Cannot read extension config: {config_path}") from exc
     return normalize_api_url(_extract_config_value(config, _SERVER_URL_PATTERN, "LOOM_SERVER_URL"))
+
+
+def _read_google_client_id(config_path: Path) -> str:
+    try:
+        config = config_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ExtensionDistributionError(f"Cannot read extension config: {config_path}") from exc
+    return _extract_config_value(config, _GOOGLE_CLIENT_ID_PATTERN, "GOOGLE_OAUTH_CLIENT_ID")
 
 
 def _extract_config_value(config: str, pattern: re.Pattern[str], name: str) -> str:

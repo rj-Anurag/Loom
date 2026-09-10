@@ -25,17 +25,8 @@
     <section id="account-section" class="account-card hidden">
       <div class="section-index"><span>01 / Account</span><span>New connection</span></div>
       <h2>Bring your context with you.</h2>
-      <p>Sign up once. Loom creates your first project and connects this extension automatically.</p>
-      <label for="account-email">Email</label>
-      <input type="email" id="account-email" placeholder="you@example.com" autocomplete="email">
-      <label for="account-password">Password</label>
-      <input type="password" id="account-password" placeholder="At least 8 characters" autocomplete="current-password">
-      <label for="account-display-name">Display name <span class="muted-text">(for signup)</span></label>
-      <input type="text" id="account-display-name" placeholder="Your name" maxlength="120" autocomplete="name">
-      <div class="account-actions">
-        <button id="login-btn" class="secondary">Log in</button>
-        <button id="signup-btn" class="primary">Sign up</button>
-      </div>
+      <p>Use the same Google account as the Loom CLI. Your existing projects will appear here.</p>
+      <button id="google-auth-btn" class="primary google-auth-btn">Continue with Google</button>
       <div id="account-error" class="error-text hidden" role="alert"></div>
     </section>
 
@@ -52,20 +43,20 @@
         <option value="">— Loading projects —</option>
       </select>
 
+      <div id="no-projects" class="empty-projects hidden">
+        <strong>No Loom projects yet.</strong>
+        <span>Open your repo and run:</span>
+        <code>loom init &quot;My Project&quot;</code>
+        <button id="refresh-projects-btn" class="secondary">Refresh projects</button>
+      </div>
+
       <details class="disclosure">
-        <summary>Connect an existing project</summary>
+        <summary>Advanced / manual connection</summary>
         <label for="project-id-input">Project ID</label>
         <input type="text" id="project-id-input" placeholder="Project UUID" class="mono-input" autocomplete="off">
         <label for="project-key-input">Loom API key</label>
         <input type="password" id="project-key-input" placeholder="loom_…" class="mono-input" autocomplete="off">
         <button id="connect-project-btn" class="secondary">Verify access</button>
-      </details>
-
-      <details class="disclosure">
-        <summary>Create a project</summary>
-        <label for="project-name-input">Project name</label>
-        <input type="text" id="project-name-input" placeholder="e.g. Loom" maxlength="120">
-        <button id="create-project-btn" class="secondary">Create project</button>
       </details>
 
       <button id="link-btn" class="primary action-primary">Link conversation</button>

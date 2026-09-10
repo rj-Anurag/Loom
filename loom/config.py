@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     allow_agent_key_enrollment: bool = False
     """Compatibility switch; public production clients enroll through user sessions."""
     public_signups_enabled: bool = True
+    email_password_auth_enabled: bool = True
+    """Development/migration fallback. Disable for the public Google-only UX."""
+    google_oauth_enabled: bool = False
+    google_cli_client_id: str = ""
+    google_cli_client_secret: str = ""
+    google_extension_client_id: str = ""
+    google_web_client_id: str = ""
     user_session_ttl_days: int = 30
     agent_key_ttl_days: int = 90
     auth_rate_limit_attempts: int = 10

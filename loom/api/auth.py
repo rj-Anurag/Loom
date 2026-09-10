@@ -31,9 +31,10 @@ class AuthContext:
 class UserAuthContext:
     """Represents an authenticated public user session."""
 
-    def __init__(self, user_id: uuid.UUID, session_id: uuid.UUID) -> None:
+    def __init__(self, user_id: uuid.UUID, session_id: uuid.UUID, client_kind: str) -> None:
         self.user_id = user_id
         self.session_id = session_id
+        self.client_kind = client_kind
 
 
 class PrincipalContext:
@@ -47,12 +48,14 @@ class PrincipalContext:
         project_id: uuid.UUID | None = None,
         user_id: uuid.UUID | None = None,
         session_id: uuid.UUID | None = None,
+        client_kind: str | None = None,
     ) -> None:
         self.kind = kind
         self.agent_id = agent_id
         self.project_id = project_id
         self.user_id = user_id
         self.session_id = session_id
+        self.client_kind = client_kind
 
 
 def _extract_bearer_token(authorization: str | None, cookie_token: str | None = None) -> str:
@@ -145,7 +148,11 @@ async def require_user_auth(
 
     token = _extract_bearer_token(authorization, cookie_token)
     user_session, user = await _authenticate_user(token, session)
-    return UserAuthContext(user_id=user.id, session_id=user_session.id)
+    return UserAuthContext(
+        user_id=user.id,
+        session_id=user_session.id,
+        client_kind=user_session.client_kind,
+    )
 
 
 async def require_principal(
@@ -159,7 +166,10 @@ async def require_principal(
     if token.startswith(SESSION_TOKEN_PREFIX):
         user_session, user = await _authenticate_user(token, session)
         return PrincipalContext(
-            "user", user_id=user.id, session_id=user_session.id
+            "user",
+            user_id=user.id,
+            session_id=user_session.id,
+            client_kind=user_session.client_kind,
         )
     agent = await _authenticate_agent(token, session)
     return PrincipalContext(

@@ -38,6 +38,18 @@ services:
         value: false
       - key: PUBLIC_SIGNUPS_ENABLED
         value: true
+      - key: EMAIL_PASSWORD_AUTH_ENABLED
+        value: false
+      - key: GOOGLE_OAUTH_ENABLED
+        value: true
+      - key: GOOGLE_CLI_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLI_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_EXTENSION_CLIENT_ID
+        sync: false
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false
       - key: USER_SESSION_TTL_DAYS
         value: 30
       - key: AGENT_KEY_TTL_DAYS

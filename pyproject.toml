@@ -22,7 +22,8 @@ dependencies = [
     "openai>=1.55.0",
     "pgvector>=0.3.0",
     "structlog>=24.4.0",
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2.0.0",
+    "google-auth[requests]>=2.35.0",
 ]
 
 [project.optional-dependencies]

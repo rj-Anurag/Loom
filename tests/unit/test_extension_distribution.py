@@ -18,6 +18,7 @@ from loom.cli.extension import (
 from loom.cli.main import build_parser
 
 ROOT = Path(__file__).resolve().parents[2]
+GOOGLE_CLIENT_ID = "loom-extension.apps.googleusercontent.com"
 
 
 def test_normalize_api_url_accepts_http_origins_and_removes_trailing_slash() -> None:
@@ -48,6 +49,7 @@ def test_install_extension_configures_only_the_selected_api_origin(tmp_path: Pat
     result = install_extension(
         api_url="https://loom.example.com/base/",
         destination=destination,
+        google_client_id=GOOGLE_CLIENT_ID,
     )
 
     assert result.path == destination
@@ -68,6 +70,7 @@ def test_install_extension_configures_only_the_selected_api_origin(tmp_path: Pat
     assert status.api_url == "https://loom.example.com/base"
     assert status.host_permission is True
     assert status.credentials_embedded is False
+    assert status.google_oauth_configured is True
 
 
 def test_install_extension_refuses_overwrite_without_force(tmp_path: Path) -> None:
@@ -76,7 +79,11 @@ def test_install_extension_refuses_overwrite_without_force(tmp_path: Path) -> No
     (destination / "keep.txt").write_text("user data", encoding="utf-8")
 
     with pytest.raises(ExtensionDistributionError, match="already exists"):
-        install_extension(api_url="https://loom.example.com", destination=destination)
+        install_extension(
+            api_url="https://loom.example.com",
+            destination=destination,
+            google_client_id=GOOGLE_CLIENT_ID,
+        )
 
     assert (destination / "keep.txt").read_text(encoding="utf-8") == "user data"
 
@@ -93,6 +100,7 @@ def test_force_install_preserves_existing_directory_as_backup(tmp_path: Path) ->
     result = install_extension(
         api_url="https://loom.example.com",
         destination=destination,
+        google_client_id=GOOGLE_CLIENT_ID,
         force=True,
     )
 
@@ -116,6 +124,7 @@ def test_force_install_refuses_a_symbolic_link_destination(tmp_path: Path) -> No
         install_extension(
             api_url="https://loom.example.com",
             destination=destination,
+            google_client_id=GOOGLE_CLIENT_ID,
             force=True,
         )
 
@@ -127,6 +136,7 @@ def test_package_extension_creates_chrome_ready_credential_free_zip(tmp_path: Pa
     archive = package_extension(
         api_url="https://loom.example.com",
         output=tmp_path / "loom-extension.zip",
+        google_client_id=GOOGLE_CLIENT_ID,
     )
 
     with zipfile.ZipFile(archive) as package:
@@ -145,7 +155,11 @@ def test_package_extension_refuses_to_overwrite_archive(tmp_path: Path) -> None:
     archive.write_bytes(b"existing")
 
     with pytest.raises(ExtensionDistributionError, match="already exists"):
-        package_extension(api_url="https://loom.example.com", output=archive)
+        package_extension(
+            api_url="https://loom.example.com",
+            output=archive,
+            google_client_id=GOOGLE_CLIENT_ID,
+        )
 
     assert archive.read_bytes() == b"existing"
 
@@ -160,6 +174,7 @@ def test_package_extension_refuses_a_symbolic_link_output(tmp_path: Path) -> Non
         package_extension(
             api_url="https://loom.example.com",
             output=archive,
+            google_client_id=GOOGLE_CLIENT_ID,
             force=True,
         )
 
@@ -168,7 +183,11 @@ def test_package_extension_refuses_a_symbolic_link_output(tmp_path: Path) -> Non
 
 def test_package_extension_rejects_an_embedded_project_api_key(tmp_path: Path) -> None:
     source = tmp_path / "extension"
-    install_extension(api_url="https://loom.example.com", destination=source)
+    install_extension(
+        api_url="https://loom.example.com",
+        destination=source,
+        google_client_id=GOOGLE_CLIENT_ID,
+    )
     leaked_key = "loom_" + "A" * 43
     (source / "leaked.js").write_text(f"const key = '{leaked_key}';\n", encoding="utf-8")
 
@@ -182,7 +201,11 @@ def test_package_extension_rejects_an_embedded_project_api_key(tmp_path: Path) -
 
 def test_package_extension_rejects_missing_manifest_assets(tmp_path: Path) -> None:
     source = tmp_path / "extension"
-    install_extension(api_url="https://loom.example.com", destination=source)
+    install_extension(
+        api_url="https://loom.example.com",
+        destination=source,
+        google_client_id=GOOGLE_CLIENT_ID,
+    )
     (source / "shared.js").unlink()
 
     status = inspect_extension(source)

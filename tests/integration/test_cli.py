@@ -264,12 +264,14 @@ class TestCLIWriteAndContext:
 class TestCLIInit:
     """`loom init` creates a project and returns credentials."""
 
-    def test_init_creates_project(self, sync_client: TestClient) -> None:
+    def test_init_creates_project(self, sync_client: TestClient, tmp_path) -> None:
         """Init command calls extension/setup and prints config."""
         from loom.cli.main import build_parser, cmd_init
 
         old_url = os.environ.get("LOOM_API_URL")
+        old_config_home = os.environ.get("LOOM_CONFIG_HOME")
         os.environ["LOOM_API_URL"] = "http://test"
+        os.environ["LOOM_CONFIG_HOME"] = str(tmp_path / "loom-config")
 
         saved = _mock_httpx(sync_client)
         parser = build_parser()
@@ -287,12 +289,16 @@ class TestCLIInit:
                 del os.environ["LOOM_API_URL"]
             else:
                 os.environ["LOOM_API_URL"] = old_url
+            if old_config_home is None:
+                del os.environ["LOOM_CONFIG_HOME"]
+            else:
+                os.environ["LOOM_CONFIG_HOME"] = old_config_home
 
         output = captured.getvalue()
         assert "Project created" in output
-        assert "LOOM_API_URL" in output
-        assert "LOOM_API_KEY" in output
-        assert "LOOM_PROJECT_ID" in output
+        assert "projects.json" in output
+        assert "LOOM_API_KEY" not in output
+        assert (tmp_path / "loom-config" / "projects.json").is_file()
 
     def test_init_self_service_creates_account_and_writes_project_config(
         self,
@@ -348,3 +354,81 @@ class TestCLIInit:
         assert "LOOM_API_KEY=loom_" in config
         assert "LOOM_API_URL=http://test" in config
         assert (tmp_path / "account" / "account.json").is_file()
+
+    def test_authenticated_init_creates_project_without_writing_dotenv(
+        self,
+        sync_client: TestClient,
+        tmp_path,
+    ) -> None:
+        from loom.cli.account import save_account
+        from loom.cli.main import build_parser, cmd_init
+
+        email = f"google-style-{uuid.uuid4()}@example.com"
+        signup = sync_client.post(
+            "/v1/auth/signup",
+            json={
+                "email": email,
+                "password": "Correct-Horse-Battery-Staple-42!",
+                "display_name": "Google Style User",
+                "client_kind": "cli",
+            },
+        ).json()
+        tracked = ["LOOM_API_URL", "LOOM_CONFIG_HOME", "LOOM_USER_TOKEN"]
+        original = {key: os.environ.get(key) for key in tracked}
+        os.environ["LOOM_API_URL"] = "http://test"
+        os.environ["LOOM_CONFIG_HOME"] = str(tmp_path / "loom-config")
+        os.environ.pop("LOOM_USER_TOKEN", None)
+        save_account("http://test", signup["session_token"])
+
+        saved = _mock_httpx(sync_client)
+        try:
+            args = build_parser().parse_args(
+                ["init", "Terminal Project", "--install", "none"]
+            )
+            cmd_init(args)
+        finally:
+            _restore_httpx(saved)
+            for key, value in original.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        assert not (tmp_path / ".env").exists()
+        project_config = json.loads(
+            (tmp_path / "loom-config" / "projects.json").read_text(encoding="utf-8")
+        )
+        projects = project_config["servers"]["http://test"]["projects"]
+        assert any(project["name"] == "Terminal Project" for project in projects.values())
+
+
+class TestCLIGoogleLogin:
+    def test_google_login_saves_only_account_session(self, monkeypatch, tmp_path) -> None:
+        import loom.cli.main as cli
+
+        monkeypatch.setenv("LOOM_API_URL", "https://loom.example.com")
+        monkeypatch.setenv("LOOM_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr(
+            cli,
+            "google_login",
+            lambda _url: {
+                "session_token": "loom_session_test",
+                "user": {
+                    "display_name": "Ada",
+                    "email": "ada@example.com",
+                },
+                "projects": [],
+            },
+        )
+
+        args = cli.build_parser().parse_args(["login", "--install", "none"])
+        cli.cmd_login(args)
+
+        assert (tmp_path / "account.json").is_file()
+        assert not (tmp_path / "projects.json").exists()
+
+    def test_switch_command_is_available(self) -> None:
+        from loom.cli.main import build_parser
+
+        args = build_parser().parse_args(["switch", str(uuid.uuid4()), "--install", "none"])
+        assert args.command == "switch"

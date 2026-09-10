@@ -41,6 +41,8 @@ from loom.cli.extension import (
     install_extension,
     package_extension,
 )
+from loom.cli.oauth import OAuthLoginError, google_login
+from loom.cli.project_config import load_current_project, save_project
 from loom.mcp.server import main as mcp_main
 
 load_dotenv()
@@ -53,11 +55,15 @@ def _api_url() -> str:
 
 
 def _api_key() -> str:
-    return os.environ.get("LOOM_API_KEY", "")
+    return os.environ.get("LOOM_API_KEY", "") or load_current_project(_api_url()).get(
+        "api_key", ""
+    )
 
 
 def _project_id() -> str:
-    return os.environ.get("LOOM_PROJECT_ID", "")
+    return os.environ.get("LOOM_PROJECT_ID", "") or load_current_project(_api_url()).get(
+        "project_id", ""
+    )
 
 
 def _headers() -> dict[str, str]:
@@ -237,13 +243,16 @@ def cmd_extension(args: argparse.Namespace) -> None:
     try:
         if args.extension_command == "install":
             api_url = args.api_url or os.environ.get("LOOM_API_URL") or bundled_api_url()
+            google_client_id = _extension_google_client_id(api_url, args.google_client_id)
             result = install_extension(
                 api_url=api_url,
                 destination=path,
+                google_client_id=google_client_id,
                 force=args.force,
             )
             print(f"✅ Loom extension installed at:\n{result.path}")
             print(f"Configured API: {result.api_url}")
+            print("Google sign-in: configured")
             if result.backup_path:
                 print(f"Previous install preserved at: {result.backup_path}")
             print("\nOpen chrome://extensions, enable Developer mode, then choose Load unpacked.")
@@ -264,11 +273,16 @@ def cmd_extension(args: argparse.Namespace) -> None:
                 "Embedded credentials: "
                 + ("found (unsafe)" if status.credentials_embedded else "none")
             )
+            print(
+                "Google sign-in: "
+                + ("configured" if status.google_oauth_configured else "not configured")
+            )
             valid = (
                 status.installed
                 and status.manifest_valid
                 and status.host_permission
                 and not status.credentials_embedded
+                and status.google_oauth_configured
                 and status.error is None
             )
             if status.error:
@@ -288,10 +302,16 @@ def cmd_extension(args: argparse.Namespace) -> None:
 
         if args.extension_command == "package":
             source = path if args.path else None
+            selected_api_url = args.api_url or bundled_api_url()
+            google_client_id = _extension_google_client_id(
+                selected_api_url,
+                args.google_client_id,
+            )
             archive = package_extension(
-                api_url=args.api_url,
+                api_url=selected_api_url,
                 source=source,
                 output=Path(args.output),
+                google_client_id=google_client_id,
                 force=args.force,
             )
             print(f"✅ Chrome extension package created: {archive}")
@@ -301,6 +321,31 @@ def cmd_extension(args: argparse.Namespace) -> None:
     except (ExtensionDistributionError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
+
+
+def _extension_google_client_id(api_url: str, explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    try:
+        response = httpx.get(
+            f"{api_url.rstrip('/')}/v1/auth/google/config",
+            params={"client_kind": "extension"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise ExtensionDistributionError(
+            "Could not discover the Google OAuth client ID from the Loom server. "
+            "Pass --google-client-id explicitly."
+        ) from exc
+    client_id = data.get("client_id") if isinstance(data, dict) else None
+    if not data.get("enabled") or not isinstance(client_id, str) or not client_id:
+        raise ExtensionDistributionError(
+            "Google OAuth is not configured on this Loom server. "
+            "Set GOOGLE_EXTENSION_CLIENT_ID or pass --google-client-id."
+        )
+    return client_id
 
 
 # ── Subcommands ───────────────────────────────────────────────────────────────
@@ -431,12 +476,15 @@ def _print_project_config(
     write_env: str | None,
     install: str,
 ) -> None:
+    save_project(
+        url,
+        project_id=project_id,
+        project_name=project_name,
+        api_key=api_key,
+    )
     print(f"\n✅ Project created or connected: {project_name} ({project_id})\n")
-    print("Add these to your shell profile or .env file:\n")
-    print(f"  export LOOM_API_URL={url}")
-    print(f"  export LOOM_API_KEY={api_key}")
-    print(f"  export LOOM_PROJECT_ID={project_id}")
-    print()
+    print("The local agent credential is stored securely in ~/.loom/projects.json.")
+    print("Loom commands now use this project automatically.\n")
 
     if write_env:
         env_path = Path(write_env)
@@ -612,21 +660,37 @@ def cmd_signup(args: argparse.Namespace) -> None:
 
 
 def cmd_login(args: argparse.Namespace) -> None:
-    """Sign in and provision a distinct local-agent credential automatically."""
+    """Sign in to a Loom account; project selection stays a separate action."""
 
     url = _api_url()
-    email = args.email or input("Email: ").strip()
-    data = _login_user(url, email, _password())
-    project = _select_project(data["projects"], args.project_id)
-    api_key = _provision_local_agent(url, data["session_token"], project, args.agent_name)
-    _print_project_config(
-        url=url,
-        project_name=project["name"],
-        project_id=project["id"],
-        api_key=api_key,
-        write_env=args.write_env,
-        install=args.install,
-    )
+    try:
+        data = (
+            _login_user(url, args.email, _password())
+            if args.email
+            else google_login(url)
+        )
+    except OAuthLoginError as exc:
+        raise RuntimeError(str(exc)) from exc
+    save_account(url, data["session_token"])
+    user = data["user"]
+    projects = data.get("projects", [])
+    print(f"✅ Signed in to Loom as {user['display_name']} ({user['email']}).")
+    if args.project_id:
+        project = _select_project(projects, args.project_id)
+        api_key = _provision_local_agent(url, data["session_token"], project, args.agent_name)
+        _print_project_config(
+            url=url,
+            project_name=project["name"],
+            project_id=project["id"],
+            api_key=api_key,
+            write_env=args.write_env,
+            install=args.install,
+        )
+        return
+    if projects:
+        print("Next: run `loom projects`, then `loom switch <project-id>`.")
+    else:
+        print('Next: open your repository and run `loom init "My Project"`.')
 
 
 def cmd_logout(args: argparse.Namespace) -> None:
@@ -662,7 +726,7 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     session_token = _user_token()
     projects: list[dict[str, Any]] = []
-    if not session_token:
+    if not session_token and args.email:
         email = args.email or input("Email: ").strip()
         password = _password()
         signup_response = httpx.post(
@@ -694,6 +758,8 @@ def cmd_init(args: argparse.Namespace) -> None:
         login_data = _login_user(url, email, password)
         session_token = login_data["session_token"]
         projects = login_data["projects"]
+    elif not session_token:
+        raise RuntimeError("Not signed in. Run `loom login` first.")
 
     if not projects:
         response = httpx.get(f"{url}/v1/auth/me", headers=_user_headers(session_token), timeout=30)
@@ -737,13 +803,14 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 def cmd_projects(args: argparse.Namespace) -> None:
     """List all projects (requires auth)."""
-    if not _api_key():
-        print("Error: LOOM_API_KEY is required to list projects.", file=sys.stderr)
+    token = _user_token()
+    if not token and not _api_key():
+        print("Error: Sign in with `loom login` first.", file=sys.stderr)
         sys.exit(1)
 
     resp = httpx.get(
         f"{_api_url()}/v1/projects",
-        headers=_headers(),
+        headers=_user_headers(token) if token else _headers(),
         timeout=30,
     )
     resp.raise_for_status()
@@ -764,6 +831,31 @@ def cmd_projects(args: argparse.Namespace) -> None:
         name = p.get("name", "")
         created = (p.get("created_at") or "")[:19]
         print(f"{pid:<40} {name:<30} {created:<20}")
+
+
+def cmd_switch(args: argparse.Namespace) -> None:
+    """Select an existing project and provision a fresh key for this machine."""
+
+    token = _user_token()
+    if not token:
+        raise RuntimeError("Not signed in. Run `loom login` first.")
+    response = httpx.get(
+        f"{_api_url()}/v1/projects",
+        headers=_user_headers(token),
+        timeout=30,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(_response_detail(response))
+    project = _select_project(cast(list[dict[str, Any]], response.json()), args.project)
+    api_key = _provision_local_agent(_api_url(), token, project, args.agent_name)
+    _print_project_config(
+        url=_api_url(),
+        project_name=project["name"],
+        project_id=project["id"],
+        api_key=api_key,
+        write_env=args.write_env,
+        install=args.install,
+    )
 
 
 def cmd_config(args: argparse.Namespace) -> None:
@@ -846,8 +938,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # loom login/logout
-    p_login = sub.add_parser("login", help="Sign in and connect a project automatically")
-    p_login.add_argument("--email", help="Account email (prompts when omitted)")
+    p_login = sub.add_parser("login", help="Sign in with Google")
+    p_login.add_argument("--email", help="Development fallback email login")
     p_login.add_argument("--project-id", help="Project to connect when the account has several")
     p_login.add_argument("--agent-name", default="Loom CLI", help="Name for this local agent")
     p_login.add_argument("--write-env", nargs="?", const=".env", metavar="PATH")
@@ -861,6 +953,16 @@ def build_parser() -> argparse.ArgumentParser:
     # loom projects
     p_projects = sub.add_parser("projects", help="Show the project visible to this key")
     p_projects.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    p_switch = sub.add_parser("switch", help="Connect this machine to an existing project")
+    p_switch.add_argument("project", help="Project UUID")
+    p_switch.add_argument("--agent-name", default="Loom CLI", help="Name for this machine")
+    p_switch.add_argument("--write-env", nargs="?", const=".env", metavar="PATH")
+    p_switch.add_argument(
+        "--install",
+        choices=["all", "claude", "codex", "none"],
+        default="all",
+    )
 
     # loom config
     sub.add_parser("config", help="Show current configuration")
@@ -891,6 +993,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_extension_install.add_argument(
         "--api-url",
         help="Loom API base URL (defaults to LOOM_API_URL or the hosted MVP)",
+    )
+    p_extension_install.add_argument(
+        "--google-client-id",
+        help="Google Chrome Extension OAuth client ID (normally discovered from the server)",
     )
     p_extension_install.add_argument(
         "--path",
@@ -928,6 +1034,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the configured Loom API base URL",
     )
     p_extension_package.add_argument(
+        "--google-client-id",
+        help="Google Chrome Extension OAuth client ID (normally discovered from the server)",
+    )
+    p_extension_package.add_argument(
         "--path",
         help="Package an installed extension instead of the bundled template",
     )
@@ -961,6 +1071,7 @@ def main() -> None:
         "login": cmd_login,
         "logout": cmd_logout,
         "projects": cmd_projects,
+        "switch": cmd_switch,
         "config": cmd_config,
         "install": cmd_install,
         "extension": cmd_extension,

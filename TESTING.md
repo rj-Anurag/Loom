@@ -670,19 +670,20 @@ You should see the agent's response in the results.
 
 ### 10.1 Load the Extension in Chrome
 
-1. Open Chrome and navigate to `chrome://extensions`
-2. Enable **Developer mode** (toggle top-right)
-3. Click **Load unpacked**
-4. Select the `extension/` directory in this project
+1. Configure Google OAuth and start Loom as described in `README.md`.
+2. Install a configured copy with
+   `loom extension install --api-url http://localhost:8000 --force`.
+3. Open Chrome and navigate to `chrome://extensions`.
+4. Enable **Developer mode**, click **Load unpacked**, and select the path from
+   `loom extension path`.
 5. The "Loom — Context Bridge" extension should appear
 
 ### 10.2 Configure the Extension
 
-By default, the extension connects to `http://localhost:8000`.
-To change this, edit `extension/config.js`:
+The installer sets both the API URL and Google client ID. Check them with:
 
-```js
-LOOM_SERVER_URL: 'http://localhost:8000',
+```bash
+loom extension status --check-api
 ```
 
 ### 10.3 Verify Backend API Works for the Extension
@@ -693,14 +694,13 @@ First, start the Loom server:
 uvicorn loom.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-Then test the extension's API calls manually:
+Create the project from the terminal, then confirm the account can list it:
 
 ```bash
-# 1. Create a project (returns browser agent credentials)
-curl -s -X POST http://localhost:8000/v1/projects \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Extension Test Project"}' | python3 -m json.tool
+export LOOM_API_URL=http://localhost:8000
+loom login
+loom init "Extension Test Project"
+loom projects
 ```
 
 ### 10.4 Test the Content Script
@@ -721,10 +721,15 @@ The content script (`extension/content.js`) activates on `https://claude.ai/*`.
 ### 10.5 Test the Popup
 
 1. Click the Loom extension icon in the Chrome toolbar
-2. If you're on a Claude.ai chat page, the popup shows one of:
+2. Choose **Continue with Google** using the account from `loom login`.
+3. If you're on a supported chat page, the popup shows one of:
    - **Linked** status (if the chat URL is already linked to a project)
-   - **Link UI** with a project selector dropdown and "Create new project"
-3. Select a project and click **Link Chat**
+   - **Link UI** with the user's existing project selector
+   - A no-project message with `loom init "My Project"`
+4. Select a project and click **Link conversation**
+
+The extension must never create projects in its normal flow. Manual project ID
+and API-key entry remains only in the advanced recovery section.
 
 ### 10.6 Test Message Sync
 
