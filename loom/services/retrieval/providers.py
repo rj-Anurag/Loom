@@ -49,7 +49,7 @@ class StubProvider:
             return None
 
         # Deterministic seed from content hash
-        seed = int(hashlib.md5(text.encode()).hexdigest()[:8], 16)
+        seed = int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
         rng = random.Random(seed)
 
         raw = [rng.gauss(0, 1) for _ in range(self.DIMENSION)]
