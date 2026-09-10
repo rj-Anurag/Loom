@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     redis_connect_timeout_seconds: float = 2.0
     redis_socket_timeout_seconds: float = 5.0
-    api_host: str = "0.0.0.0"
+    api_host: str = "127.0.0.1"
     api_port: int = 8000
     environment: str = "development"
     bootstrap_token: str = ""

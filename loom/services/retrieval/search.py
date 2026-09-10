@@ -175,28 +175,34 @@ async def keyword_search(
         Each dict has keys: ``id``, ``type``, ``trust_tier``, ``content``,
         ``created_at``, ``agent_id``, ``keyword_score``.
     """
-    conditions = [
-        "u.project_id = :project_id",
-        "to_tsvector('english', u.content) @@ plainto_tsquery('english', :query)",
-    ]
     params: dict[str, Any] = {"project_id": project_id, "query": query}
 
     if scope_type_filter:
-        conditions.append("u.type = :scope_type")
         params["scope_type"] = scope_type_filter
-
-    where_clause = " AND ".join(conditions)
-
-    sql = text(f"""
-        SELECT u.id, u.type, u.trust_tier, u.content, u.source_url, u.created_at, u.agent_id,
-               u.version,
-               ts_rank(to_tsvector('english', u.content),
-                       plainto_tsquery('english', :query)) AS keyword_score
-        FROM context_units u
-        WHERE {where_clause}
-        ORDER BY keyword_score DESC
-        LIMIT :limit
-    """)
+        sql = text("""
+            SELECT u.id, u.type, u.trust_tier, u.content, u.source_url,
+                   u.created_at, u.agent_id, u.version,
+                   ts_rank(to_tsvector('english', u.content),
+                           plainto_tsquery('english', :query)) AS keyword_score
+            FROM context_units u
+            WHERE u.project_id = :project_id
+              AND to_tsvector('english', u.content) @@ plainto_tsquery('english', :query)
+              AND u.type = :scope_type
+            ORDER BY keyword_score DESC
+            LIMIT :limit
+        """)
+    else:
+        sql = text("""
+            SELECT u.id, u.type, u.trust_tier, u.content, u.source_url,
+                   u.created_at, u.agent_id, u.version,
+                   ts_rank(to_tsvector('english', u.content),
+                           plainto_tsquery('english', :query)) AS keyword_score
+            FROM context_units u
+            WHERE u.project_id = :project_id
+              AND to_tsvector('english', u.content) @@ plainto_tsquery('english', :query)
+            ORDER BY keyword_score DESC
+            LIMIT :limit
+        """)
 
     rows = (
         await session.execute(sql, params | {"limit": KEYWORD_SEARCH_LIMIT})

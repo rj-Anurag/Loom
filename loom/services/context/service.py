@@ -735,24 +735,29 @@ async def read_context(
         # so the caller gets the most recent units instead of an empty result.
 
     # ── Chronological path (no query, fallback from hybrid) ─────────────
-    conditions = ["u.project_id = :project_id"]
     params: dict[str, Any] = {"project_id": project_id}
 
     if scope_type_filter:
-        conditions.append("u.type = :scope_type")
         params["scope_type"] = scope_type_filter
-
-    where_clause = " AND ".join(conditions)
-
-    chronological_sql = text(f"""
-        SELECT
-            u.id, u.type, u.trust_tier, u.content, u.source_url, u.created_at, u.agent_id,
-            u.version, 0.0 AS rank
-        FROM context_units u
-        WHERE {where_clause}
-        ORDER BY u.created_at DESC
-        LIMIT 200
-    """)
+        chronological_sql = text("""
+            SELECT
+                u.id, u.type, u.trust_tier, u.content, u.source_url, u.created_at, u.agent_id,
+                u.version, 0.0 AS rank
+            FROM context_units u
+            WHERE u.project_id = :project_id AND u.type = :scope_type
+            ORDER BY u.created_at DESC
+            LIMIT 200
+        """)
+    else:
+        chronological_sql = text("""
+            SELECT
+                u.id, u.type, u.trust_tier, u.content, u.source_url, u.created_at, u.agent_id,
+                u.version, 0.0 AS rank
+            FROM context_units u
+            WHERE u.project_id = :project_id
+            ORDER BY u.created_at DESC
+            LIMIT 200
+        """)
 
     rows = (await session.execute(chronological_sql, params)).mappings().all()
 
