@@ -1,6 +1,6 @@
 """Integration tests for the @loom CLI.
 
-Tests CLI commands against the live API. Uses ``starlette.testclient.TestClient``
+Tests CLI commands against the live API. Uses ``fastapi.testclient.TestClient``
 as a sync wrapper around the ASGI app, since the CLI uses synchronous httpx calls
 and ``httpx.ASGITransport`` is async-only.
 """
@@ -10,15 +10,15 @@ from __future__ import annotations
 import json
 import os
 import sys
+import uuid
 from io import StringIO
 from typing import Any
 
 import pytest
 import pytest_asyncio
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from loom.models import Agent, Project
-
 
 # ── Test Client Fixture ───────────────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ def _strip_url(url: str) -> str:
     """Strip ``http://test`` base URL to get a relative path."""
     for prefix in ["http://test", "http://localhost:8000"]:
         if url.startswith(prefix):
-            return url[len(prefix):]
+            return url[len(prefix) :]
     # Already a path
     return url
 
@@ -273,7 +273,7 @@ class TestCLIInit:
 
         saved = _mock_httpx(sync_client)
         parser = build_parser()
-        args = parser.parse_args(["init"])
+        args = parser.parse_args(["init", "--install", "none"])
 
         captured = StringIO()
         old_stdout = sys.stdout
@@ -293,3 +293,58 @@ class TestCLIInit:
         assert "LOOM_API_URL" in output
         assert "LOOM_API_KEY" in output
         assert "LOOM_PROJECT_ID" in output
+
+    def test_init_self_service_creates_account_and_writes_project_config(
+        self,
+        sync_client: TestClient,
+        tmp_path,
+    ) -> None:
+        """Public init needs no bootstrap token, project ID, or copied API key."""
+        from loom.cli.main import build_parser, cmd_init
+
+        tracked = [
+            "LOOM_API_URL",
+            "LOOM_PASSWORD",
+            "LOOM_CONFIG_HOME",
+            "LOOM_BOOTSTRAP_TOKEN",
+            "LOOM_USER_TOKEN",
+        ]
+        original = {key: os.environ.get(key) for key in tracked}
+        os.environ["LOOM_API_URL"] = "http://test"
+        os.environ["LOOM_PASSWORD"] = "Correct-Horse-Battery-Staple-42!"
+        os.environ["LOOM_CONFIG_HOME"] = str(tmp_path / "account")
+        os.environ.pop("LOOM_BOOTSTRAP_TOKEN", None)
+        os.environ.pop("LOOM_USER_TOKEN", None)
+        env_path = tmp_path / ".env"
+        email = f"cli-{uuid.uuid4()}@example.com"
+
+        saved = _mock_httpx(sync_client)
+        try:
+            args = build_parser().parse_args(
+                [
+                    "init",
+                    "Public Workspace",
+                    "--email",
+                    email,
+                    "--display-name",
+                    "CLI User",
+                    "--write-env",
+                    str(env_path),
+                    "--install",
+                    "none",
+                ]
+            )
+            cmd_init(args)
+        finally:
+            _restore_httpx(saved)
+            for key, value in original.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        config = env_path.read_text(encoding="utf-8")
+        assert "LOOM_PROJECT_ID=" in config
+        assert "LOOM_API_KEY=loom_" in config
+        assert "LOOM_API_URL=http://test" in config
+        assert (tmp_path / "account" / "account.json").is_file()

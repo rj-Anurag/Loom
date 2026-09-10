@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -26,6 +25,21 @@ async def test_project(db_session: AsyncSession) -> Project:
     await db_session.commit()
     await db_session.refresh(p)
     return p
+
+
+@pytest_asyncio.fixture
+async def project_agent(db_session: AsyncSession, test_project: Project) -> Agent:
+    """An existing project credential used to authorize new agent enrollment."""
+    agent = Agent(project_id=test_project.id, kind="local", name="Project owner")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    return agent
+
+
+@pytest_asyncio.fixture
+async def auth_headers(project_agent: Agent) -> dict[str, str]:
+    return {"Authorization": f"Bearer {project_agent.id}"}
 
 
 # ── Registration Tests ────────────────────────────────────────────────────────
@@ -39,11 +53,13 @@ class TestAgentRegistration:
         self,
         client: AsyncClient,
         test_project: Project,
+        auth_headers: dict[str, str],
     ) -> None:
         """Register an agent with kind + name returns credentials."""
         resp = await client.post(
             f"/v1/projects/{test_project.id}/agents",
             json={"kind": "local", "name": "My Demo Agent"},
+            headers=auth_headers,
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -51,7 +67,8 @@ class TestAgentRegistration:
         assert "api_key" in data
         assert data["kind"] == "local"
         assert data["name"] == "My Demo Agent"
-        assert data["agent_id"] == data["api_key"]  # MVP auth convention
+        assert data["agent_id"] != data["api_key"]
+        assert data["api_key"].startswith("loom_")
 
         # Verify the returned api_key authenticates API calls
         headers = {"Authorization": f"Bearer {data['api_key']}"}
@@ -66,11 +83,13 @@ class TestAgentRegistration:
         self,
         client: AsyncClient,
         test_project: Project,
+        auth_headers: dict[str, str],
     ) -> None:
         """Register an agent without name returns None name."""
         resp = await client.post(
             f"/v1/projects/{test_project.id}/agents",
             json={"kind": "cloud"},
+            headers=auth_headers,
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -82,11 +101,13 @@ class TestAgentRegistration:
         self,
         client: AsyncClient,
         test_project: Project,
+        auth_headers: dict[str, str],
     ) -> None:
         """Invalid kind returns 422."""
         resp = await client.post(
             f"/v1/projects/{test_project.id}/agents",
             json={"kind": "invalid_kind"},
+            headers=auth_headers,
         )
         assert resp.status_code == 422
 
@@ -95,11 +116,13 @@ class TestAgentRegistration:
         self,
         client: AsyncClient,
         test_project: Project,
+        auth_headers: dict[str, str],
     ) -> None:
         """Missing kind returns 422."""
         resp = await client.post(
             f"/v1/projects/{test_project.id}/agents",
             json={},
+            headers=auth_headers,
         )
         assert resp.status_code == 422
 
@@ -107,12 +130,27 @@ class TestAgentRegistration:
     async def test_register_agent_nonexistent_project(
         self,
         client: AsyncClient,
+        auth_headers: dict[str, str],
     ) -> None:
         """Non-existent project returns 404."""
         fake_id = uuid.uuid4()
         resp = await client.post(
             f"/v1/projects/{fake_id}/agents",
             json={"kind": "local"},
+            headers=auth_headers,
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == "PROJECT_NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_register_agent_requires_project_credential(
+        self,
+        client: AsyncClient,
+        test_project: Project,
+    ) -> None:
+        """A UUID alone is not enough to mint credentials for a project."""
+        resp = await client.post(
+            f"/v1/projects/{test_project.id}/agents",
+            json={"kind": "local"},
+        )
+        assert resp.status_code == 401

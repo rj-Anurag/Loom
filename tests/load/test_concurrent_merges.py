@@ -123,7 +123,9 @@ async def test_concurrent_agent_writes(
     p2_results: list[dict] = []
     for sim in simulators:
         results = await sim.write_batch(
-            project_id, count=5, parent_ids=[parent_id],
+            project_id,
+            count=5,
+            parent_ids=[parent_id],
             base_content="Non-overlapping",
         )
         p2_results.extend(results)
@@ -133,6 +135,7 @@ async def test_concurrent_agent_writes(
     # Use stale version=1 to force version-conflict check → overlap detection
     # ═══════════════════════════════════════════════════════════════════════
     import uuid as _uuid
+
     common_file = "src/shared/conflict_module.py"
     p3_results: list[dict] = []
     for sim in simulators:
@@ -186,12 +189,10 @@ async def test_concurrent_agent_writes(
     conflicts = sum(1 for r in p3_results if r.get("_status") == 409)
 
     # False positives: non-overlapping Phase 2 writes that got 409
-    false_positives = sum(
-        1 for r in p2_results if r.get("_status") == 409
-    )
+    false_positives = sum(1 for r in p2_results if r.get("_status") == 409)
 
     total_units = await _count_units(db_session, load_project.id)
-    total_conflicts = await _count_conflicts(db_session, load_project.id)
+    _ = await _count_conflicts(db_session, load_project.id)
 
     # ═══════════════════════════════════════════════════════════════════════
     # Report
@@ -217,7 +218,11 @@ async def test_concurrent_agent_writes(
         "phases": {
             "p1_independent": {"attempted": len(p1_results), "succeeded": p1_ok},
             "p2_non_overlapping": {"attempted": len(p2_results), "succeeded": p2_ok},
-            "p3_overlapping": {"attempted": len(p3_results), "succeeded": p3_ok, "conflicts": conflicts},
+            "p3_overlapping": {
+                "attempted": len(p3_results),
+                "succeeded": p3_ok,
+                "conflicts": conflicts,
+            },
         },
         "conflicts": {
             "total": conflicts,
@@ -229,19 +234,16 @@ async def test_concurrent_agent_writes(
         "all_writes_accounted": total_units >= successful,
         "db_total_units": total_units,
     }
-    report["passed"] = (
-        not data_loss
-        and report["latency_ms"]["p99"] < 1000
-    )
+    report["passed"] = not data_loss and report["latency_ms"]["p99"] < 1000
 
     # Write report to disk
     report_path = "tests/load/last-report.json"
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2, default=str)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  Load Test Report — {report['scenario']}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  Duration:        {report['duration_seconds']}s")
     print(f"  Total writes:    {report['total_writes']}")
     print(f"  Successful:      {report['successful_writes']}")
@@ -252,7 +254,7 @@ async def test_concurrent_agent_writes(
     print(f"  Conflicts:       {report['conflicts']['flagged']}")
     print(f"  Data loss:       {report['data_loss']}")
     print(f"  Passed:          {report['passed']}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Assertions
     assert report["latency_ms"]["p99"] < 1000, f"P99 latency too high: {p99}ms"
@@ -266,9 +268,7 @@ async def test_concurrent_agent_writes(
     assert p2_ok == len(p2_results), (
         f"Non-overlapping writes should all succeed: {p2_ok}/{len(p2_results)}"
     )
-    assert false_positives == 0, (
-        f"False positive conflicts in Phase 2: {false_positives}"
-    )
+    assert false_positives == 0, f"False positive conflicts in Phase 2: {false_positives}"
 
     # Phase 3: Overlapping writes should mostly conflict (after first succeeds via auto-merge)
     assert conflicts >= 10, (
@@ -286,6 +286,4 @@ async def test_concurrent_agent_writes(
     )
 
     # No data loss: all successful writes must be in DB
-    assert total_units >= successful, (
-        f"Missing units in DB: {total_units} < {successful}"
-    )
+    assert total_units >= successful, f"Missing units in DB: {total_units} < {successful}"

@@ -11,13 +11,11 @@ from __future__ import annotations
 
 import importlib
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import text
-
-from loom.models import Agent
 
 # ── Encode Query Tests ──────────────────────────────────────────────────────────
 
@@ -168,7 +166,7 @@ class TestVectorSearch:
                 "content": "Project overview summary for testing scope filter",
                 "embedding": str(summary_embedding),
                 "version": 1,
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             },
         )
         await db_session.commit()
@@ -216,7 +214,7 @@ class TestVectorSearch:
                 "tier": "agent",
                 "content": "Unit without embedding should not appear",
                 "version": 1,
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             },
         )
         await db_session.commit()
@@ -266,9 +264,7 @@ class TestKeywordSearch:
         """Non-matching query returns empty list."""
         from loom.services.retrieval.search import keyword_search
 
-        results = await keyword_search(
-            db_session, test_project.id, "xyznonexistentkeyword"
-        )
+        results = await keyword_search(db_session, test_project.id, "xyznonexistentkeyword")
         assert results == []
 
     @pytest.mark.asyncio
@@ -300,7 +296,7 @@ class TestKeywordSearch:
                 "tier": "agent",
                 "content": "Summary about bcrypt security decisions",
                 "version": 1,
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             },
         )
         await db_session.commit()
@@ -507,7 +503,7 @@ class TestComputeFinalScores:
         """Calls _compute_score using normalized RRF as ts_rank."""
         from loom.services.retrieval.search import compute_final_scores
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         units = [
             {
                 "id": "a",
@@ -535,7 +531,7 @@ class TestComputeFinalScores:
         """Each unit gets relevance_score field."""
         from loom.services.retrieval.search import compute_final_scores
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         units = [
             {
                 "id": "a",
@@ -565,7 +561,7 @@ class TestComputeFinalScores:
         """Results sorted descending by relevance_score."""
         from loom.services.retrieval.search import compute_final_scores
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         units = [
             {
                 "id": "a",
@@ -603,7 +599,7 @@ class TestComputeFinalScores:
         """Summary-type units get the +0.15 boost."""
         from loom.services.retrieval.search import compute_final_scores
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         units = [
             {
                 "id": "a",
@@ -625,12 +621,8 @@ class TestComputeFinalScores:
 
         scored = compute_final_scores(units)
 
-        summary_score = next(
-            u["relevance_score"] for u in scored if u["id"] == "a"
-        )
-        decision_score = next(
-            u["relevance_score"] for u in scored if u["id"] == "b"
-        )
+        summary_score = next(u["relevance_score"] for u in scored if u["id"] == "a")
+        decision_score = next(u["relevance_score"] for u in scored if u["id"] == "b")
         assert summary_score == pytest.approx(decision_score + 0.15, rel=1e-4)
 
 
@@ -766,9 +758,7 @@ class TestHybridSearch:
         from loom.services.retrieval.search import hybrid_search
 
         # Insert a summary unit with embedding
-        summary_embedding = await stub_embedder.embed(
-            "Project summary for authentication"
-        )
+        summary_embedding = await stub_embedder.embed("Project summary for authentication")
         await db_session.execute(
             text("""
                 INSERT INTO context_units
@@ -788,7 +778,7 @@ class TestHybridSearch:
                 "content": "Summary about authentication security decisions",
                 "embedding": str(summary_embedding),
                 "version": 1,
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             },
         )
         await db_session.commit()

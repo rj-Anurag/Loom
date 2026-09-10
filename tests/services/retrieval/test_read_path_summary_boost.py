@@ -10,7 +10,7 @@ does not yet accept a ``unit_type`` keyword argument.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -22,7 +22,7 @@ async def test_summary_score_boost_added() -> None:
     # The function currently lives in loom.services.context.service, not retrieval
     from loom.services.context.service import _compute_score
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     score_regular = _compute_score(
         ts_rank=0.5,
@@ -44,7 +44,7 @@ async def test_summary_boost_non_summary_types() -> None:
     """Non-summary types get no boost (0.0 bonus)."""
     from loom.services.context.service import _compute_score
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     for t in ("message", "decision", "artifact_ref", "task_result"):
         score = _compute_score(

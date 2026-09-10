@@ -24,6 +24,16 @@
   const unlinkBtn = document.getElementById('unlink-btn');
   const dashboardBtn = document.getElementById('dashboard-btn');
   const syncStatus = document.getElementById('sync-status');
+  const accountSection = document.getElementById('account-section');
+  const accountBar = document.getElementById('account-bar');
+  const accountName = document.getElementById('account-name');
+  const accountEmail = document.getElementById('account-email');
+  const accountPassword = document.getElementById('account-password');
+  const accountDisplayName = document.getElementById('account-display-name');
+  const accountError = document.getElementById('account-error');
+  const signupBtn = document.getElementById('signup-btn');
+  const loginBtn = document.getElementById('login-btn');
+  const logoutBtn = document.getElementById('logout-btn');
 
   let currentTabUrl = '';
   let currentTabTitle = '';
@@ -65,6 +75,11 @@
         return;
       }
 
+      const accountState = await chrome.runtime.sendMessage({ type: 'GET_ACCOUNT' });
+      if (accountState?.account) {
+        showSignedInAccount(accountState.account.user);
+      }
+
       // Check if already linked
       const resp = await chrome.runtime.sendMessage({
         type: 'CHECK_LINK',
@@ -81,11 +96,16 @@
         showActivityPanel(resp.projectId, resp.projectName);
         refreshSyncStatus();
       } else {
-        // Show link UI
         linkedSection.classList.add('hidden');
-        linkSection.classList.remove('hidden');
-        setStatus('Not linked to any project', 'unlinked');
-        await loadProjects();
+        if (accountState?.account || accountState?.legacyConnected) {
+          linkSection.classList.remove('hidden');
+          setStatus('Not linked to any project', 'unlinked');
+          await loadProjects();
+        } else {
+          accountSection.classList.remove('hidden');
+          linkSection.classList.add('hidden');
+          setStatus('Create an account to start', 'unlinked');
+        }
       }
     } catch (err) {
       setStatus('Could not connect to Loom. Is the server running?', 'error');
@@ -119,6 +139,85 @@
   function hideError() {
     errorMsg.classList.add('hidden');
   }
+
+  function showAccountError(text) {
+    const labels = {
+      EMAIL_ALREADY_REGISTERED: 'This email already has an account. Choose Log in.',
+      INVALID_CREDENTIALS: 'Email or password is incorrect.',
+      INVALID_EMAIL: 'Enter a valid email address.',
+      TOO_MANY_ATTEMPTS: 'Too many attempts. Wait a few minutes and try again.',
+    };
+    accountError.textContent = labels[text] || text;
+    accountError.classList.remove('hidden');
+  }
+
+  function showSignedInAccount(user) {
+    accountSection.classList.add('hidden');
+    accountBar.classList.remove('hidden');
+    accountName.textContent = user?.display_name || user?.email || 'Loom user';
+  }
+
+  async function finishAccountAuth(result) {
+    if (result?.error) throw new Error(result.error);
+    accountPassword.value = '';
+    accountError.classList.add('hidden');
+    showSignedInAccount(result.user);
+    linkSection.classList.remove('hidden');
+    await loadProjects();
+    const projectId = result.project_id || (result.projects?.length === 1 ? result.projects[0].id : '');
+    if (projectId) projectSelect.value = projectId;
+    setStatus('Account connected. Select a project.', 'unlinked');
+  }
+
+  signupBtn.addEventListener('click', async function () {
+    const email = accountEmail.value.trim();
+    const password = accountPassword.value;
+    if (!email || password.length < 8) {
+      showAccountError('Enter a valid email and a password with at least 8 characters.');
+      return;
+    }
+    signupBtn.disabled = true;
+    signupBtn.textContent = 'Creating…';
+    try {
+      await finishAccountAuth(await chrome.runtime.sendMessage({
+        type: 'SIGNUP',
+        email: email,
+        password: password,
+        displayName: accountDisplayName.value.trim(),
+      }));
+    } catch (err) {
+      showAccountError(err.message);
+    } finally {
+      signupBtn.disabled = false;
+      signupBtn.textContent = 'Sign up';
+    }
+  });
+
+  loginBtn.addEventListener('click', async function () {
+    const email = accountEmail.value.trim();
+    const password = accountPassword.value;
+    if (!email || !password) {
+      showAccountError('Enter your email and password.');
+      return;
+    }
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Logging in…';
+    try {
+      await finishAccountAuth(await chrome.runtime.sendMessage({
+        type: 'LOGIN', email: email, password: password,
+      }));
+    } catch (err) {
+      showAccountError(err.message);
+    } finally {
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Log in';
+    }
+  });
+
+  logoutBtn.addEventListener('click', async function () {
+    await chrome.runtime.sendMessage({ type: 'LOGOUT' });
+    window.location.reload();
+  });
 
   // ── Agent Activity Rendering ──────────────────────────────────────────────
 
@@ -341,11 +440,12 @@
       console.warn('[Loom] No project linked — cannot open dashboard');
       return;
     }
-    const linkInfo = await Storage.getProjectForChat(currentTabUrl);
-    let apiKey = linkInfo?.apiKey;
+    const projectCredentials = await Storage.getProjectCredentials(currentlyLinkedProjectId);
+    const creds = await Storage.getCredentials();
+    const apiKey = projectCredentials?.api_key || (creds ? creds.api_key : LOOM_CONFIG.DEFAULT_API_KEY);
     if (!apiKey) {
-      const creds = await Storage.getCredentials();
-      apiKey = creds ? creds.api_key : LOOM_CONFIG.DEFAULT_API_KEY;
+      showError('Project credential is missing. Log in and reconnect this conversation.');
+      return;
     }
     const path = LOOM_CONFIG.DASHBOARD_BASE_PATH.replace('{project_id}', currentlyLinkedProjectId);
     chrome.tabs.create({ url: LOOM_CONFIG.LOOM_SERVER_URL + path + '#token=' + apiKey });

@@ -50,10 +50,7 @@ class TestRunSummarizationCycle:
         # Verify summary units exist in the DB
         rows = (
             await db_session.execute(
-                text(
-                    "SELECT type FROM context_units "
-                    "WHERE project_id = :pid AND type = 'summary'"
-                ),
+                text("SELECT type FROM context_units WHERE project_id = :pid AND type = 'summary'"),
                 {"pid": test_project.id},
             )
         ).all()

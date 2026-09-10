@@ -8,34 +8,34 @@ WebSocket implementation lives in ``loom.api.routers.events`` and
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Literal
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
 # ── Agent presence events ──────────────────────────────────────────────────
 
-AgentOnlineEventPayload = dict
+AgentOnlineEventPayload = dict[str, Any]
 """``{ "agent_id": str, "kind": str, "status": str }``"""
 
-AgentHeartbeatEventPayload = dict
+AgentHeartbeatEventPayload = dict[str, Any]
 """``{ "agent_id": str, "status": str, "task_id": str }``"""
 
-AgentOfflineEventPayload = dict
+AgentOfflineEventPayload = dict[str, Any]
 """``{ "agent_id": str }``"""
 
-AgentLockEventPayload = dict
+AgentLockEventPayload = dict[str, Any]
 """``{ "agent_id": str, "context_unit_id": str }``"""
 
-AgentUnlockEventPayload = dict
+AgentUnlockEventPayload = dict[str, Any]
 """``{ "agent_id": str, "context_unit_id": str }``"""
 
 # ── Project-level events ───────────────────────────────────────────────────
 
-ContextCreatedEventPayload = dict
-"""``{ "context_unit_id": str, "type": str, "content_preview": str, "agent_id": str, "version": int }``"""
+ContextCreatedEventPayload = dict[str, Any]
+"""Context-created payload fields: unit ID, type, preview, agent ID, version."""
 
-ConflictCreatedEventPayload = dict
+ConflictCreatedEventPayload = dict[str, Any]
 """``{ "pending_branch_id": str, "context_unit_id": str, "conflict_type": str }``"""
 
 
@@ -71,30 +71,21 @@ class ProjectEvent(BaseModel):
 
     type: str  # One of ProjectEventType values
     project_id: str
-    payload: dict
+    payload: dict[str, Any]
     timestamp: str  # ISO 8601 (set at construction time)
-
-    def model_dump(self, *args, **kwargs):
-        """Merge payload into the top-level envelope for WS transmission."""
-        return {
-            "type": self.type,
-            "project_id": self.project_id,
-            "payload": self.payload,
-            "timestamp": self.timestamp,
-        }
 
 
 def make_event(
     event_type: str,
     project_id: str,
-    payload: dict,
+    payload: dict[str, Any],
 ) -> ProjectEvent:
     """Convenience factory — sets timestamp to now."""
     return ProjectEvent(
         type=event_type,
         project_id=project_id,
         payload=payload,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
     )
 
 

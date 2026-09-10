@@ -15,6 +15,8 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agents.local.agent import LoomClient
+from agents.local.config import AgentConfig
 from loom.models.agents import Agent
 from loom.models.projects import Project
 
@@ -99,7 +101,9 @@ class TestLoomClient:
     """Tests for the Loom HTTP client used by the agent."""
 
     @pytest_asyncio.fixture
-    async def loom_client(self, test_agent: Agent, asgi_http_client: httpx.AsyncClient) -> AsyncGenerator[LoomClient, None]:
+    async def loom_client(
+        self, test_agent: Agent, asgi_http_client: httpx.AsyncClient
+    ) -> AsyncGenerator[LoomClient, None]:
         from agents.local.agent import LoomClient
         from agents.local.config import AgentConfig
 
@@ -136,9 +140,7 @@ class TestLoomClient:
         )
         assert resp.status_code == 201
 
-        units = await loom_client.read_context(
-            str(test_project.id), "password hashing"
-        )
+        units = await loom_client.read_context(str(test_project.id), "password hashing")
         assert len(units) >= 1
         assert any("bcrypt" in u["content"] for u in units)
 
@@ -245,7 +247,9 @@ class TestLocalAgent:
         agent = LocalAgent(cfg=agent_config, http_client=asgi_http_client)
         try:
             # Mock the LLM call
-            with patch.object(agent.llm, "generate", new=AsyncMock(return_value="Mocked LLM result")):
+            with patch.object(
+                agent.llm, "generate", new=AsyncMock(return_value="Mocked LLM result")
+            ):
                 result = await agent.run(
                     task_description="Write a test decision",
                     project_id=str(test_project.id),
@@ -269,9 +273,11 @@ class TestLocalAgent:
 
         agent = LocalAgent(cfg=agent_config, http_client=asgi_http_client)
         try:
-            with patch.object(agent.llm, "generate", new=AsyncMock(
-                return_value="The project should use JWT with refresh tokens"
-            )):
+            with patch.object(
+                agent.llm,
+                "generate",
+                new=AsyncMock(return_value="The project should use JWT with refresh tokens"),
+            ):
                 await agent.run(
                     task_description="Design auth flow",
                     project_id=str(test_project.id),
@@ -337,15 +343,15 @@ class TestLocalAgent:
 
             loom = LoomClient(agent_config, http_client=asgi_http_client)
             try:
-                seed = await loom.write_context(
+                _ = await loom.write_context(
                     str(test_project.id), "Seed context for agent test"
                 )
             finally:
                 await loom.close()
 
-            with patch.object(agent.llm, "generate", new=AsyncMock(
-                return_value="Result based on seed context"
-            )):
+            with patch.object(
+                agent.llm, "generate", new=AsyncMock(return_value="Result based on seed context")
+            ):
                 result = await agent.run(
                     task_description="Build on seed context",
                     project_id=str(test_project.id),

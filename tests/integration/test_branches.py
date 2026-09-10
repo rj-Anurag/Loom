@@ -27,7 +27,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -300,7 +299,7 @@ async def test_merge_non_conflicting_branch(
         headers=auth_headers,
     )
     assert resp.status_code == 201, f"Write on branch failed: {resp.text}"
-    branch_unit_id = resp.json()["id"]
+    _ = resp.json()["id"]
 
     branch_body_2 = {
         "client_uuid": str(uuid.uuid4()),
@@ -363,7 +362,7 @@ async def test_merge_conflicting_branch(
         headers=auth_headers,
     )
     assert resp.status_code == 201
-    main_unit_id = resp.json()["id"]
+    _ = resp.json()["id"]
 
     # 3. Create a branch
     branch_resp = await client.post(
@@ -454,6 +453,7 @@ async def test_merge_already_merged_branch(
 
     # Mark the branch as merged in the DB (simulating the post-merge state)
     from sqlalchemy import text
+
     await db_session.execute(
         text("UPDATE branches SET status = 'merged' WHERE id = :bid"),
         {"bid": uuid.UUID(branch_id)},

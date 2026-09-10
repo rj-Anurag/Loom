@@ -9,13 +9,11 @@ Tests cover:
 
 import uuid
 
-import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -43,26 +41,45 @@ async def auth_headers(test_agent: Agent) -> dict[str, str]:
     return {"Authorization": f"Bearer {test_agent.id}"}
 
 
+@pytest_asyncio.fixture
+async def project_creator_headers(db_session: AsyncSession) -> dict[str, str]:
+    bootstrap_project = Project(name="__loom_extension__")
+    db_session.add(bootstrap_project)
+    await db_session.flush()
+    bootstrap_agent = Agent(project_id=bootstrap_project.id, kind="system")
+    db_session.add(bootstrap_agent)
+    await db_session.commit()
+    await db_session.refresh(bootstrap_agent)
+    return {"Authorization": f"Bearer {bootstrap_agent.id}"}
+
+
 # ── List Projects ─────────────────────────────────────────────────────────────
 
 
 class TestListProjects:
     """GET /v1/projects"""
 
-    async def test_list_projects_returns_all(
+    async def test_list_projects_returns_only_authenticated_project(
         self,
         client: AsyncClient,
         test_project: Project,
+        db_session: AsyncSession,
         auth_headers: dict[str, str],
     ) -> None:
-        """Returns a list of all projects."""
+        """A project credential cannot discover another project's metadata."""
+        other_project = Project(name="Private Other Project")
+        db_session.add(other_project)
+        await db_session.commit()
+        await db_session.refresh(other_project)
+
         resp = await client.get("/v1/projects", headers=auth_headers)
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert isinstance(data, list)
-        assert len(data) >= 1
+        assert len(data) == 1
         ids = [p["id"] for p in data]
         assert str(test_project.id) in ids
+        assert str(other_project.id) not in ids
 
     async def test_list_projects_no_auth(
         self,
@@ -72,13 +89,12 @@ class TestListProjects:
         resp = await client.get("/v1/projects")
         assert resp.status_code == 401
 
-    async def test_list_projects_empty(
+    async def test_list_projects_contains_callers_project(
         self,
         client: AsyncClient,
         db_session: AsyncSession,
     ) -> None:
-        """Returns empty list when no projects exist and no valid agent auth."""
-        # Create an agent with no projects
+        """Every valid agent sees exactly the project that owns its credential."""
         p = Project(name="Orphan Project")
         db_session.add(p)
         await db_session.commit()
@@ -91,7 +107,7 @@ class TestListProjects:
         headers = {"Authorization": f"Bearer {a.id}"}
         resp = await client.get("/v1/projects", headers=headers)
         assert resp.status_code == 200
-        assert len(resp.json()) >= 1
+        assert [item["id"] for item in resp.json()] == [str(p.id)]
 
 
 # ── Create Project ────────────────────────────────────────────────────────────
@@ -103,13 +119,13 @@ class TestCreateProject:
     async def test_create_project_success(
         self,
         client: AsyncClient,
-        auth_headers: dict[str, str],
+        project_creator_headers: dict[str, str],
     ) -> None:
         """Creates a project and returns it with a browser-kind agent."""
         resp = await client.post(
             "/v1/projects",
             json={"name": "New Test Project"},
-            headers=auth_headers,
+            headers=project_creator_headers,
         )
         assert resp.status_code == 201, resp.text
         data = resp.json()
@@ -124,15 +140,27 @@ class TestCreateProject:
     async def test_create_project_missing_name(
         self,
         client: AsyncClient,
-        auth_headers: dict[str, str],
+        project_creator_headers: dict[str, str],
     ) -> None:
         """POST without name returns 422."""
         resp = await client.post(
             "/v1/projects",
             json={},
-            headers=auth_headers,
+            headers=project_creator_headers,
         )
         assert resp.status_code == 422
+
+    async def test_create_project_requires_bootstrap_agent(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        resp = await client.post(
+            "/v1/projects",
+            json={"name": "Not Allowed"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 403
 
     async def test_create_project_no_auth(
         self,
@@ -144,6 +172,25 @@ class TestCreateProject:
             json={"name": "Unauthorized Project"},
         )
         assert resp.status_code == 401
+
+
+async def test_extension_setup_survives_legacy_duplicate_bootstrap_projects(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Upgrades remain usable if an old development DB has duplicate setup rows."""
+    db_session.add_all(
+        [
+            Project(name="__loom_extension__"),
+            Project(name="__loom_extension__"),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get("/v1/extension/setup")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == "__loom_extension__"
 
 
 # ── Link Chat ─────────────────────────────────────────────────────────────────
@@ -221,6 +268,36 @@ class TestLinkChat:
             headers=auth_headers,
         )
         assert resp.status_code == 404
+
+    async def test_same_chat_url_can_be_linked_inside_separate_projects(
+        self,
+        client: AsyncClient,
+        test_project: Project,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+    ) -> None:
+        chat_url = f"https://claude.ai/chat/{uuid.uuid4()}"
+        first = await client.post(
+            f"/v1/projects/{test_project.id}/link/chat",
+            json={"chat_url": chat_url, "title": "Shared URL", "platform": "claude.ai"},
+            headers=auth_headers,
+        )
+        other_project = Project(name="Independent Project")
+        db_session.add(other_project)
+        await db_session.flush()
+        other_agent = Agent(project_id=other_project.id, kind="browser")
+        db_session.add(other_agent)
+        await db_session.commit()
+        await db_session.refresh(other_agent)
+        second = await client.post(
+            f"/v1/projects/{other_project.id}/link/chat",
+            json={"chat_url": chat_url, "title": "Shared URL", "platform": "claude.ai"},
+            headers={"Authorization": f"Bearer {other_agent.id}"},
+        )
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert first.json()["id"] != second.json()["id"]
 
     async def test_link_chat_no_auth(
         self,

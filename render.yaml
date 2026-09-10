@@ -34,6 +34,18 @@ services:
         value: 5
       - key: ALLOW_LEGACY_UUID_TOKENS
         value: false
+      - key: ALLOW_AGENT_KEY_ENROLLMENT
+        value: false
+      - key: PUBLIC_SIGNUPS_ENABLED
+        value: true
+      - key: USER_SESSION_TTL_DAYS
+        value: 30
+      - key: AGENT_KEY_TTL_DAYS
+        value: 90
+      - key: AUTH_RATE_LIMIT_ATTEMPTS
+        value: 10
+      - key: AUTH_RATE_LIMIT_WINDOW_SECONDS
+        value: 300
       - key: BOOTSTRAP_TOKEN
         generateValue: true
 

@@ -2,20 +2,25 @@
 
 Provides a single WebSocket endpoint:
 
-    GET /v1/projects/{project_id}/events?token={token}
+    GET /v1/projects/{project_id}/events?token={token}  (development only)
 
-Auth is via query parameter (documented limitation — token is logged
-by proxies). All events use the ``ProjectEvent`` envelope from
-``loom.schemas.events``.
+Public dashboards use authenticated HTTP polling so bearer secrets never enter
+URLs or intermediary logs. All events use the ``ProjectEvent`` envelope.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from loom.config import settings
+from loom.db import get_session
+from loom.security import hash_api_key
 from loom.services.events.manager import connection_manager
 
 logger = logging.getLogger(__name__)
@@ -26,34 +31,57 @@ router = APIRouter()
 # ── Auth Dependency ──────────────────────────────────────────────────────────
 
 
-async def get_ws_agent(websocket: WebSocket, project_id: uuid.UUID, token: str = Query(...)) -> uuid.UUID | None:
+async def get_ws_agent(
+    websocket: WebSocket,
+    project_id: uuid.UUID,
+    token: str | None = Query(None),
+    session: AsyncSession = Depends(get_session),
+) -> uuid.UUID | None:
     """Dependency: validate WS token and return the agent UUID.
 
     Closes the WebSocket with code 4001 and returns ``None`` on failure.
     Override this dependency in tests to avoid DB round-trips.
     """
-    # Validate token is a UUID
-    try:
-        agent_id = uuid.UUID(token)
-    except ValueError:
-        await websocket.close(code=4001, reason="INVALID_TOKEN")
+    if token is None or settings.environment != "development":
+        await websocket.close(code=4001, reason="QUERY_TOKEN_DISABLED")
         return None
 
-    # DB auth lookup
-    from loom.db import async_session_factory
+    # Query-token auth remains available only for local compatibility. Public
+    # dashboards use authenticated HTTP polling so secrets never enter URLs.
     from loom.models import Agent
 
-    session = async_session_factory()
-    try:
+    if token.startswith("loom_"):
+        agent = (
+            await session.execute(
+                select(Agent).where(
+                    Agent.credentials_ref == hash_api_key(token),
+                    Agent.revoked_at.is_(None),
+                    or_(Agent.expires_at.is_(None), Agent.expires_at > datetime.now(UTC)),
+                )
+            )
+        ).scalar_one_or_none()
+    elif settings.allow_legacy_uuid_tokens:
+        try:
+            agent_id = uuid.UUID(token)
+        except ValueError:
+            await websocket.close(code=4001, reason="INVALID_TOKEN")
+            return None
         agent = await session.get(Agent, agent_id)
-        if agent is None:
-            await websocket.close(code=4001, reason="UNKNOWN_AGENT")
-            return None
-        if agent.project_id != project_id:
-            await websocket.close(code=4001, reason="PROJECT_MISMATCH")
-            return None
-    finally:
-        await session.close()
+        if agent is not None and (
+            agent.revoked_at is not None
+            or (agent.expires_at is not None and agent.expires_at <= datetime.now(UTC))
+        ):
+            agent = None
+    else:
+        await websocket.close(code=4001, reason="INVALID_TOKEN")
+        return None
+    if agent is None:
+        await websocket.close(code=4001, reason="UNKNOWN_AGENT")
+        return None
+    agent_id = agent.id
+    if agent.project_id != project_id:
+        await websocket.close(code=4001, reason="PROJECT_MISMATCH")
+        return None
 
     return agent_id
 
@@ -74,8 +102,8 @@ async def project_events(
 
     Authentication
     --------------
-    The ``token`` query parameter must be a valid agent UUID (same value
-    used in the ``Authorization: Bearer <token>`` header for REST endpoints).
+    Query-token authentication is a development compatibility path only.
+    Production dashboards use authenticated HTTP polling.
     If invalid, the WebSocket is closed with code 4001.
 
     Behaviour

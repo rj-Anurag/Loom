@@ -8,19 +8,22 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
-from typing import Literal
+from datetime import UTC, datetime
+from typing import Any, Literal
 
+import redis.asyncio as redis_async
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import AuthContext, require_auth
+from loom.api.dependencies import get_redis
 from loom.db import get_session
 from loom.schemas.events import ProjectEvent
 from loom.services.context.service import (
     VersionConflict,
+    list_context_history,
     read_context,
     write_context,
 )
@@ -70,12 +73,9 @@ class WriteContextRequest(BaseModel):
         None,
         description="Branch ID to associate this write with (for Phase 2.1 coordination).",
     )
-    source_url: str | None = Field(
+    source_url: HttpUrl | None = Field(
         None,
-        description="URL the content was pushed from (used by browser extension). "
-                     "NOTE: Currently accepted but not persisted. The ContextUnit model "
-                     "does not yet have a source_url column. This field is forward-compatible "
-                     "plumbing for future schema migration.",
+        description="URL the content was pushed from (used by browser extension).",
         max_length=2048,
     )
 
@@ -116,6 +116,7 @@ class ReadContextUnitModel(BaseModel):
     type: str
     trust_tier: str
     content: str
+    source_url: str | None = None
     created_at: str
     agent_id: str
     version: int = 1
@@ -132,7 +133,61 @@ class ReadContextResponse(BaseModel):
     truncated: bool
 
 
+class ContextHistoryQuery(BaseModel):
+    """Cursor pagination parameters for the human-facing history view."""
+
+    limit: int = Field(100, ge=1, le=200)
+    cursor: str | None = Field(None, max_length=512)
+
+
+class ContextHistoryResponse(BaseModel):
+    """A stable chronological page that does not apply token truncation."""
+
+    units: list[ReadContextUnitModel]
+    next_cursor: str | None
+    has_more: bool
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/{project_id}/context/history",
+    response_model=ContextHistoryResponse,
+    responses={
+        200: {"description": "Chronological context history page"},
+        400: {"description": "Malformed pagination cursor"},
+        401: {"description": "Missing or invalid auth"},
+        403: {"description": "Agent does not belong to this project"},
+        404: {"description": "Project not found"},
+    },
+)
+async def context_history_endpoint(
+    project_id: uuid.UUID,
+    params: ContextHistoryQuery = Depends(),
+    auth: AuthContext = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """List complete context for dashboards without retrieval-budget limits."""
+    try:
+        return await list_context_history(
+            session,
+            project_id,
+            auth.agent_id,
+            limit=params.limit,
+            cursor=params.cursor,
+        )
+    except ValueError as exc:
+        error_code = str(exc)
+        status_map = {
+            "INVALID_CURSOR": 400,
+            "PROJECT_NOT_FOUND": 404,
+            "AGENT_MISMATCH": 403,
+        }
+        raise HTTPException(
+            status_code=status_map.get(error_code, 400),
+            detail=error_code,
+        )
 
 
 @router.get(
@@ -150,7 +205,7 @@ async def read_context_endpoint(
     params: ReadContextQuery = Depends(),
     auth: AuthContext = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> dict[str, Any]:
     """Retrieve context units for a project.
 
     Supports keyword full-text search, token-budget-aware packing, and
@@ -194,6 +249,7 @@ async def write_context_endpoint(
     body: WriteContextRequest,
     auth: AuthContext = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
+    redis: redis_async.Redis | None = Depends(get_redis),
 ) -> JSONResponse:
     """Write a new context unit.
 
@@ -214,7 +270,8 @@ async def write_context_endpoint(
             parent_ids=body.parent_ids,
             parent_relations=body.parent_relations,
             branch_id=body.branch_id,
-            source_url=body.source_url,
+            source_url=str(body.source_url) if body.source_url else None,
+            redis=redis,
         )
     except VersionConflict as vc:
         # The service flushed a PendingBranch before raising, but the
@@ -231,7 +288,7 @@ async def write_context_endpoint(
                 "context_unit_id": str(vc.context_unit_id),
                 "conflict_type": "version_conflict",
             },
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
         ).model_dump()
         asyncio.create_task(connection_manager.broadcast(str(project_id), conflict_event))
 
@@ -255,6 +312,10 @@ async def write_context_endpoint(
             "EMPTY_CONTENT": 400,
             "CONFLICT": 409,
             "PARENT_NOT_FOUND": 404,
+            "PARENT_PROJECT_MISMATCH": 403,
+            "BRANCH_PROJECT_MISMATCH": 403,
+            "BRANCH_NOT_OPEN": 409,
+            "IDEMPOTENCY_KEY_REUSED": 409,
         }
         status = status_map.get(error_code, 400)
         raise HTTPException(status_code=status, detail=error_code)
@@ -273,7 +334,7 @@ async def write_context_endpoint(
                 "agent_id": str(auth.agent_id),
                 "version": unit.version,
             },
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
         ).model_dump()
         asyncio.create_task(connection_manager.broadcast(str(project_id), event))
 

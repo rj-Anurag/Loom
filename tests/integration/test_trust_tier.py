@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 

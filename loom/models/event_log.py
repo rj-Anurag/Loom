@@ -1,15 +1,16 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from loom.db import Base
 
 
-class EventType(str, enum.Enum):
+class EventType(enum.StrEnum):
     write = "write"
     merge = "merge"
     conflict_flagged = "conflict_flagged"
@@ -27,7 +28,7 @@ class EventLog(Base):
     event_type: Mapped[EventType] = mapped_column(
         Enum(EventType, name="event_type"), nullable=False
     )
-    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

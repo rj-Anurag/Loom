@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -67,6 +66,7 @@ async def test_heartbeat_records_and_returns_ok(
 
     # Verify in Redis
     from loom.services.coordination.presence import PRESENCE_KEY_PREFIX
+
     presence = await redis_client.hgetall(f"{PRESENCE_KEY_PREFIX}{test_agent.id}")
     assert presence["status"] == "working"
 
@@ -135,6 +135,7 @@ async def test_heartbeat_with_task_id(
     )
     assert resp.status_code == 200
     from loom.services.coordination.presence import PRESENCE_KEY_PREFIX
+
     presence = await redis_client.hgetall(f"{PRESENCE_KEY_PREFIX}{test_agent.id}")
     assert "task_id" in presence
 
@@ -149,10 +150,12 @@ async def test_heartbeat_redis_down(
 ) -> None:
     """When Redis is down, heartbeat returns ok with redis_available=false."""
     import loom.config
+
     original = loom.config.settings.redis_url
     loom.config.settings.redis_url = "redis://localhost:16379/1"
     # Reset module-level Redis singleton
     import loom.services.retrieval.queue as queue_module
+
     queue_module._redis = None
 
     try:
@@ -237,6 +240,7 @@ async def test_presence_query_cross_project_blocked(
 ) -> None:
     """Presence query for a different project returns 403."""
     import uuid
+
     other_project_id = uuid.uuid4()
     resp = await client.get(
         f"/v1/projects/{other_project_id}/agents/presence",

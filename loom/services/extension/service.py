@@ -1,28 +1,38 @@
 from __future__ import annotations
 
-import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
-
+from loom.security import generate_api_key, hash_api_key
 
 EXTENSION_CHAT_LINK_NAME = "__loom_extension__"
 
 
-async def setup_extension(session: AsyncSession) -> dict:
+async def setup_extension(session: AsyncSession) -> dict[str, Any]:
     result = await session.execute(
         select(Project).where(Project.name == EXTENSION_CHAT_LINK_NAME)
     )
-    project = result.scalar_one_or_none()
+    # Old development builds allowed duplicate bootstrap rows. Select one
+    # deterministically so upgrades remain usable instead of crashing setup.
+    project = result.scalars().first()
 
     if project is None:
         project = Project(name=EXTENSION_CHAT_LINK_NAME)
         session.add(project)
         await session.flush()
 
-        agent = Agent(project_id=project.id, kind="browser")
+        agent = Agent(
+            project_id=project.id,
+            kind="system",
+            name="Loom Bootstrap",
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+        )
+        api_key = generate_api_key()
+        agent.credentials_ref = hash_api_key(api_key)
         session.add(agent)
         await session.flush()
         await session.refresh(project)
@@ -33,27 +43,28 @@ async def setup_extension(session: AsyncSession) -> dict:
             "name": project.name,
             "created_at": project.created_at.isoformat() if project.created_at else "",
             "agent_id": str(agent.id),
-            "api_key": str(agent.id),
+            "api_key": api_key,
         }
 
-    result2 = await session.execute(
-        select(Agent).where(
-            Agent.project_id == project.id, Agent.kind == "browser"
-        )
+    # Each setup gets a separate short-lived bootstrap identity, so parallel
+    # onboarding flows cannot invalidate one another.
+    agent = Agent(
+        project_id=project.id,
+        kind="system",
+        name="Loom Bootstrap",
+        expires_at=datetime.now(UTC) + timedelta(minutes=10),
     )
-    agent = result2.scalar_one_or_none()
-
-    if agent is None:
-        agent = Agent(project_id=project.id, kind="browser")
-        session.add(agent)
-        await session.flush()
-        await session.refresh(agent)
-        await session.commit()
+    api_key = generate_api_key()
+    agent.credentials_ref = hash_api_key(api_key)
+    session.add(agent)
+    await session.flush()
+    await session.refresh(agent)
+    await session.commit()
 
     return {
         "id": str(project.id),
         "name": project.name,
         "created_at": project.created_at.isoformat() if project.created_at else "",
         "agent_id": str(agent.id),
-        "api_key": str(agent.id),
+        "api_key": api_key,
     }

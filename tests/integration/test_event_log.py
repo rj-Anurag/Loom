@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import Agent, Project
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -90,8 +89,7 @@ async def test_event_payload_enriched(
     # Fetch the event log entry
     result = await db_session.execute(
         text(
-            "SELECT payload FROM event_log "
-            "WHERE project_id = :pid ORDER BY created_at DESC LIMIT 1"
+            "SELECT payload FROM event_log WHERE project_id = :pid ORDER BY created_at DESC LIMIT 1"
         ),
         {"pid": test_project.id},
     )
@@ -137,8 +135,7 @@ async def test_event_content_hash(
 
     result = await db_session.execute(
         text(
-            "SELECT payload FROM event_log "
-            "WHERE project_id = :pid ORDER BY created_at DESC LIMIT 1"
+            "SELECT payload FROM event_log WHERE project_id = :pid ORDER BY created_at DESC LIMIT 1"
         ),
         {"pid": test_project.id},
     )
@@ -225,8 +222,7 @@ async def test_event_log_default_content_preview(
 
     result = await db_session.execute(
         text(
-            "SELECT payload FROM event_log "
-            "WHERE project_id = :pid ORDER BY created_at DESC LIMIT 1"
+            "SELECT payload FROM event_log WHERE project_id = :pid ORDER BY created_at DESC LIMIT 1"
         ),
         {"pid": test_project.id},
     )
@@ -273,11 +269,14 @@ async def test_rebuild_reconstructs_graph(
         json=child_body,
         headers=auth_headers,
     )
-    child_id = child_resp.json()["id"]
+    _ = child_resp.json()["id"]
 
     # Snapshot the expected state
     units_before = await db_session.execute(
-        text("SELECT id, type, content, version FROM context_units WHERE project_id = :pid ORDER BY created_at"),
+        text(
+            "SELECT id, type, content, version FROM context_units "
+            "WHERE project_id = :pid ORDER BY created_at"
+        ),
         {"pid": test_project.id},
     )
     expected_units = {(str(r.id), r.type, r.content, r.version) for r in units_before.all()}
@@ -316,7 +315,10 @@ async def test_rebuild_reconstructs_graph(
 
     # Verify rebuilt state matches original
     units_after = await db_session.execute(
-        text("SELECT id, type, content, version FROM context_units WHERE project_id = :pid ORDER BY created_at"),
+        text(
+            "SELECT id, type, content, version FROM context_units "
+            "WHERE project_id = :pid ORDER BY created_at"
+        ),
         {"pid": test_project.id},
     )
     rebuilt_units = {(str(r.id), r.type, r.content, r.version) for r in units_after.all()}

@@ -21,5 +21,5 @@ fi
 
 cd "$PROJECT_ROOT"
 
-echo "==> Starting Loom embedding worker (provider: ${LOOM_EMBEDDING_PROVIDER:-stub})"
+echo "==> Starting Loom embedding worker (provider: ${EMBEDDING_PROVIDER:-stub})"
 python -m loom.services.retrieval.embedding_worker

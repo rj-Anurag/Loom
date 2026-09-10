@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -98,10 +98,10 @@ def _aligned_window_start(window_minutes: int = 30) -> datetime:
     Ensures test fixtures create units that don't accidentally straddle
     window boundaries.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     epoch = int(now.timestamp())
     aligned_epoch = (epoch // (window_minutes * 60)) * (window_minutes * 60) + 120
-    return datetime.fromtimestamp(aligned_epoch, tz=timezone.utc)
+    return datetime.fromtimestamp(aligned_epoch, tz=UTC)
 
 
 @pytest_asyncio.fixture
@@ -160,7 +160,7 @@ async def embedded_sample_units(
                 "content": content,
                 "embedding": str(embedding),
                 "version": 1,
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             },
         )
         unit_ids[label] = unit_id
@@ -185,12 +185,13 @@ async def _insert_unit(
     """
     unit_id = uuid.uuid4()
     if created_at is None:
-        created_at = datetime.now(timezone.utc)
+        created_at = datetime.now(UTC)
 
     await db_session.execute(
         text(
             "INSERT INTO context_units "
-            "(id, project_id, agent_id, client_uuid, type, trust_tier, content, version, created_at) "
+            "(id, project_id, agent_id, client_uuid, type, trust_tier, "
+            "content, version, created_at) "
             "VALUES (:id, :pid, :aid, :cuuid, :type, :tier, :content, :version, :created_at)"
         ),
         {

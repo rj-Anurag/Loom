@@ -7,6 +7,10 @@
 
 importScripts('config.js', 'shared.js', 'storage.js');
 
+if (chrome.storage.local.setAccessLevel) {
+  chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(function () {});
+}
+
 // ── API helpers ──────────────────────────────────────────────────────────────
 
 const API = LOOM_CONFIG.LOOM_SERVER_URL;
@@ -15,6 +19,10 @@ const API = LOOM_CONFIG.LOOM_SERVER_URL;
  * Get authentication headers from stored or default credentials.
  */
 async function authHeaders() {
+  const account = await Storage.getAccount();
+  if (account?.session_token) {
+    return { Authorization: `Bearer ${account.session_token}` };
+  }
   const creds = await Storage.getCredentials();
   if (creds) {
     return { Authorization: `Bearer ${creds.api_key}` };
@@ -23,20 +31,17 @@ async function authHeaders() {
   if (LOOM_CONFIG.DEFAULT_API_KEY) {
     return { Authorization: `Bearer ${LOOM_CONFIG.DEFAULT_API_KEY}` };
   }
-  // First-run bootstrap keeps the extension usable without a committed
-  // secret. The server returns a fresh opaque credential.
-  try {
-    const resp = await fetch(`${API}/v1/extension/setup`);
-    if (!resp.ok) return {};
-    const data = await resp.json();
-    if (data.agent_id && data.api_key) {
-      await Storage.setCredentials(data.agent_id, data.api_key);
-      return { Authorization: `Bearer ${data.api_key}` };
-    }
-  } catch (err) {
-    console.warn('[Loom] Credential bootstrap failed:', err.message);
-  }
   return {};
+}
+
+async function responseError(resp) {
+  const text = await resp.text();
+  let detail = text;
+  try {
+    const data = JSON.parse(text);
+    detail = data.detail || JSON.stringify(data);
+  } catch (_error) {}
+  return new Error(detail || `Loom API ${resp.status}`);
 }
 
 /**
@@ -50,15 +55,29 @@ async function api(path, options = {}) {
     ...(options.headers || {}),
   };
 
-  const resp = await fetch(url, {
+  let resp = await fetch(url, {
     method: options.method || 'GET',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
+  if (resp.status === 401 && !options._retried) {
+    const match = path.match(/^\/v1\/projects\/([0-9a-f-]{36})(?:\/|$)/i);
+    const account = await Storage.getAccount();
+    if (match && account?.session_token && options.headers?.Authorization) {
+      await Storage.removeProjectCredentials(match[1]);
+      const refreshed = await enrollBrowserAgent(match[1], account.session_token);
+      headers.Authorization = `Bearer ${refreshed.api_key}`;
+      resp = await fetch(url, {
+        method: options.method || 'GET',
+        headers,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+    }
+  }
+
   if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Loom API ${resp.status}: ${text}`);
+    throw await responseError(resp);
   }
 
   return resp.json();
@@ -80,6 +99,14 @@ async function enrollBrowserAgent(projectId, apiKey) {
   await Storage.setCredentials(agent.agent_id, agent.api_key);
   await Storage.setProjectCredentials(projectId, agent.agent_id, agent.api_key);
   return agent;
+}
+
+async function storeAccountIdentity(data) {
+  const existing = await Storage.getAccount();
+  if (existing?.user?.id && existing.user.id !== data.user.id) {
+    await Storage.clearAccount();
+  }
+  await Storage.setAccount(data.session_token, data.user);
 }
 
 async function projectAuthHeaders(projectId) {
@@ -113,6 +140,65 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 const MESSAGE_HANDLERS = {
 
+  async GET_ACCOUNT() {
+    const account = await Storage.getAccount();
+    const credentials = await Storage.getCredentials();
+    return { account, legacyConnected: Boolean(credentials?.api_key) };
+  },
+
+  async SIGNUP(msg) {
+    const resp = await fetch(`${API}/v1/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: msg.email,
+        password: msg.password,
+        display_name: msg.displayName || '',
+        project_name: msg.projectName || '',
+        client_kind: 'extension',
+        client_name: 'Loom Chrome Extension',
+      }),
+    });
+    if (!resp.ok) throw await responseError(resp);
+    const data = await resp.json();
+    await storeAccountIdentity(data);
+    await Storage.setCredentials(data.agent_id, data.project_api_key);
+    await Storage.setProjectCredentials(
+      data.project_id,
+      data.agent_id,
+      data.project_api_key,
+    );
+    return data;
+  },
+
+  async LOGIN(msg) {
+    const resp = await fetch(`${API}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: msg.email,
+        password: msg.password,
+        client_kind: 'extension',
+      }),
+    });
+    if (!resp.ok) throw await responseError(resp);
+    const data = await resp.json();
+    await storeAccountIdentity(data);
+    return data;
+  },
+
+  async LOGOUT() {
+    const account = await Storage.getAccount();
+    if (account?.session_token) {
+      await fetch(`${API}/v1/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${account.session_token}` },
+      });
+    }
+    await Storage.clearAccount();
+    return { ok: true };
+  },
+
   /**
    * CHECK_LINK — Is this chat URL already linked?
    */
@@ -142,7 +228,11 @@ const MESSAGE_HANDLERS = {
   async CREATE_PROJECT(msg) {
     const data = await api('/v1/projects', {
       method: 'POST',
-      body: { name: msg.name },
+      body: {
+        name: msg.name,
+        client_kind: 'extension',
+        client_name: 'Loom Chrome Extension',
+      },
     });
 
     // Store the returned browser agent credentials
@@ -156,7 +246,18 @@ const MESSAGE_HANDLERS = {
 
   async GET_PROJECT_CREDENTIALS(msg) {
     const existing = await Storage.getProjectCredentials(msg.projectId);
-    if (existing?.api_key) return existing;
+    if (existing?.api_key) {
+      const verification = await fetch(`${API}/v1/projects/${msg.projectId}`, {
+        headers: { Authorization: `Bearer ${existing.api_key}` },
+      });
+      if (verification.ok) return existing;
+      await Storage.removeProjectCredentials(msg.projectId);
+    }
+
+    const account = await Storage.getAccount();
+    if (account?.session_token) {
+      return enrollBrowserAgent(msg.projectId, account.session_token);
+    }
 
     const credentials = await Storage.getCredentials();
     if (credentials?.api_key) {
@@ -164,7 +265,12 @@ const MESSAGE_HANDLERS = {
         headers: { Authorization: `Bearer ${credentials.api_key}` },
       });
       if (resp.ok) {
-        return enrollBrowserAgent(msg.projectId, credentials.api_key);
+        await Storage.setProjectCredentials(
+          msg.projectId,
+          credentials.agent_id || '',
+          credentials.api_key,
+        );
+        return credentials;
       }
     }
     throw new Error('Enter this project’s Loom API key before linking.');
@@ -178,7 +284,8 @@ const MESSAGE_HANDLERS = {
       throw new Error('Project ID and Loom API key do not match.');
     }
     const project = await resp.json();
-    await enrollBrowserAgent(msg.projectId, msg.apiKey);
+    await Storage.setCredentials('', msg.apiKey);
+    await Storage.setProjectCredentials(msg.projectId, '', msg.apiKey);
     return project;
   },
 
@@ -198,12 +305,10 @@ const MESSAGE_HANDLERS = {
 
     // Persist the link locally and save project api_key credentials
     if (data.chat_url) {
-      const projectCredentials = await Storage.getProjectCredentials(msg.projectId);
       await Storage.setChatLink(
         data.chat_url,
         msg.projectId,
         msg.projectName,
-        projectCredentials?.api_key || data.api_key,
       );
     }
 

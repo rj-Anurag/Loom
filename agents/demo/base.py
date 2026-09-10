@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from agents.local.agent import LoomClient
 
@@ -80,7 +81,7 @@ class DemoAgent:
                 parent_ids=parent_ids,
                 parent_relations=parent_relations,
             )
-            unit_id = result.get("id", str(step))
+            unit_id = str(result.get("id", step))
             unit_ids.append(unit_id)
             last_id = unit_id
 
@@ -103,7 +104,7 @@ class DemoAgent:
         self,
         step: int,
         task_prompt: str,
-        context: list[dict],
+        context: list[dict[str, Any]],
     ) -> str:
         """Return deterministic stub content for the given step.
 

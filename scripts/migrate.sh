@@ -27,15 +27,31 @@ apply_migration() {
     local filename
     filename=$(basename "$file")
     echo "  Applying: $filename"
-    cat "$file" | psql_loom 2>/dev/null
+    psql_loom -v ON_ERROR_STOP=1 < "$file"
     psql_loom -c "
         INSERT INTO _migrations (filename) VALUES ('$filename');
     " 2>/dev/null
 }
 
 rollback_migration() {
-    echo "Rollback not yet implemented for $1"
-    exit 1
+    local filename
+    filename=$(psql_loom -At -c \
+        "SELECT filename FROM _migrations ORDER BY id DESC LIMIT 1;" 2>/dev/null)
+    if [ -z "$filename" ]; then
+        echo "No applied migrations to roll back."
+        return 0
+    fi
+
+    local down_file="$MIGRATIONS_DIR/${filename%.sql}_down.sql"
+    if [ ! -f "$down_file" ]; then
+        echo "No rollback migration found for $filename: $down_file" >&2
+        return 1
+    fi
+
+    echo "  Rolling back: $filename"
+    psql_loom -v ON_ERROR_STOP=1 < "$down_file"
+    psql_loom -v ON_ERROR_STOP=1 -c \
+        "DELETE FROM _migrations WHERE filename = '$filename';"
 }
 
 case "${1:-up}" in
@@ -43,7 +59,9 @@ case "${1:-up}" in
         ensure_migrations_table
         echo "Applying pending migrations..."
         if [ -d "$MIGRATIONS_DIR" ]; then
-            for file in "$MIGRATIONS_DIR"/*.sql; do
+            for file in "$MIGRATIONS_DIR"/[0-9][0-9][0-9]_*.sql; do
+                [ "${file%_down.sql}" = "$file" ] || continue
+                [ -f "$file" ] || continue
                 filename=$(basename "$file")
                 applied=$(psql_loom -t -c "
                     SELECT COUNT(*) FROM _migrations WHERE filename = '$filename';

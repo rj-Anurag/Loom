@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 import redis.asyncio as redis_async
@@ -99,7 +99,13 @@ async def acquire_lock(
             if attempt < max_retries:
                 wait = retry_delay * (2**attempt)  # exponential backoff
                 await asyncio.sleep(wait)
-        except (ConnectionError, TimeoutError, OSError, redis_exceptions.ConnectionError, redis_exceptions.TimeoutError) as exc:
+        except (
+            ConnectionError,
+            TimeoutError,
+            OSError,
+            redis_exceptions.ConnectionError,
+            redis_exceptions.TimeoutError,
+        ) as exc:
             logger.warning(
                 "Redis unavailable (%s) — falling back to optimistic "
                 "concurrency for unit %s",
@@ -150,7 +156,13 @@ async def release_lock(
         """
         result = await redis.eval(check_and_del, 1, key, agent_id)
         return bool(result)
-    except (ConnectionError, TimeoutError, OSError, redis_async.exceptions.ConnectionError, redis_async.exceptions.TimeoutError) as exc:
+    except (
+        ConnectionError,
+        TimeoutError,
+        OSError,
+        redis_exceptions.ConnectionError,
+        redis_exceptions.TimeoutError,
+    ) as exc:
         logger.warning(
             "Redis unavailable during release for unit %s — optimistic mode: %s",
             unit_id,
@@ -209,4 +221,7 @@ async def acquire_locks(
                 for uid in unit_ids
             ]
 
-    return [results.get(uid, LockResult(acquired=True, mode="redis", unit_id=uid)) for uid in unit_ids]
+    return [
+        results.get(uid, LockResult(acquired=True, mode="redis", unit_id=uid))
+        for uid in unit_ids
+    ]

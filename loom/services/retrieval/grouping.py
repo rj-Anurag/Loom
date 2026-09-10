@@ -10,8 +10,9 @@ summary exists that supersedes it.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,13 +121,13 @@ async def find_unsummarized_groups(
 
     # Group rows by aligned time window
     window_seconds = window_minutes * 60
-    groups: dict[int, list[dict]] = {}
+    groups: dict[int, list[dict[str, Any]]] = {}
 
     for row in rows:
         created_at: datetime = row["created_at"]
-        epoch = int(created_at.replace(tzinfo=timezone.utc).timestamp())
+        epoch = int(created_at.replace(tzinfo=UTC).timestamp())
         aligned = (epoch // window_seconds) * window_seconds
-        groups.setdefault(aligned, []).append(row)
+        groups.setdefault(aligned, []).append(dict(row))
 
     result: list[SummarizationGroup] = []
     for aligned_epoch in sorted(groups.keys()):
@@ -150,7 +151,7 @@ async def find_unsummarized_groups(
 
         result.append(
             SummarizationGroup(
-                window_start=datetime.fromtimestamp(aligned_epoch, tz=timezone.utc),
+                window_start=datetime.fromtimestamp(aligned_epoch, tz=UTC),
                 unit_ids=unit_ids,
                 contents=contents,
                 types=types,

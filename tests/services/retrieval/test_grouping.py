@@ -28,7 +28,7 @@ class TestSummarizationGroup:
 
     async def test_summary_client_uuid_deterministic(self) -> None:
         """Same sorted_ids_string produces the same UUID every time."""
-        from loom.services.retrieval.grouping import SUMMARY_NS, SummarizationGroup
+        from loom.services.retrieval.grouping import SummarizationGroup
 
         g1 = SummarizationGroup(
             window_start=datetime(2026, 1, 1),

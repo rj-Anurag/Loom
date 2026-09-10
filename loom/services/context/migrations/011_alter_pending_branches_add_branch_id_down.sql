@@ -1,0 +1,3 @@
+ALTER TABLE pending_branches DROP COLUMN IF EXISTS branch_id;
+ALTER TABLE branches DROP COLUMN IF EXISTS task_id;
+ALTER TABLE tasks DROP COLUMN IF EXISTS branch_id;

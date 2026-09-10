@@ -7,6 +7,7 @@ for concurrent context writes.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -41,8 +42,8 @@ class CreateBranchRequest(BaseModel):
     """JSON body for POST /v1/projects/{id}/branches."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Human-readable branch name.")
-    source_branch_id: str | None = Field(None, description="Optional source branch UUID.")
-    task_id: str | None = Field(None, description="Optional task UUID to associate.")
+    source_branch_id: uuid.UUID | None = Field(None, description="Optional source branch UUID.")
+    task_id: uuid.UUID | None = Field(None, description="Optional task UUID to associate.")
 
 
 class MergeBranchResponse(BaseModel):
@@ -68,7 +69,7 @@ async def create_branch_endpoint(
     body: CreateBranchRequest,
     auth: AuthContext = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> dict[str, Any]:
     """Create a new branch for a project."""
     await _verify_project_access(session, project_id, auth.agent_id)
     from loom.services.retrieval.queue import get_redis
@@ -85,13 +86,15 @@ async def create_branch_endpoint(
             project_id=project_id,
             name=body.name,
             agent_id=auth.agent_id,
-            source_branch_id=uuid.UUID(body.source_branch_id) if body.source_branch_id else None,
-            task_id=uuid.UUID(body.task_id) if body.task_id else None,
+            source_branch_id=body.source_branch_id,
+            task_id=body.task_id,
         )
     except ValueError as exc:
         error_code = str(exc)
         if error_code == "BRANCH_NAME_TAKEN":
             raise HTTPException(status_code=409, detail=error_code)
+        if error_code in {"AGENT_NOT_FOUND", "SOURCE_BRANCH_NOT_FOUND", "TASK_NOT_FOUND"}:
+            raise HTTPException(status_code=404, detail=error_code)
         raise HTTPException(status_code=400, detail=error_code)
 
     return {
@@ -118,7 +121,7 @@ async def list_branches_endpoint(
     status: str | None = None,
     auth: AuthContext = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """List branches for a project, optionally filtered by status."""
     await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
@@ -156,12 +159,12 @@ async def get_branch_endpoint(
     branch_id: uuid.UUID,
     auth: AuthContext = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> dict[str, Any]:
     """Get a single branch by ID."""
     await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     branch = await svc.get_branch(branch_id)
-    if branch is None:
+    if branch is None or branch.project_id != project_id:
         raise HTTPException(status_code=404, detail="BRANCH_NOT_FOUND")
 
     return {

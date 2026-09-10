@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     """Operator secret required by first-run setup outside development."""
     allow_legacy_uuid_tokens: bool = False
     """Temporary migration switch for pre-opaque-key agent credentials."""
+    allow_agent_key_enrollment: bool = False
+    """Compatibility switch; public production clients enroll through user sessions."""
+    public_signups_enabled: bool = True
+    user_session_ttl_days: int = 30
+    agent_key_ttl_days: int = 90
+    auth_rate_limit_attempts: int = 10
+    auth_rate_limit_window_seconds: int = 300
     embedding_provider: str = "stub"
     groq_api_key: str = ""
     summarization_interval_minutes: int = 15

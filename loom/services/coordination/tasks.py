@@ -148,7 +148,7 @@ async def assign_task(
     _validate_transition(task.status, "assigned")
 
     agent = await session.get(Agent, agent_id)
-    if agent is None:
+    if agent is None or agent.project_id != task.project_id:
         raise ValueError("AGENT_NOT_FOUND")
 
     task.assigned_to = agent_id
@@ -195,6 +195,11 @@ async def start_task(
 
     task.status = "in_progress"
     if branch_id is not None:
+        from loom.models import Branch
+
+        branch = await session.get(Branch, branch_id)
+        if branch is None or branch.project_id != task.project_id:
+            raise ValueError("BRANCH_NOT_FOUND")
         task.branch_id = branch_id
     await session.commit()
     await session.refresh(task)

@@ -18,8 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.models import Agent, ContextUnit, Project
-
+from loom.models import Agent, Project
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

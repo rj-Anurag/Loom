@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from starlette.websockets import WebSocket
@@ -62,7 +62,7 @@ class ConnectionManager:
                 del self._connections[project_id]
             logger.info("WS client disconnected — project=%s", project_id)
 
-    async def broadcast(self, project_id: str, event: dict) -> None:
+    async def broadcast(self, project_id: str, event: dict[str, Any]) -> None:
         """Send a JSON event to all connected clients for a project.
 
         Best-effort delivery: failed sends log a warning and the dead
