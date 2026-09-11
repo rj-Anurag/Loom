@@ -55,8 +55,8 @@ const LOOM_CONFIG = {
     VERSION: 1,
   },
 
-  /** Base path for the project dashboard (served by Loom server). */
-  DASHBOARD_BASE_PATH: '/v1/projects/{project_id}/dashboard',
+  /** User workspace dashboard path (served by Loom server). */
+  DASHBOARD_PATH: '/dashboard',
 
   /** Storage keys. */
   STORAGE_KEYS: {

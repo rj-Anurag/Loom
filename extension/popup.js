@@ -407,15 +407,7 @@
       console.warn('[Loom] No project linked — cannot open dashboard');
       return;
     }
-    const projectCredentials = await Storage.getProjectCredentials(currentlyLinkedProjectId);
-    const creds = await Storage.getCredentials();
-    const apiKey = projectCredentials?.api_key || (creds ? creds.api_key : LOOM_CONFIG.DEFAULT_API_KEY);
-    if (!apiKey) {
-      showError('Project credential is missing. Log in and reconnect this conversation.');
-      return;
-    }
-    const path = LOOM_CONFIG.DASHBOARD_BASE_PATH.replace('{project_id}', currentlyLinkedProjectId);
-    chrome.tabs.create({ url: LOOM_CONFIG.LOOM_SERVER_URL + path + '#token=' + apiKey });
+    chrome.tabs.create({ url: LOOM_CONFIG.LOOM_SERVER_URL + LOOM_CONFIG.DASHBOARD_PATH });
   });
 
   // ── Load projects ───────────────────────────────────────────────────────
