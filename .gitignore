@@ -4,15 +4,24 @@ __pycache__/
 *$py.class
 *.egg-info/
 *.egg
+.eggs/
 dist/
 build/
-.venv/
-venv/
+pip-wheel-metadata/
+.python-version
 
-# Environment
+# Environment and local config
 .env
 .env.local
 *.env
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.conda/
+.direnv/
 
 # IDE
 .vscode/
@@ -27,16 +36,26 @@ docker-compose.override.yml
 
 # Tools
 tools/orchestrator/state.json
+.gstack/
 
 # Test
 .coverage
+.coverage.*
 htmlcov/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs and local runtime output
+*.log
+*.pid
+*.tmp
+*.bak
+server.log
 tests/load/last-report.json
-.gstack/

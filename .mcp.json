@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "loom": {
+      "command": "loom",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "LOOM_API_URL": "${LOOM_API_URL:-http://localhost:8000}",
+        "LOOM_API_KEY": "${LOOM_API_KEY}",
+        "LOOM_PROJECT_ID": "${LOOM_PROJECT_ID}"
+      }
+    }
+  }
+}

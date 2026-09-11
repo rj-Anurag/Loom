@@ -95,9 +95,8 @@ Requirements: Python 3.11+, Docker with Compose, and Google Chrome or another
 Chromium browser.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install ".[dev]"
+conda env create -f environment.yml
+conda activate loom
 cp .env.example .env
 
 docker compose -f infra/docker-compose.yml up -d
@@ -121,7 +120,7 @@ Run this inside the repository whose context you want Loom to share, after
 `loom login`. Operators may still pass `--bootstrap` for self-hosted recovery:
 
 ```bash
-source .venv/bin/activate
+conda activate loom
 loom init "Loom" --write-env .env --install all
 ```
 
