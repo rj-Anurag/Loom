@@ -151,6 +151,7 @@ app.mount("/static", StaticFiles(directory=str(WEB_ROOT)), name="static")
 
 @app.get("/")
 @app.get("/dashboard")
+@app.get("/v1/dashboard")
 async def public_dashboard() -> FileResponse:
     return FileResponse(WEB_ROOT / "account.html")
 

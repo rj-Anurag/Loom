@@ -17,10 +17,17 @@ def test_public_dashboard_serves_self_service_onboarding() -> None:
 
 
 def test_dashboard_alias_serves_public_account_app() -> None:
-    response = TestClient(app).get("/dashboard")
+    response = TestClient(app).get("/v1/dashboard")
 
     assert response.status_code == 200
     assert "Your projects" in response.text
     assert "Project context" in response.text
     assert "/chats" in response.text
     assert 'id="profile-button"' in response.text
+
+
+def test_legacy_dashboard_alias_serves_public_account_app() -> None:
+    response = TestClient(app).get("/dashboard")
+
+    assert response.status_code == 200
+    assert "Your projects" in response.text

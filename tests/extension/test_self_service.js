@@ -43,7 +43,7 @@ test('open dashboard button opens the user workspace dashboard', () => {
   const config = fs.readFileSync(path.join(root, 'extension/config.js'), 'utf8');
   const popup = fs.readFileSync(path.join(root, 'extension/popup.js'), 'utf8');
 
-  assert.match(config, /DASHBOARD_PATH: '\/dashboard'/);
+  assert.match(config, /DASHBOARD_PATH: '\/v1\/dashboard'/);
   assert.doesNotMatch(config, /DASHBOARD_BASE_PATH/);
   assert.match(popup, /LOOM_CONFIG\.LOOM_SERVER_URL \+ LOOM_CONFIG\.DASHBOARD_PATH/);
   assert.doesNotMatch(popup, /#token=/);
