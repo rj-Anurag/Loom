@@ -67,6 +67,10 @@ class DashboardSessionResponse(BaseModel):
     path: str
 
 
+class DashboardSessionConsumeRequest(BaseModel):
+    token: str = Field(..., min_length=1, max_length=512)
+
+
 def _set_web_session_cookie(response: Response, token: str, client_kind: str) -> None:
     if client_kind != "web":
         return
@@ -136,9 +140,9 @@ async def google_config(
         "client_id": client_id,
         "authorization_endpoint": GOOGLE_AUTHORIZATION_ENDPOINT,
         "scopes": list(GOOGLE_SCOPES),
-        "flow": "authorization_code_pkce" if client_kind == "cli" else (
-            "chrome_identity" if client_kind == "extension" else "google_identity_services"
-        ),
+        "flow": "authorization_code_pkce"
+        if client_kind == "cli"
+        else ("chrome_identity" if client_kind == "extension" else "google_identity_services"),
     }
 
 
@@ -183,16 +187,10 @@ async def create_dashboard_session_endpoint(
     """Create a browser dashboard session from an authenticated extension session."""
 
     _, token = await issue_user_session(session, user_id=auth.user_id, client_kind="web")
-    return DashboardSessionResponse(path=f"/v1/auth/dashboard-session/{token}")
+    return DashboardSessionResponse(path=f"/v1/dashboard#handoff={token}")
 
 
-@router.get("/dashboard-session/{token}")
-async def consume_dashboard_session_endpoint(
-    token: str,
-    session: AsyncSession = Depends(get_session),
-) -> RedirectResponse:
-    """Set the dashboard cookie, then leave the handoff URL behind."""
-
+async def _dashboard_session(token: str, session: AsyncSession) -> UserSession:
     user_session = (
         await session.execute(
             select(UserSession).where(UserSession.token_hash == hash_session_token(token))
@@ -205,6 +203,30 @@ async def consume_dashboard_session_endpoint(
         or user_session.expires_at <= datetime.now(UTC)
     ):
         raise HTTPException(status_code=401, detail="Invalid dashboard session")
+    return user_session
+
+
+@router.post("/dashboard-session/consume", status_code=204)
+async def consume_dashboard_session_cookie_endpoint(
+    body: DashboardSessionConsumeRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Exchange a dashboard fragment token for a first-party browser cookie."""
+
+    await _dashboard_session(body.token, session)
+    _set_web_session_cookie(response, body.token, "web")
+    response.headers["Cache-Control"] = "no-store"
+
+
+@router.get("/dashboard-session/{token}")
+async def consume_dashboard_session_endpoint(
+    token: str,
+    session: AsyncSession = Depends(get_session),
+) -> RedirectResponse:
+    """Set the dashboard cookie, then leave the handoff URL behind."""
+
+    await _dashboard_session(token, session)
     redirect = RedirectResponse(url="/v1/dashboard", status_code=303)
     _set_web_session_cookie(redirect, token, "web")
     redirect.headers["Cache-Control"] = "no-store"

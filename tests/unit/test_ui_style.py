@@ -18,7 +18,7 @@ def test_public_pages_use_the_exaggerated_minimalism_design_system() -> None:
     ):
         response = client.get(path)
         assert response.status_code == 200
-        assert '/static/shared/product.css' in response.text
+        assert "/static/shared/product.css" in response.text
         assert f'class="{page_class}"' in response.text
 
     stylesheet = (ROOT / "loom/web/shared/product.css").read_text()
@@ -39,3 +39,11 @@ def test_extension_uses_one_packaged_visual_system() -> None:
     assert b"--loom-violet" in source_css
     assert b"prefers-reduced-motion" in source_css
     assert ".style.display" not in source_js
+
+
+def test_cli_login_callback_uses_the_product_alert_style() -> None:
+    source = (ROOT / "loom/cli/oauth.py").read_text()
+
+    assert 'class="alert" role="status"' in source
+    assert "--violet: #8b5cf6" in source
+    assert "return to your terminal" in source

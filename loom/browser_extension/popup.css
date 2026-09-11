@@ -59,7 +59,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 
 .status { position: relative; margin-bottom: 16px; padding: 11px 12px 11px 34px; border: 1px solid var(--loom-line); border-radius: 11px; color: #d6d4d9; background: rgba(13,13,15,.88); font-size: 11px; line-height: 1.45; animation: riseIn .28s ease both; }
 .status::before { content: ""; position: absolute; top: 50%; left: 14px; width: 7px; height: 7px; margin-top: -4px; border-radius: 50%; background: var(--loom-amber); box-shadow: 0 0 0 4px rgba(244,189,98,.09); }
-.status.linked::before { background: var(--loom-green); box-shadow: 0 0 0 4px rgba(94,224,179,.1); animation: statusPulse 2s ease-in-out infinite; }
+.status.linked {
+  overflow: hidden; border-color: rgba(139,92,246,.32); color: #e8e4f2;
+  background: linear-gradient(110deg, rgba(139,92,246,.14), rgba(13,13,15,.92) 62%);
+  box-shadow: inset 2px 0 var(--loom-violet), 0 12px 30px rgba(0,0,0,.18);
+}
+.status.linked::before {
+  content: "✓"; display: grid; place-items: center; width: 16px; height: 16px; margin-top: -8px;
+  border: 1px solid rgba(167,139,250,.44); color: #ddd6fe; background: rgba(139,92,246,.2);
+  box-shadow: 0 0 18px rgba(139,92,246,.22); font: 700 9px/1 var(--loom-mono);
+}
 .status.error::before { background: var(--loom-red); box-shadow: 0 0 0 4px rgba(251,113,133,.1); }
 
 #account-section, #link-section, #linked-section, .activity-panel { animation: riseIn .34s ease both; }
@@ -95,11 +104,12 @@ button:disabled { opacity: .48; cursor: wait; }
 .disclosure summary { padding: 11px 0; color: var(--loom-muted); font-size: 10px; cursor: pointer; user-select: none; }
 .disclosure[open] summary, .disclosure summary:hover { color: var(--loom-white); }
 
-.linked-card { display: flex; align-items: center; gap: 13px; padding: 18px; border: 1px solid rgba(94,224,179,.28); border-radius: 13px; background: linear-gradient(130deg, rgba(94,224,179,.08), rgba(13,13,15,.92) 62%); }
+.linked-card { position: relative; display: flex; align-items: center; gap: 13px; overflow: hidden; padding: 18px; border: 1px solid rgba(139,92,246,.3); border-radius: 13px; background: linear-gradient(130deg, rgba(139,92,246,.13), rgba(13,13,15,.94) 64%); box-shadow: inset 0 1px rgba(255,255,255,.035); }
+.linked-card::after { content: ""; position: absolute; top: -30px; right: -18px; width: 86px; height: 86px; border: 1px solid rgba(167,139,250,.14); border-radius: 50%; box-shadow: 0 0 38px rgba(139,92,246,.12); }
 .linked-card div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
-.linked-card div > span { color: var(--loom-green); font: 650 8px/1 var(--loom-mono); letter-spacing: .11em; text-transform: uppercase; }
+.linked-card div > span { color: var(--loom-violet-bright); font: 650 8px/1 var(--loom-mono); letter-spacing: .11em; text-transform: uppercase; }
 .linked-card strong { max-width: 315px; overflow: hidden; color: var(--loom-white); font-size: 15px; letter-spacing: -.025em; text-overflow: ellipsis; white-space: nowrap; }
-.linked-orb { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: var(--loom-green); box-shadow: 0 0 0 5px rgba(94,224,179,.1), 0 0 20px rgba(94,224,179,.35); animation: statusPulse 2s ease-in-out infinite; }
+.linked-orb { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: var(--loom-violet-bright); box-shadow: 0 0 0 5px rgba(139,92,246,.12), 0 0 20px rgba(139,92,246,.38); animation: statusPulse 2s ease-in-out infinite; }
 .sync-status { margin: 10px 3px 0; color: var(--loom-dim); font: 9px/1.4 var(--loom-mono); }
 .dashboard-btn { margin-top: 14px; }
 .error-text { margin-top: 9px; color: #fda4af; font-size: 10px; line-height: 1.45; }

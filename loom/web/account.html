@@ -120,6 +120,18 @@
         }
         return response.status === 204 ? null : response.json();
       }
+      async function consumeDashboardHandoff() {
+        var params = new URLSearchParams(window.location.hash.slice(1));
+        var token = params.get('handoff');
+        if (!token) return false;
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        await request('/v1/auth/dashboard-session/consume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token })
+        });
+        return true;
+      }
       function errorMessage(code) {
         return ({ INVALID_GOOGLE_CREDENTIAL: 'Google sign-in could not be verified.', GOOGLE_AUTH_NOT_CONFIGURED: 'Google sign-in is not configured yet.', GOOGLE_AUTH_DISABLED: 'Google sign-in is disabled.', TOO_MANY_ATTEMPTS: 'Too many attempts. Try again in a few minutes.' })[code] || code;
       }
@@ -265,7 +277,11 @@
           var script = document.createElement('script'); script.src = 'https://accounts.google.com/gsi/client'; script.async = true;
           script.onload = function () { google.accounts.id.initialize({ client_id: config.client_id, callback: authenticateGoogle }); google.accounts.id.renderButton($('google-button'), { theme: 'filled_black', size: 'large', width: 320 }); };
           document.head.appendChild(script);
-        } catch (error) { $('auth-error').textContent = errorMessage(error.message); $('auth-error').classList.remove('hidden'); }
+        } catch (error) {
+          if ($('auth-error').classList.contains('hidden')) {
+            $('auth-error').textContent = errorMessage(error.message); $('auth-error').classList.remove('hidden');
+          }
+        }
       }
       $('context-search').addEventListener('input', function (event) { state.query = event.target.value; renderHistory(); });
       $('sort-toggle').addEventListener('click', function () { state.ascending = !state.ascending; $('sort-toggle').textContent = state.ascending ? 'Oldest first' : 'Newest first'; renderHistory(); });
@@ -278,7 +294,20 @@
       document.addEventListener('click', function (event) { if (!event.target.closest('.profile-wrap')) { $('profile-menu').classList.add('hidden'); $('profile-button').setAttribute('aria-expanded', 'false'); } });
       $('logout').addEventListener('click', async function () { try { await request('/v1/auth/logout', { method: 'POST', headers: headers() }); } catch (error) { /* Session may already be expired. */ } window.location.reload(); });
       syncSidebarAccessibility();
-      request('/v1/auth/me', { headers: headers() }).then(setSignedIn).catch(loadGoogleSignIn);
+      async function boot() {
+        var hadHandoff = window.location.hash.indexOf('handoff=') !== -1;
+        try {
+          await consumeDashboardHandoff();
+          setSignedIn(await request('/v1/auth/me', { headers: headers() }));
+        } catch (error) {
+          if (hadHandoff) {
+            $('auth-error').textContent = 'Your dashboard link expired. Open the dashboard from the Loom extension again.';
+            $('auth-error').classList.remove('hidden');
+          }
+          await loadGoogleSignIn();
+        }
+      }
+      boot();
     }());
   </script>
 </body>

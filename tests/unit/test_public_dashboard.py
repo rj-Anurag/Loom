@@ -25,6 +25,9 @@ def test_dashboard_alias_serves_public_account_app() -> None:
     assert "/chats" in response.text
     assert 'id="profile-button"' in response.text
     assert "loom_session_token" not in response.text
+    assert "/v1/auth/dashboard-session/consume" in response.text
+    assert "window.history.replaceState" in response.text
+    assert "localStorage" not in response.text
     assert "params.get('session')" not in response.text
 
 

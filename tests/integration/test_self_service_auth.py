@@ -262,9 +262,27 @@ async def test_extension_session_can_launch_web_dashboard(
 
     assert launch_response.status_code == 200, launch_response.text
     launch_path = launch_response.json()["path"]
-    assert launch_path.startswith("/v1/auth/dashboard-session/loom_session_")
+    assert launch_path.startswith("/v1/dashboard#handoff=loom_session_")
+    token = launch_path.removeprefix("/v1/dashboard#handoff=")
 
-    handoff_response = await client.get(launch_path, follow_redirects=False)
+    consume_response = await client.post(
+        "/v1/auth/dashboard-session/consume",
+        json={"token": token},
+    )
+
+    assert consume_response.status_code == 204, consume_response.text
+    assert "HttpOnly" in consume_response.headers["set-cookie"]
+    assert "SameSite=lax" in consume_response.headers["set-cookie"]
+    assert consume_response.headers["cache-control"] == "no-store"
+    authenticated_response = await client.get("/v1/auth/me")
+    assert authenticated_response.status_code == 200, authenticated_response.text
+    assert authenticated_response.json()["display_name"] == "Dashboard User"
+
+    # Keep the redirect endpoint for extension builds released before the
+    # first-party fragment exchange was introduced.
+    handoff_path = f"/v1/auth/dashboard-session/{token}"
+
+    handoff_response = await client.get(handoff_path, follow_redirects=False)
 
     assert handoff_response.status_code == 303, handoff_response.text
     assert handoff_response.headers["location"] == "/v1/dashboard"
