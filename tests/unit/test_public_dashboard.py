@@ -24,6 +24,8 @@ def test_dashboard_alias_serves_public_account_app() -> None:
     assert "Project context" in response.text
     assert "/chats" in response.text
     assert 'id="profile-button"' in response.text
+    assert "loom_session_token" in response.text
+    assert "params.get('session')" in response.text
 
 
 def test_legacy_dashboard_alias_serves_public_account_app() -> None:

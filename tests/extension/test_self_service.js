@@ -45,7 +45,8 @@ test('open dashboard button opens the user workspace dashboard', () => {
 
   assert.match(config, /DASHBOARD_PATH: '\/v1\/dashboard'/);
   assert.doesNotMatch(config, /DASHBOARD_BASE_PATH/);
-  assert.match(popup, /LOOM_CONFIG\.LOOM_SERVER_URL \+ LOOM_CONFIG\.DASHBOARD_PATH/);
+  assert.match(popup, /Storage\.getAccount\(\)/);
+  assert.match(popup, /#session=/);
   assert.doesNotMatch(popup, /#token=/);
 });
 

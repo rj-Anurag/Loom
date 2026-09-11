@@ -70,6 +70,17 @@ button:focus-visible, input:focus-visible, a:focus-visible {
 .account-page h1 span { display: block; color: var(--loom-muted); }
 .account-page .hero > p:last-child { max-width: 610px; margin: 30px 0 0 auto; font-size: clamp(17px, 2vw, 21px); line-height: 1.55; }
 .account-page .grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(290px, .75fr); gap: 16px; align-items: start; }
+.account-page .shell.handoff-pending { display: grid; min-height: 100vh; align-content: center; padding: 28px 0; }
+.account-page .shell.handoff-pending nav, .account-page .shell.handoff-pending .hero, .account-page .shell.handoff-pending .steps-card, .account-page .shell.handoff-pending .product-footer { display: none; }
+.account-page .shell.handoff-pending .grid { display: block; width: min(560px, 100%); margin: 0 auto; }
+.account-page .shell.handoff-pending .card { padding: 32px; }
+.account-page .shell.handoff-pending .card-index { margin-bottom: 28px; }
+.account-page .shell.handoff-pending h2 { font-size: 30px; }
+.account-page .shell.handoff-pending #google-button { display: none; }
+.account-page .shell.handoff-pending #auth-card::after {
+  content: ""; display: block; width: 38px; height: 38px; margin-top: 26px; border: 2px solid var(--loom-line);
+  border-top-color: var(--loom-violet-bright); border-radius: 50%; animation: spin .8s linear infinite;
+}
 .account-page .card, .dashboard-page .card {
   position: relative; overflow: hidden; border: 1px solid var(--loom-line);
   border-radius: var(--loom-radius); background: rgba(13,13,15,.94);
@@ -79,6 +90,13 @@ button:focus-visible, input:focus-visible, a:focus-visible {
 .account-page .card { padding: clamp(24px, 4vw, 42px); }
 .card-index { display: flex; justify-content: space-between; margin-bottom: 58px; color: var(--loom-dim); font: 600 10px/1 var(--loom-mono); letter-spacing: .13em; text-transform: uppercase; }
 .card-index span:last-child { color: var(--loom-violet-bright); }
+#auth-card .card-index { margin-bottom: 38px; }
+#auth-card #google-button {
+  display: inline-flex; align-items: center; width: min(100%, 320px); min-height: 44px; margin-top: 22px;
+  overflow: hidden; border-radius: 8px; background: #202124;
+}
+#auth-card #google-button > div { width: 100% !important; overflow: hidden; border-radius: 8px; }
+#auth-card #google-button iframe { display: block !important; max-width: 100% !important; border-radius: 8px; }
 .account-page h2 { margin: 0 0 8px; font-size: clamp(24px, 3vw, 34px); font-weight: 640; letter-spacing: -.045em; }
 .account-page h3 { margin: 0; font-size: 15px; }
 .account-page .card > .muted { margin: 0; line-height: 1.55; }
@@ -286,6 +304,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
 
 @keyframes riseIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes loomSignal { 0%, 100% { opacity: .55; transform: scaleY(.72); } 50% { opacity: 1; transform: scaleY(1); } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 820px) {
   .account-page .grid { grid-template-columns: 1fr; }
