@@ -6,6 +6,7 @@ import base64
 import hashlib
 import secrets
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, cast
@@ -45,7 +46,17 @@ def google_login(api_url: str, *, timeout_seconds: int = 180) -> dict[str, Any]:
 
     class CallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
-            query = parse_qs(urlsplit(self.path).query)
+            parsed = urlsplit(self.path)
+            if parsed.path != "/oauth/callback":
+                body = b"Not found"
+                self.send_response(404)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            query = parse_qs(parsed.query)
             result["code"] = query.get("code", [""])[0]
             result["state"] = query.get("state", [""])[0]
             result["error"] = query.get("error", [""])[0]
@@ -64,7 +75,7 @@ def google_login(api_url: str, *, timeout_seconds: int = 180) -> dict[str, Any]:
             return
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), CallbackHandler)
-    server.timeout = timeout_seconds
+    server.timeout = 1
     redirect_uri = f"http://127.0.0.1:{server.server_port}/oauth/callback"
     state = secrets.token_urlsafe(32)
     verifier, challenge = _pkce_pair()
@@ -84,8 +95,10 @@ def google_login(api_url: str, *, timeout_seconds: int = 180) -> dict[str, Any]:
     print("Opening Google sign-in in your browser...")
     if not webbrowser.open(authorization_url):
         print(f"Open this URL to continue:\n{authorization_url}")
+    deadline = time.monotonic() + timeout_seconds
     try:
-        server.handle_request()
+        while not event.is_set() and time.monotonic() < deadline:
+            server.handle_request()
     finally:
         server.server_close()
     if not event.is_set():
