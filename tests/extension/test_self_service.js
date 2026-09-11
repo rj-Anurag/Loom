@@ -22,7 +22,7 @@ test('extension uses Google auth and never creates projects', () => {
 });
 
 test('source and packaged extension stay identical for public onboarding files', () => {
-  for (const name of ['background.js', 'popup.js', 'popup.html', 'storage.js', 'config.js', 'manifest.json']) {
+  for (const name of ['background.js', 'content.js', 'popup.js', 'popup.html', 'shared.js', 'storage.js', 'config.js', 'manifest.json']) {
     const source = fs.readFileSync(path.join(root, 'extension', name));
     const packaged = fs.readFileSync(path.join(root, 'loom/browser_extension', name));
     assert.deepEqual(source, packaged, `${name} differs from packaged copy`);
@@ -37,4 +37,21 @@ test('chat sync authenticates with the linked project credential', () => {
     /async function syncMessage[\s\S]*?await projectAuthHeaders\(linkInfo\.projectId\)/,
   );
   assert.doesNotMatch(worker, /linkInfo\.apiKey/);
+});
+
+test('content sync cleanup tolerates stale records', () => {
+  const content = fs.readFileSync(path.join(root, 'extension/content.js'), 'utf8');
+
+  assert.match(content, /function releaseRecords\(records\) \{\s+if \(!Array\.isArray\(records\)\) return;/);
+  assert.match(content, /if \(!record \|\| !record\.identity\) return;/);
+  assert.match(content, /if \(!el \|\| typeof el !== 'object'\) return;/);
+  assert.match(content, /if \(el\.dataset\) delete el\.dataset\.loomPending;/);
+});
+
+test('background router always responds to extension messages', () => {
+  const worker = fs.readFileSync(path.join(root, 'extension/background.js'), 'utf8');
+
+  assert.match(worker, /if \(!msg \|\| !msg\.type\)/);
+  assert.match(worker, /Unsupported message type/);
+  assert.match(worker, /return false;/);
 });

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.routers import auth as auth_router
 from loom.config import settings
-from loom.models import Agent, Project
+from loom.models import Agent, ChatLink, Project
 from loom.security import generate_api_key, hash_api_key
 from loom.services.accounts.google import GoogleIdentity
 
@@ -216,3 +216,40 @@ async def test_account_reads_project_history_without_minting_dashboard_key(
     )
     assert history.status_code == 200, history.text
     assert history.json()["units"][0]["content"].startswith("Account history works")
+
+
+async def test_account_lists_only_chats_from_its_project(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    account = await _create_project(client, monkeypatch, "Chat Dashboard")
+    other = await _create_project(client, monkeypatch, "Other Chat Dashboard")
+    own_chat = ChatLink(
+        project_id=uuid.UUID(account["project_id"]),
+        chat_url="https://claude.ai/chat/owned",
+        title="Owned conversation",
+        platform="claude.ai",
+    )
+    other_chat = ChatLink(
+        project_id=uuid.UUID(other["project_id"]),
+        chat_url="https://chatgpt.com/c/private",
+        title="Private conversation",
+        platform="chatgpt.com",
+    )
+    db_session.add_all([own_chat, other_chat])
+    await db_session.commit()
+
+    response = await client.get(
+        f"/v1/projects/{account['project_id']}/chats",
+        headers={"Authorization": f"Bearer {account['session_token']}"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert [chat["title"] for chat in response.json()] == ["Owned conversation"]
+
+    forbidden = await client.get(
+        f"/v1/projects/{other['project_id']}/chats",
+        headers={"Authorization": f"Bearer {account['session_token']}"},
+    )
+    assert forbidden.status_code == 404

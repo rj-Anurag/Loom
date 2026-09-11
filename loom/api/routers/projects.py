@@ -42,7 +42,7 @@ from loom.services.accounts.service import (
 )
 from loom.services.context.service import list_context_history
 from loom.services.extension.service import EXTENSION_CHAT_LINK_NAME
-from loom.services.links.service import link_chat
+from loom.services.links.service import link_chat, list_chat_links
 from loom.services.projects.service import create_project, get_project, list_projects
 
 router = APIRouter()
@@ -222,6 +222,31 @@ async def link_chat_endpoint(
         }
         status = status_map.get(error_code, 400)
         raise HTTPException(status_code=status, detail=error_code)
+
+
+@router.get(
+    "/{project_id}/chats",
+    responses={
+        200: {"description": "Chats linked to this project"},
+        401: {"description": "Missing or invalid auth"},
+        404: {"description": "Project not found"},
+    },
+)
+async def list_project_chats_endpoint(
+    project_id: uuid.UUID,
+    auth: PrincipalContext = Depends(require_principal),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, Any]]:
+    """List linked chats for an authorized project member or agent."""
+
+    if auth.kind == "user":
+        assert auth.user_id is not None
+        if await get_membership(session, auth.user_id, project_id) is None:
+            raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
+    else:
+        assert auth.agent_id is not None
+        await _verify_project_access(session, project_id, auth.agent_id)
+    return await list_chat_links(session, project_id)
 
 
 @router.get(

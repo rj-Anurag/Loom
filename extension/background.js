@@ -123,19 +123,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Only process messages from our own extension components
   if (sender.id !== chrome.runtime.id) {
     sendResponse({ error: 'unauthorized' });
-    return;
+    return false;
+  }
+
+  if (!msg || !msg.type) {
+    sendResponse({ error: 'Missing message type.' });
+    return false;
   }
 
   const handler = MESSAGE_HANDLERS[msg.type];
-  if (handler) {
-    handler(msg, sender)
-      .then(sendResponse)
-      .catch(err => {
-        console.error(`[Loom] Error handling ${msg.type}:`, err);
-        sendResponse({ error: err.message });
-      });
-    return true; // keep channel open for async response
+  if (!handler) {
+    sendResponse({ error: `Unsupported message type: ${msg.type}` });
+    return false;
   }
+
+  handler(msg, sender)
+    .then(sendResponse)
+    .catch(err => {
+      console.error(`[Loom] Error handling ${msg.type}:`, err);
+      sendResponse({ error: err.message || String(err) });
+    });
+  return true; // keep channel open for async response
 });
 
 const MESSAGE_HANDLERS = {

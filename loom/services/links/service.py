@@ -5,6 +5,7 @@ Phase 1.11 — Browser Extension Core.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from sqlalchemy import select
@@ -71,3 +72,27 @@ async def link_chat(
         "linked_at": link.linked_at.isoformat() if link.linked_at else "",
         "api_key": "",
     }
+
+
+async def list_chat_links(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+) -> list[dict[str, Any]]:
+    """Return the conversations linked to a project, newest first."""
+
+    result = await session.execute(
+        select(ChatLink)
+        .where(ChatLink.project_id == project_id)
+        .order_by(ChatLink.linked_at.desc())
+    )
+    return [
+        {
+            "id": str(link.id),
+            "project_id": str(link.project_id),
+            "chat_url": link.chat_url,
+            "title": link.title,
+            "platform": link.platform,
+            "linked_at": link.linked_at.isoformat() if link.linked_at else "",
+        }
+        for link in result.scalars().all()
+    ]

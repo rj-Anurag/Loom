@@ -13,7 +13,7 @@ def test_public_dashboard_serves_self_service_onboarding() -> None:
     assert "/v1/auth/google/config" in response.text
     assert "/v1/auth/google/exchange" in response.text
     assert "/v1/auth/signup" not in response.text
-    assert 'loom init &quot;My Project&quot;' in response.text
+    assert "loom init &quot;My Project&quot;" in response.text
 
 
 def test_dashboard_alias_serves_public_account_app() -> None:
@@ -21,3 +21,6 @@ def test_dashboard_alias_serves_public_account_app() -> None:
 
     assert response.status_code == 200
     assert "Your projects" in response.text
+    assert "Project context" in response.text
+    assert "/chats" in response.text
+    assert 'id="profile-button"' in response.text

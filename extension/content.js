@@ -186,34 +186,70 @@
 
   // ── Sync ────────────────────────────────────────────────────────────────
 
+  function sendBackgroundMessage(message) {
+    return new Promise(function (resolve) {
+      try {
+        if (!chrome.runtime || !chrome.runtime.id) {
+          resolve({ error: 'Extension context is unavailable.' });
+          return;
+        }
+        chrome.runtime.sendMessage(message, function (response) {
+          const lastError = chrome.runtime.lastError;
+          if (lastError) {
+            resolve({ error: lastError.message || 'Background message failed.' });
+            return;
+          }
+          resolve(response || {});
+        });
+      } catch (err) {
+        resolve({ error: err.message || String(err) });
+      }
+    });
+  }
+
   function releaseRecords(records) {
+    if (!Array.isArray(records)) return;
     records.forEach(function (record) {
+      if (!record || !record.identity) return;
       pendingMessages.delete(record.identity);
-      var state = elementStates.get(record.el);
+      var el = record.el;
+      if (!el || typeof el !== 'object') return;
+      var state = elementStates.get(el);
       if (state && state.identity === record.identity && state.status === 'pending') {
-        delete record.el.dataset.loomPending;
-        elementStates.delete(record.el);
+        if (el.dataset) delete el.dataset.loomPending;
+        elementStates.delete(el);
       }
     });
   }
 
   function acceptRecords(records) {
+    if (!Array.isArray(records)) return;
     records.forEach(function (record) {
+      if (!record || !record.identity) return;
       pendingMessages.delete(record.identity);
       acceptedMessages.add(record.identity);
-      delete record.el.dataset.loomPending;
-      record.el.dataset.loomSynced = 'true';
-      elementStates.set(record.el, { identity: record.identity, status: 'synced' });
+      var el = record.el;
+      if (!el || typeof el !== 'object') return;
+      if (el.dataset) {
+        delete el.dataset.loomPending;
+        el.dataset.loomSynced = 'true';
+      }
+      elementStates.set(el, { identity: record.identity, status: 'synced' });
     });
   }
 
   function submitRecords(records, label) {
     if (records.length === 0) return Promise.resolve(0);
-    return chrome.runtime.sendMessage({
+    return sendBackgroundMessage({
       type: 'SYNC_MESSAGES',
       chatUrl,
       messages: records.map(function (record) { return record.message; }),
     }).then(resp => {
+      if (resp?.error) {
+        releaseRecords(records);
+        console.warn('[Loom] History sync deferred:', resp.error);
+        return 0;
+      }
       var accepted = (resp?.synced || 0) + (resp?.queued || 0);
       if (accepted !== records.length) {
         releaseRecords(records);
@@ -364,10 +400,14 @@
 
   async function checkLink() {
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await sendBackgroundMessage({
         type: 'CHECK_LINK',
         chatUrl,
       });
+      if (response?.error) {
+        console.warn('[Loom] Failed to check link:', response.error);
+        return;
+      }
       if (response && response.linked) {
         console.log('[Loom] Chat linked to project:', response.projectId);
         activateLinkedConversation(response.projectId);
