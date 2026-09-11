@@ -3,7 +3,7 @@
 import stat
 from pathlib import Path
 
-from loom.cli.account import clear_account, load_account, save_account
+from loom.cli.account import clear_account, load_account, load_account_api_url, save_account
 
 
 def test_account_session_round_trip_uses_private_permissions(tmp_path: Path) -> None:
@@ -11,6 +11,7 @@ def test_account_session_round_trip_uses_private_permissions(tmp_path: Path) -> 
     save_account("https://loom.example", "loom_session_secret", path=path)
 
     assert load_account("https://loom.example", path=path) == "loom_session_secret"
+    assert load_account_api_url(path=path) == "https://loom.example"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
     clear_account(path=path)

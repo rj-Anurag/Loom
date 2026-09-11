@@ -36,7 +36,7 @@ services:
         value: false
       - key: ALLOW_AGENT_KEY_ENROLLMENT
         value: false
-      - key: PUBLIC_SIGNUPS_ENABLED
+      - key: PUBLIC_ACCOUNT_CREATION_ENABLED
         value: true
       - key: EMAIL_PASSWORD_AUTH_ENABLED
         value: false

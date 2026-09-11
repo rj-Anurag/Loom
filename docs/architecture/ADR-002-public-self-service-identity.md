@@ -38,7 +38,7 @@ remain supported.
 - Existing projects remain usable but do not automatically acquire an owner.
 - Account recovery and email verification remain deployment concerns for a
   later identity-provider/email phase; no fake email workflow is exposed.
-- Redis is required for production signup/login rate limiting and already is a
+- Redis is required for production auth rate limiting and already is a
   required production readiness dependency.
 
 ## Alternatives Considered

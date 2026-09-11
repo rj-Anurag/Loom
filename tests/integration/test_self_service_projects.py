@@ -8,32 +8,65 @@ from typing import Any
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from loom.api.routers import auth as auth_router
+from loom.config import settings
 from loom.models import Agent, Project
 from loom.security import generate_api_key, hash_api_key
+from loom.services.accounts.google import GoogleIdentity
 
-PASSWORD = "Correct-Horse-Battery-Staple-42!"
 
-
-async def _signup(client: AsyncClient, label: str) -> dict[str, Any]:
+async def _google_session(client: AsyncClient, monkeypatch, label: str) -> dict[str, Any]:
     email_label = label.lower().replace(" ", "-")
+    identity = GoogleIdentity(
+        sub=f"{email_label}-{uuid.uuid4()}",
+        email=f"{email_label}-{uuid.uuid4()}@example.com",
+        email_verified=True,
+        display_name=label,
+    )
+
+    async def fake_verify(_request: object) -> GoogleIdentity:
+        return identity
+
+    monkeypatch.setattr(settings, "google_oauth_enabled", True)
+    monkeypatch.setattr(auth_router, "verify_google_exchange", fake_verify)
     response = await client.post(
-        "/v1/auth/signup",
+        "/v1/auth/google/exchange",
+        json={"client_kind": "cli", "access_token": "google-access-token"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _create_project(
+    client: AsyncClient,
+    monkeypatch,
+    label: str,
+) -> dict[str, Any]:
+    auth = await _google_session(client, monkeypatch, label)
+    response = await client.post(
+        "/v1/projects",
+        headers={"Authorization": f"Bearer {auth['session_token']}"},
         json={
-            "email": f"{email_label}-{uuid.uuid4()}@example.com",
-            "password": PASSWORD,
-            "display_name": label,
+            "name": f"{label} Workspace",
             "client_kind": "cli",
+            "client_name": "Loom CLI",
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    project = response.json()
+    return {
+        "session_token": auth["session_token"],
+        "project_id": project["id"],
+        "project_api_key": project["api_key"],
+    }
 
 
 async def test_session_authenticated_project_list_contains_only_memberships(
     client: AsyncClient,
+    monkeypatch,
 ) -> None:
-    first_user = await _signup(client, "First User")
-    second_user = await _signup(client, "Second User")
+    first_user = await _create_project(client, monkeypatch, "First User")
+    second_user = await _create_project(client, monkeypatch, "Second User")
 
     response = await client.get(
         "/v1/projects",
@@ -46,11 +79,12 @@ async def test_session_authenticated_project_list_contains_only_memberships(
     assert second_user["project_id"] not in project_ids
 
 
-async def test_signup_project_api_key_stays_scoped_to_its_project(
+async def test_project_api_key_stays_scoped_to_its_project(
     client: AsyncClient,
+    monkeypatch,
 ) -> None:
-    first_user = await _signup(client, "Scoped Agent")
-    second_user = await _signup(client, "Other Project")
+    first_user = await _create_project(client, monkeypatch, "Scoped Agent")
+    second_user = await _create_project(client, monkeypatch, "Other Project")
     headers = {"Authorization": f"Bearer {first_user['project_api_key']}"}
 
     list_response = await client.get("/v1/projects", headers=headers)
@@ -99,10 +133,11 @@ async def test_existing_opaque_agent_keys_remain_project_scoped(
 
 async def test_account_session_provisions_and_revokes_a_client_key(
     client: AsyncClient,
+    monkeypatch,
 ) -> None:
-    signup = await _signup(client, "Credential Owner")
-    project_id = signup["project_id"]
-    user_headers = {"Authorization": f"Bearer {signup['session_token']}"}
+    account = await _create_project(client, monkeypatch, "Credential Owner")
+    project_id = account["project_id"]
+    user_headers = {"Authorization": f"Bearer {account['session_token']}"}
 
     provisioned = await client.post(
         f"/v1/projects/{project_id}/agents",
@@ -130,9 +165,12 @@ async def test_account_session_provisions_and_revokes_a_client_key(
     assert rejected.status_code == 401
 
 
-async def test_account_can_create_an_additional_owned_project(client: AsyncClient) -> None:
-    signup = await _signup(client, "Multi Project")
-    headers = {"Authorization": f"Bearer {signup['session_token']}"}
+async def test_account_can_create_an_additional_owned_project(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    account = await _create_project(client, monkeypatch, "Multi Project")
+    headers = {"Authorization": f"Bearer {account['session_token']}"}
 
     created = await client.post(
         "/v1/projects",
@@ -149,19 +187,20 @@ async def test_account_can_create_an_additional_owned_project(client: AsyncClien
     listed = await client.get("/v1/projects", headers=headers)
     assert listed.status_code == 200, listed.text
     assert {project["id"] for project in listed.json()} == {
-        signup["project_id"],
+        account["project_id"],
         created.json()["id"],
     }
 
 
 async def test_account_reads_project_history_without_minting_dashboard_key(
     client: AsyncClient,
+    monkeypatch,
 ) -> None:
-    signup = await _signup(client, "History Owner")
-    project_id = signup["project_id"]
+    account = await _create_project(client, monkeypatch, "History Owner")
+    project_id = account["project_id"]
     written = await client.post(
         f"/v1/projects/{project_id}/context",
-        headers={"Authorization": f"Bearer {signup['project_api_key']}"},
+        headers={"Authorization": f"Bearer {account['project_api_key']}"},
         json={
             "client_uuid": str(uuid.uuid4()),
             "type": "decision",
@@ -173,7 +212,7 @@ async def test_account_reads_project_history_without_minting_dashboard_key(
 
     history = await client.get(
         f"/v1/projects/{project_id}/history",
-        headers={"Authorization": f"Bearer {signup['session_token']}"},
+        headers={"Authorization": f"Bearer {account['session_token']}"},
     )
     assert history.status_code == 200, history.text
     assert history.json()["units"][0]["content"].startswith("Account history works")

@@ -80,16 +80,16 @@ async def test_google_exchange_reuses_same_google_subject(
     assert first.json()["session_token"] != second.json()["session_token"]
 
 
-async def test_google_exchange_respects_public_signup_setting(
+async def test_google_exchange_respects_public_account_creation_setting(
     client: AsyncClient,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(settings, "public_signups_enabled", False)
+    monkeypatch.setattr(settings, "public_account_creation_enabled", False)
 
-    response = await _exchange(client, monkeypatch, _identity("disabled-signup"))
+    response = await _exchange(client, monkeypatch, _identity("disabled-account-creation"))
 
     assert response.status_code == 403, response.text
-    assert response.json()["detail"] == "PUBLIC_SIGNUPS_DISABLED"
+    assert response.json()["detail"] == "PUBLIC_ACCOUNT_CREATION_DISABLED"
 
 
 async def test_google_email_change_cannot_take_another_users_address(

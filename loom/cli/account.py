@@ -13,6 +13,18 @@ def account_path() -> Path:
     return Path(root).expanduser() / "account.json" if root else Path.home() / ".loom/account.json"
 
 
+def load_account_api_url(*, path: Path | None = None) -> str:
+    target = path or account_path()
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    api_url = data.get("api_url")
+    return api_url.rstrip("/") if isinstance(api_url, str) else ""
+
+
 def load_account(api_url: str, *, path: Path | None = None) -> str:
     target = path or account_path()
     try:

@@ -31,14 +31,13 @@ project-creation surface through `loom init`. The extension lists membership
 projects and provisions a project-scoped `browser` agent only when a project is
 selected for linking. Extension sessions are rejected by `POST /v1/projects`.
 
-CLI agent keys are stored in a private user config file and are not printed or
-written to a repository unless the user explicitly requests `--write-env`.
-Every new machine and browser installation receives a separately revocable
-agent credential.
+CLI agent keys are stored only in a private user config file and are not printed
+or written to a repository. Every new machine and browser installation receives
+a separately revocable agent credential.
 
 ## Consequences
 
-- Signup and login become one `Continue with Google` operation.
+- Account creation and login become one `Continue with Google` operation.
 - The same Google account sees the same project memberships in every client.
 - An extension-first user sees a clear `loom login` / `loom init` instruction
   instead of creating an orphan project.

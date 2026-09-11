@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     """Temporary migration switch for pre-opaque-key agent credentials."""
     allow_agent_key_enrollment: bool = False
     """Compatibility switch; public production clients enroll through user sessions."""
-    public_signups_enabled: bool = True
+    public_account_creation_enabled: bool = True
     email_password_auth_enabled: bool = True
     """Development/migration fallback. Disable for the public Google-only UX."""
     google_oauth_enabled: bool = False

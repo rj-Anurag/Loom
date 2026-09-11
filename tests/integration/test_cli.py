@@ -122,7 +122,7 @@ class TestCLIConfig:
     """`loom config` displays the current configuration."""
 
     def test_config_shows_defaults(self) -> None:
-        """Config command prints env vars with default values."""
+        """Config command prints the active local configuration."""
         from loom.cli.main import build_parser, cmd_config
 
         parser = build_parser()
@@ -137,22 +137,30 @@ class TestCLIConfig:
             sys.stdout = old_stdout
 
         output = captured.getvalue()
-        assert "LOOM_API_URL" in output
-        assert "LOOM_API_KEY" in output
-        assert "LOOM_PROJECT_ID" in output
+        assert "API URL" in output
+        assert "API key" in output
+        assert "Project ID" in output
+        assert "~/.loom/projects.json" in output
 
 
-class TestCLIWriteAndContext:
-    """`loom write` and `loom context` read/write through the API."""
+class TestCLIContext:
+    """`loom context` reads context captured through the API."""
 
-    def test_write_and_read_context(
+    def test_write_command_is_not_registered(self) -> None:
+        """Manual terminal context writes are not part of the CLI scope."""
+        from loom.cli.main import build_parser
+
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["write", "manual context"])
+
+    def test_read_context(
         self,
         sync_client: TestClient,
         test_project: Project,
         test_agent: Agent,
     ) -> None:
-        """Write a context unit, then read it back."""
-        from loom.cli.main import build_parser, cmd_context, cmd_write
+        """Read a context unit that was captured outside the CLI."""
+        from loom.cli.main import build_parser, cmd_context
 
         agent_id = str(test_agent.id)
         project_id = str(test_project.id)
@@ -168,25 +176,24 @@ class TestCLIWriteAndContext:
         saved = _mock_httpx(sync_client)
         parser = build_parser()
 
-        # ── Write a context unit ──────────────────────────────────────────
+        seed_resp = sync_client.post(
+            f"/v1/projects/{project_id}/context",
+            json={
+                "client_uuid": str(uuid.uuid4()),
+                "type": "decision",
+                "content": "Test captured context content",
+                "version": 1,
+            },
+            headers={"Authorization": f"Bearer {agent_id}"},
+        )
+        assert seed_resp.status_code == 201
+
+        # ── Read context back ────────────────────────────────────────────
         captured = StringIO()
         old_stdout = sys.stdout
         sys.stdout = captured
         try:
-            args = parser.parse_args(["write", "Test CLI write content", "--type", "decision"])
-            cmd_write(args)
-        finally:
-            sys.stdout = old_stdout
-
-        write_output = captured.getvalue()
-        assert "Context unit" in write_output
-        assert "created" in write_output
-
-        # ── Read context back ────────────────────────────────────────────
-        captured = StringIO()
-        sys.stdout = captured
-        try:
-            args = parser.parse_args(["context", "CLI test", "--json"])
+            args = parser.parse_args(["context", "captured context", "--json"])
             cmd_context(args)
         finally:
             sys.stdout = old_stdout
@@ -209,56 +216,7 @@ class TestCLIWriteAndContext:
         data = json.loads(context_output)
         assert "units" in data
         assert len(data["units"]) > 0
-        assert "Test CLI write" in data["units"][0]["content"]
-
-    def test_write_pipes_from_stdin(
-        self,
-        sync_client: TestClient,
-        test_project: Project,
-        test_agent: Agent,
-    ) -> None:
-        """Write command reads content from stdin when no argument given."""
-        from loom.cli.main import build_parser, cmd_write
-
-        old_key = os.environ.get("LOOM_API_KEY")
-        old_pid = os.environ.get("LOOM_PROJECT_ID")
-        old_url = os.environ.get("LOOM_API_URL")
-        os.environ["LOOM_API_KEY"] = str(test_agent.id)
-        os.environ["LOOM_PROJECT_ID"] = str(test_project.id)
-        os.environ["LOOM_API_URL"] = "http://test"
-
-        saved = _mock_httpx(sync_client)
-        parser = build_parser()
-
-        captured = StringIO()
-        old_stdout = sys.stdout
-        old_stdin = sys.stdin
-        sys.stdin = StringIO("stdin content test\n")
-        sys.stdout = captured
-        try:
-            # --version 2 since version 1 was used by the previous test
-            args = parser.parse_args(["write", "--type", "decision", "--version", "2"])
-            cmd_write(args)
-        finally:
-            sys.stdout = old_stdout
-            sys.stdin = old_stdin
-            _restore_httpx(saved)
-            if old_key is None:
-                del os.environ["LOOM_API_KEY"]
-            else:
-                os.environ["LOOM_API_KEY"] = old_key
-            if old_pid is None:
-                del os.environ["LOOM_PROJECT_ID"]
-            else:
-                os.environ["LOOM_PROJECT_ID"] = old_pid
-            if old_url is None:
-                del os.environ["LOOM_API_URL"]
-            else:
-                os.environ["LOOM_API_URL"] = old_url
-
-        output = captured.getvalue()
-        assert "Context unit" in output
-        assert "created" in output
+        assert "Test captured context" in data["units"][0]["content"]
 
 
 class TestCLIInit:
@@ -300,45 +258,52 @@ class TestCLIInit:
         assert "LOOM_API_KEY" not in output
         assert (tmp_path / "loom-config" / "projects.json").is_file()
 
-    def test_init_self_service_creates_account_and_writes_project_config(
+    def test_init_self_service_uses_only_loom_config(
         self,
         sync_client: TestClient,
         tmp_path,
+        monkeypatch,
     ) -> None:
-        """Public init needs no bootstrap token, project ID, or copied API key."""
+        """Public init creates a project for the saved Google login."""
+        from loom.api.routers import auth as auth_router
+        from loom.cli.account import save_account
         from loom.cli.main import build_parser, cmd_init
+        from loom.config import settings
+        from loom.services.accounts.google import GoogleIdentity
 
         tracked = [
             "LOOM_API_URL",
-            "LOOM_PASSWORD",
             "LOOM_CONFIG_HOME",
             "LOOM_BOOTSTRAP_TOKEN",
             "LOOM_USER_TOKEN",
         ]
         original = {key: os.environ.get(key) for key in tracked}
         os.environ["LOOM_API_URL"] = "http://test"
-        os.environ["LOOM_PASSWORD"] = "Correct-Horse-Battery-Staple-42!"
         os.environ["LOOM_CONFIG_HOME"] = str(tmp_path / "account")
         os.environ.pop("LOOM_BOOTSTRAP_TOKEN", None)
         os.environ.pop("LOOM_USER_TOKEN", None)
-        env_path = tmp_path / ".env"
-        email = f"cli-{uuid.uuid4()}@example.com"
+        identity = GoogleIdentity(
+            sub=f"cli-{uuid.uuid4()}",
+            email=f"cli-{uuid.uuid4()}@example.com",
+            email_verified=True,
+            display_name="CLI User",
+        )
+
+        async def fake_verify(_request):
+            return identity
+
+        monkeypatch.setattr(settings, "google_oauth_enabled", True)
+        monkeypatch.setattr(auth_router, "verify_google_exchange", fake_verify)
+        login = sync_client.post(
+            "/v1/auth/google/exchange",
+            json={"client_kind": "cli", "access_token": "google-access-token"},
+        ).json()
+        save_account("http://test", login["session_token"])
 
         saved = _mock_httpx(sync_client)
         try:
             args = build_parser().parse_args(
-                [
-                    "init",
-                    "Public Workspace",
-                    "--email",
-                    email,
-                    "--display-name",
-                    "CLI User",
-                    "--write-env",
-                    str(env_path),
-                    "--install",
-                    "none",
-                ]
+                ["init", "Public Workspace", "--install", "none"]
             )
             cmd_init(args)
         finally:
@@ -349,36 +314,47 @@ class TestCLIInit:
                 else:
                     os.environ[key] = value
 
-        config = env_path.read_text(encoding="utf-8")
-        assert "LOOM_PROJECT_ID=" in config
-        assert "LOOM_API_KEY=loom_" in config
-        assert "LOOM_API_URL=http://test" in config
+        assert not (tmp_path / ".env").exists()
         assert (tmp_path / "account" / "account.json").is_file()
+        project_config = json.loads(
+            (tmp_path / "account" / "projects.json").read_text(encoding="utf-8")
+        )
+        assert project_config["current_server_url"] == "http://test"
 
     def test_authenticated_init_creates_project_without_writing_dotenv(
         self,
         sync_client: TestClient,
         tmp_path,
+        monkeypatch,
     ) -> None:
+        from loom.api.routers import auth as auth_router
         from loom.cli.account import save_account
         from loom.cli.main import build_parser, cmd_init
+        from loom.config import settings
+        from loom.services.accounts.google import GoogleIdentity
 
-        email = f"google-style-{uuid.uuid4()}@example.com"
-        signup = sync_client.post(
-            "/v1/auth/signup",
-            json={
-                "email": email,
-                "password": "Correct-Horse-Battery-Staple-42!",
-                "display_name": "Google Style User",
-                "client_kind": "cli",
-            },
+        identity = GoogleIdentity(
+            sub=f"google-style-{uuid.uuid4()}",
+            email=f"google-style-{uuid.uuid4()}@example.com",
+            email_verified=True,
+            display_name="Google Style User",
+        )
+
+        async def fake_verify(_request):
+            return identity
+
+        monkeypatch.setattr(settings, "google_oauth_enabled", True)
+        monkeypatch.setattr(auth_router, "verify_google_exchange", fake_verify)
+        login = sync_client.post(
+            "/v1/auth/google/exchange",
+            json={"client_kind": "cli", "access_token": "google-access-token"},
         ).json()
         tracked = ["LOOM_API_URL", "LOOM_CONFIG_HOME", "LOOM_USER_TOKEN"]
         original = {key: os.environ.get(key) for key in tracked}
         os.environ["LOOM_API_URL"] = "http://test"
         os.environ["LOOM_CONFIG_HOME"] = str(tmp_path / "loom-config")
         os.environ.pop("LOOM_USER_TOKEN", None)
-        save_account("http://test", signup["session_token"])
+        save_account("http://test", login["session_token"])
 
         saved = _mock_httpx(sync_client)
         try:

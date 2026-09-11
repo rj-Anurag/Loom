@@ -1,4 +1,4 @@
-"""Public self-service signup, login, session, and account endpoints."""
+"""Public Google auth, login fallback, session, and account endpoints."""
 
 from __future__ import annotations
 
@@ -31,21 +31,10 @@ from loom.services.accounts.service import (
     google_login,
     list_user_projects,
     login,
-    normalize_email,
     revoke_session,
-    signup,
 )
 
 router = APIRouter(prefix="/v1/auth")
-
-
-class SignupRequest(BaseModel):
-    email: str = Field(..., min_length=3, max_length=320)
-    password: str = Field(..., min_length=8, max_length=256)
-    display_name: str = Field("", max_length=255)
-    project_name: str = Field("", max_length=255)
-    client_kind: Literal["web", "cli", "extension"] = "web"
-    client_name: str = Field("Loom Web", min_length=1, max_length=255)
 
 
 class LoginRequest(BaseModel):
@@ -105,9 +94,8 @@ def _account_http_error(exc: AccountError) -> HTTPException:
     code = str(exc)
     statuses = {
         "INVALID_EMAIL": 422,
-        "EMAIL_ALREADY_REGISTERED": 409,
         "INVALID_CREDENTIALS": 401,
-        "PUBLIC_SIGNUPS_DISABLED": 403,
+        "PUBLIC_ACCOUNT_CREATION_DISABLED": 403,
         "EMAIL_PASSWORD_AUTH_DISABLED": 403,
         "GOOGLE_ACCOUNT_CONFLICT": 409,
     }
@@ -176,48 +164,6 @@ async def google_exchange_endpoint(
     if body.client_kind == "web":
         data.pop("session_token", None)
     return data
-
-
-@router.post("/signup", status_code=201)
-async def signup_endpoint(
-    body: SignupRequest,
-    request: Request,
-    response: Response,
-    session: AsyncSession = Depends(get_session),
-    redis: redis_async.Redis | None = Depends(get_redis),
-) -> dict[str, Any]:
-    """Create an account, owner project, session, and first client key."""
-
-    await _enforce_auth_rate_limit(
-        redis,
-        operation="signup-ip",
-        identifier=request.client.host if request.client else "unknown",
-    )
-    await _enforce_auth_rate_limit(
-        redis,
-        operation="signup-email",
-        identifier=body.email,
-    )
-    try:
-        normalized_email = normalize_email(body.email)
-        display_name = body.display_name.strip() or normalized_email.split("@", 1)[0]
-        project_name = body.project_name.strip() or f"{display_name}'s Workspace"
-        data = await signup(
-            session,
-            email=normalized_email,
-            password=body.password,
-            display_name=display_name,
-            project_name=project_name,
-            client_kind=body.client_kind,
-            client_name=body.client_name,
-        )
-        _set_web_session_cookie(response, data["session_token"], body.client_kind)
-        response.headers["Cache-Control"] = "no-store"
-        if body.client_kind == "web":
-            data.pop("session_token", None)
-        return data
-    except AccountError as exc:
-        raise _account_http_error(exc) from exc
 
 
 @router.post("/login")

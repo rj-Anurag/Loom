@@ -26,6 +26,19 @@ def _read(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {"servers": {}}
 
 
+def load_current_api_url(*, path: Path | None = None) -> str:
+    """Return the active API server saved in the local Loom configuration."""
+    target = path or project_config_path()
+    data = _read(target)
+    current = data.get("current_server_url")
+    if isinstance(current, str) and current:
+        return current.rstrip("/")
+    servers = data.get("servers", {})
+    if isinstance(servers, dict) and len(servers) == 1:
+        return str(next(iter(servers))).rstrip("/")
+    return ""
+
+
 def load_current_project(api_url: str, *, path: Path | None = None) -> dict[str, str]:
     target = path or project_config_path()
     data = _read(target)
@@ -70,6 +83,7 @@ def save_project(
         server["projects"] = projects
     projects[project_id] = {"name": project_name, "api_key": api_key}
     server["current_project_id"] = project_id
+    data["current_server_url"] = server_key
 
     descriptor, temporary_name = tempfile.mkstemp(prefix=".projects-", dir=target.parent)
     temporary = Path(temporary_name)

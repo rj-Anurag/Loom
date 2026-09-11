@@ -75,10 +75,11 @@ key.
 `loom init` creates the project, owner membership, and a distinct local-agent
 credential for this machine. The credential is stored with private permissions
 in `~/.loom/projects.json`; Loom commands and the MCP server read it
-automatically. Writing credentials into the repository is optional:
+automatically. It also records the active server there, so MCP integrations do
+not need credential environment variables:
 
 ```bash
-loom init "My Project" --write-env .env --install all
+loom init "My Project" --install all
 ```
 
 On another machine, sign in and select an existing project:
@@ -121,19 +122,13 @@ Run this inside the repository whose context you want Loom to share, after
 
 ```bash
 conda activate loom
-loom init "Loom" --write-env .env --install all
+loom init "Loom" --install all
 ```
 
 This creates or selects a real project, stores a distinct local-agent
 credential privately, and installs the Claude/Codex project integration files.
-The normal flow does not display the key. Use `--write-env` only when another
-tool cannot read Loom's user-level config:
-
-```dotenv
-LOOM_API_URL=http://localhost:8000
-LOOM_PROJECT_ID=<project UUID>
-LOOM_API_KEY=loom_<opaque secret>
-```
+The normal flow does not display the key or write credentials into the
+repository. `.env` is reserved for server runtime configuration.
 
 There is no separate **LOOP API key**. The product is named Loom. The server
 generates a project-scoped `LOOM_API_KEY` for each CLI or browser installation,
@@ -142,9 +137,9 @@ returns it once, and stores only its SHA-256 digest. Never commit `.env` or
 
 ### Which project ID should I use?
 
-Use the `LOOM_PROJECT_ID` printed by `loom init` for every chat and agent that
-belongs to the same codebase. Do not use an agent ID, chat ID, browser URL, or
-the internal `__loom_extension__` bootstrap project.
+Use `loom config` to see the project selected by `loom init` or `loom switch`.
+Do not use an agent ID, chat ID, browser URL, or the internal
+`__loom_extension__` bootstrap project.
 
 To check the active project without exposing its full key:
 
@@ -249,15 +244,17 @@ through `write_context` at handoff. Claude may display the MCP prompt itself as
 ## Codex
 
 `loom init --install all` adds an idempotent Loom context protocol to
-`AGENTS.md`. Loom's MCP process reads `~/.loom/projects.json`, so no repository
-secret is required. Register it once with:
+`AGENTS.md`. Loom's MCP process reads the active server and credentials from
+`~/.loom/projects.json`, so no repository secret is required. Register it once
+with:
 
 ```bash
 codex mcp add loom -- loom mcp
 ```
 
-The environment-variable form written into `AGENTS.md` remains supported for
-CI or tools that cannot read the user-level config.
+`LOOM_API_URL`, `LOOM_PROJECT_ID`, and `LOOM_API_KEY` remain supported only
+as compatibility overrides for CI or tools that cannot read the user-level
+config.
 
 Start Codex in the project and ask it to use Loom context for the task. Codex
 supports the MCP tools and repository `AGENTS.md` protocol; unlike Claude Code,
@@ -271,13 +268,10 @@ Use this sequence to verify the complete product rather than isolated screens:
 1. Start PostgreSQL/Redis, apply migrations, and start Uvicorn with
    `uvicorn loom.api.main:app --host 0.0.0.0 --port 8000`.
 2. Configure Google OAuth as described below, then run `loom login`.
-3. Run `loom init "E2E Test" --install all`, then write a recognizable terminal
-   decision:
+3. Run `loom init "E2E Test" --install all`, then verify the CLI is connected:
 
    ```bash
-   loom write "Decision: use short-lived access tokens in the E2E test" \
-     --type decision
-   loom context "access tokens"
+   loom config
    ```
 
 4. Install the extension, use **Continue with Google** with the same account,
@@ -296,8 +290,8 @@ Use this sequence to verify the complete product rather than isolated screens:
 9. Start Claude Code, run `/loom continue the retry-policy work`, and confirm it
    cites or uses the browser context.
 10. Start Codex with its Loom MCP registration and ask for the same context.
-11. Write one durable result from either agent, then verify it appears in the
-    CLI and dashboard.
+11. Let an agent record one durable result through the Loom MCP tool, then
+    verify it appears in the CLI and dashboard.
 
 ## Automated verification
 
@@ -339,7 +333,7 @@ The complete local template is [.env.example](.env.example). Important values:
 - `ALLOW_LEGACY_UUID_TOKENS` — temporary upgrade compatibility; keep `false`
 - `ALLOW_AGENT_KEY_ENROLLMENT` — legacy project-key credential minting; keep
   `false` in public production so only account members can provision keys
-- `PUBLIC_SIGNUPS_ENABLED` — enables public account creation
+- `PUBLIC_ACCOUNT_CREATION_ENABLED` — allows first-time Google login to create an account
 - `EMAIL_PASSWORD_AUTH_ENABLED` — local/dev migration fallback; keep `false`
   in the public deployment
 - `GOOGLE_OAUTH_ENABLED` — enables verified Google identity exchange
@@ -350,7 +344,7 @@ The complete local template is [.env.example](.env.example). Important values:
 - `USER_SESSION_TTL_DAYS` — absolute lifetime of revocable account sessions
 - `AGENT_KEY_TTL_DAYS` — lifetime of newly issued CLI/extension credentials
 - `AUTH_RATE_LIMIT_ATTEMPTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS` — Redis-backed
-  signup/login abuse limits
+  auth abuse limits
 
 The local `sentence-transformers` provider is intentionally optional because
 its PyTorch runtime is large. Install it only on workers that use it:
@@ -467,7 +461,6 @@ curl -sS -X POST \
   -H "Content-Type: application/json" \
   --data "{\"chat_url\":\"$CHAT_URL\",\"title\":\"Claude conversation\",\"platform\":\"claude.ai\"}"
 
-loom write "Decision: hosted Loom MVP smoke test is connected" --type decision
 loom context "hosted Loom MVP smoke test" --scope full
 ```
 

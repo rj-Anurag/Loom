@@ -22,7 +22,8 @@ def test_install_claude_creates_project_mcp_and_exact_command(tmp_path, monkeypa
     server = config["mcpServers"]["loom"]
     assert server["command"] == "loom"
     assert server["args"] == ["mcp"]
-    assert server["env"]["LOOM_API_KEY"] == "${LOOM_API_KEY}"
+    assert "env" not in server
+    assert "LOOM_API_KEY" not in (tmp_path / ".mcp.json").read_text()
     assert "loom_" not in (tmp_path / ".mcp.json").read_text()
 
     command = (tmp_path / ".claude" / "commands" / "loom.md").read_text()
@@ -43,4 +44,5 @@ def test_install_codex_adds_idempotent_agent_protocol(tmp_path, monkeypatch) -> 
     contents = agents_file.read_text()
     assert contents.count("<!-- loom:context-protocol:start -->") == 1
     assert "loom context" in contents
-    assert "loom write" in contents
+    assert "write_context" in contents
+    assert "loom write" not in contents

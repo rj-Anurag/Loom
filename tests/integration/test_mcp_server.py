@@ -225,16 +225,17 @@ class TestMCPTools:
                 os.environ["LOOM_API_URL"] = old_url
 
     @pytest.mark.asyncio
-    async def test_missing_config_raises_error(self) -> None:
+    async def test_missing_config_raises_error(self, monkeypatch, tmp_path) -> None:
         """MCP server raises helpful error when config is missing."""
         from loom.mcp.server import _check_config
 
         # Temporarily clear env vars
         old_key = os.environ.pop("LOOM_API_KEY", None)
         old_pid = os.environ.pop("LOOM_PROJECT_ID", None)
+        monkeypatch.setenv("LOOM_CONFIG_HOME", str(tmp_path))
 
         try:
-            with pytest.raises(ValueError, match="Missing required"):
+            with pytest.raises(ValueError, match="Missing Loom project configuration"):
                 _check_config()
         finally:
             if old_key:

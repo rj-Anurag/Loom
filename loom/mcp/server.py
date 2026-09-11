@@ -3,12 +3,10 @@
 Usage (stdio transport — default for MCP)::
 
     # Start the server (for AI CLI tools to connect to)
-    LOOM_API_URL=http://localhost:8000 \\
-    LOOM_API_KEY=your-opaque-agent-key \\
-    LOOM_PROJECT_ID=your-project-uuid \\
-    python -m loom.mcp.server
+    loom mcp
 
-Configuration via environment variables:
+Project credentials and the active API server are read from
+``~/.loom/projects.json``. Environment variables remain compatibility overrides:
 
 - ``LOOM_API_URL`` — Loom API base URL (default ``http://localhost:8000``)
 - ``LOOM_API_KEY`` — Project-scoped opaque agent bearer token.
@@ -28,13 +26,17 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-from loom.cli.project_config import load_current_project
+from loom.cli.project_config import load_current_api_url, load_current_project
 
 # ── Configuration (lazy — read from env on each call) ─────────────────────────
 
 
 def _api_url() -> str:
-    return os.environ.get("LOOM_API_URL", "http://localhost:8000").rstrip("/")
+    return (
+        os.environ.get("LOOM_API_URL")
+        or load_current_api_url()
+        or "http://localhost:8000"
+    ).rstrip("/")
 
 
 def _api_key() -> str:
@@ -53,13 +55,13 @@ def _check_config() -> None:
     """Raise ``ValueError`` if required config is missing."""
     missing: list[str] = []
     if not _api_key():
-        missing.append("LOOM_API_KEY")
+        missing.append("API key")
     if not _project_id():
-        missing.append("LOOM_PROJECT_ID")
+        missing.append("project ID")
     if missing:
         raise ValueError(
-            f"Missing required environment variables: {', '.join(missing)}. "
-            "Run `loom init` to create a project and agent, or set them manually."
+            f"Missing Loom project configuration: {', '.join(missing)}. "
+            "Run `loom init` to create or connect a project."
         )
 
 
@@ -140,9 +142,9 @@ async def read_context(
             headers=_headers(),
         )
         if resp.status_code == 401:
-            return "Authentication failed. Check your LOOM_API_KEY."
+            return "Authentication failed. Run `loom init` to refresh the saved credential."
         if resp.status_code == 404:
-            return "Project not found. Check your LOOM_PROJECT_ID."
+            return "Project not found. Run `loom switch` to select a saved project."
         resp.raise_for_status()
         data = resp.json()
 
@@ -215,9 +217,9 @@ async def write_context(
             headers=_headers(),
         )
         if resp.status_code == 401:
-            return "Authentication failed. Check your LOOM_API_KEY."
+            return "Authentication failed. Run `loom init` to refresh the saved credential."
         if resp.status_code == 404:
-            return "Project not found. Check your LOOM_PROJECT_ID."
+            return "Project not found. Run `loom switch` to select a saved project."
         if resp.status_code == 409:
             detail = resp.json()
             return (
@@ -254,9 +256,9 @@ async def get_project_summary() -> str:
             headers=_headers(),
         )
         if resp.status_code == 401:
-            return "Authentication failed. Check your LOOM_API_KEY."
+            return "Authentication failed. Run `loom init` to refresh the saved credential."
         if resp.status_code == 404:
-            return "Project not found. Check your LOOM_PROJECT_ID."
+            return "Project not found. Run `loom switch` to select a saved project."
         resp.raise_for_status()
         project = resp.json()
 
@@ -284,11 +286,6 @@ def main() -> None:
                 "loom": {
                     "command": "loom",
                     "args": ["mcp"],
-                    "env": {
-                        "LOOM_API_URL": "http://localhost:8000",
-                        "LOOM_API_KEY": "...",
-                        "LOOM_PROJECT_ID": "..."
-                    }
                 }
             }
         }

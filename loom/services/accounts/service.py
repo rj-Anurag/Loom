@@ -105,61 +105,6 @@ async def _new_agent(
     return agent, raw_key
 
 
-async def signup(
-    session: AsyncSession,
-    *,
-    email: str,
-    password: str,
-    display_name: str,
-    project_name: str,
-    client_kind: str,
-    client_name: str,
-) -> dict[str, Any]:
-    """Create user, first project, membership, client agent, and session atomically."""
-
-    if not settings.public_signups_enabled:
-        raise AccountError("PUBLIC_SIGNUPS_DISABLED")
-    if not settings.email_password_auth_enabled:
-        raise AccountError("EMAIL_PASSWORD_AUTH_DISABLED")
-    normalized_email = normalize_email(email)
-    if await session.scalar(select(User.id).where(User.email == normalized_email)):
-        raise AccountError("EMAIL_ALREADY_REGISTERED")
-
-    user = User(
-        email=normalized_email,
-        display_name=display_name.strip(),
-        password_hash=hash_password(password),
-    )
-    project = Project(name=project_name.strip())
-    session.add_all((user, project))
-    try:
-        await session.flush()
-        membership = ProjectMembership(project_id=project.id, user_id=user.id, role="owner")
-        session.add(membership)
-        agent, raw_api_key = await _new_agent(
-            session,
-            project.id,
-            kind=_agent_kind(client_kind),
-            name=client_name.strip(),
-            created_by_user_id=user.id,
-        )
-        user_session, raw_session_token = await _new_session(session, user, client_kind)
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise AccountError("EMAIL_ALREADY_REGISTERED") from exc
-
-    return {
-        "user": _user_payload(user),
-        "project": _project_payload(project),
-        "project_id": str(project.id),
-        "agent_id": str(agent.id),
-        "project_api_key": raw_api_key,
-        "session_token": raw_session_token,
-        "session_expires_at": user_session.expires_at.isoformat(),
-    }
-
-
 async def login(
     session: AsyncSession,
     *,
@@ -224,8 +169,8 @@ async def google_login(
         if user is not None and user.google_sub not in {None, identity.sub}:
             raise AccountError("GOOGLE_ACCOUNT_CONFLICT")
         if user is None:
-            if not settings.public_signups_enabled:
-                raise AccountError("PUBLIC_SIGNUPS_DISABLED")
+            if not settings.public_account_creation_enabled:
+                raise AccountError("PUBLIC_ACCOUNT_CREATION_DISABLED")
             user = User(
                 email=normalized_email,
                 display_name=identity.display_name,
