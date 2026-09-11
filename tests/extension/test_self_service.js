@@ -28,3 +28,13 @@ test('source and packaged extension stay identical for public onboarding files',
     assert.deepEqual(source, packaged, `${name} differs from packaged copy`);
   }
 });
+
+test('chat sync authenticates with the linked project credential', () => {
+  const worker = fs.readFileSync(path.join(root, 'extension/background.js'), 'utf8');
+
+  assert.match(
+    worker,
+    /async function syncMessage[\s\S]*?await projectAuthHeaders\(linkInfo\.projectId\)/,
+  );
+  assert.doesNotMatch(worker, /linkInfo\.apiKey/);
+});

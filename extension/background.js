@@ -374,9 +374,7 @@ async function generateClientUuid(chatUrl, index, projectId = '') {
 }
 
 async function syncMessage(chatUrl, message, linkInfo) {
-  const headers = linkInfo.apiKey
-    ? { Authorization: 'Bearer ' + linkInfo.apiKey }
-    : {};
+  const headers = await projectAuthHeaders(linkInfo.projectId);
   const normalizedUrl = LoomShared.normalizeChatUrl(chatUrl);
   const identity = LoomShared.messageIdentity(chatUrl, message);
 
