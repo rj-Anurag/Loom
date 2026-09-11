@@ -62,6 +62,17 @@ test('content sync cleanup tolerates stale records', () => {
   assert.match(content, /if \(el\.dataset\) delete el\.dataset\.loomPending;/);
 });
 
+test('content script does not cover chat pages with link banners', () => {
+  const content = fs.readFileSync(path.join(root, 'extension/content.js'), 'utf8');
+
+  assert.match(content, /function dismissLinkBanner\(\)/);
+  assert.doesNotMatch(content, /function showLinkPrompt/);
+  assert.doesNotMatch(content, /function showLinkedConfirmation/);
+  assert.doesNotMatch(content, /document\.body\.prepend\(banner\)/);
+  assert.doesNotMatch(content, /position: fixed; top: 0/);
+  assert.doesNotMatch(content, /#064e3b/);
+});
+
 test('background router always responds to extension messages', () => {
   const worker = fs.readFileSync(path.join(root, 'extension/background.js'), 'utf8');
 

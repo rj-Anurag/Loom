@@ -420,40 +420,6 @@
     }
   }
 
-  // ── Link Prompt Banner ──────────────────────────────────────────────────
-
-  function showLinkPrompt() {
-    if (document.getElementById('loom-link-banner')) return;
-
-    const banner = document.createElement('div');
-    banner.id = 'loom-link-banner';
-    banner.style.cssText = [
-      'position: fixed; top: 0; left: 0; right: 0; z-index: 99999;',
-      'background: #1a1a2e; color: #e0e0e0;',
-      'padding: 12px 20px; font-family: system-ui, sans-serif;',
-      'display: flex; align-items: center; gap: 12px;',
-      'box-shadow: 0 2px 12px rgba(0,0,0,0.3);',
-    ].join(' ');
-
-    banner.innerHTML = [
-      '<span style="font-size:18px;">🔗</span>',
-      '<span style="flex:1;">',
-      '<strong>Loom</strong> — Click the Loom icon',
-      '<span style="background:#4f46e5;padding:1px 6px;border-radius:4px;font-size:11px;">⋮</span>',
-      'in the toolbar to link this chat to a project',
-      '</span>',
-      '<button id="loom-link-later" style="',
-      'background:transparent; color:#999; border:1px solid #444;',
-      'border-radius:6px; padding:6px 16px; cursor:pointer; font-size:13px;',
-      'white-space:nowrap;">Dismiss</button>',
-    ].join('');
-
-    document.body.prepend(banner);
-    document.getElementById('loom-link-later').addEventListener('click', () => {
-      banner.remove();
-    });
-  }
-
   // ── Banner Cleanup ──────────────────────────────────────────────────────
 
   function dismissLinkBanner() {
