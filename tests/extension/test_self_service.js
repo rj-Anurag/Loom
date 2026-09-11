@@ -18,6 +18,7 @@ test('extension uses Google auth and never creates projects', () => {
   assert.doesNotMatch(worker, /async SIGNUP/);
   assert.doesNotMatch(worker, /async CREATE_PROJECT/);
   assert.match(worker, /client_kind: 'extension'/);
+  assert.match(worker, /CREATE_DASHBOARD_SESSION/);
   assert.doesNotMatch(worker, /fetch\(`\$\{API\}\/v1\/extension\/setup/);
 });
 
@@ -45,8 +46,10 @@ test('open dashboard button opens the user workspace dashboard', () => {
 
   assert.match(config, /DASHBOARD_PATH: '\/v1\/dashboard'/);
   assert.doesNotMatch(config, /DASHBOARD_BASE_PATH/);
-  assert.match(popup, /Storage\.getAccount\(\)/);
-  assert.match(popup, /#session=/);
+  assert.match(popup, /CREATE_DASHBOARD_SESSION/);
+  assert.match(popup, /LOOM_CONFIG\.LOOM_SERVER_URL \+ launch\.path/);
+  assert.doesNotMatch(popup, /Storage\.getAccount\(\)/);
+  assert.doesNotMatch(popup, /#session=/);
   assert.doesNotMatch(popup, /#token=/);
 });
 

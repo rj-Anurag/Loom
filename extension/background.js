@@ -217,6 +217,10 @@ const MESSAGE_HANDLERS = {
     return { projects: data };
   },
 
+  async CREATE_DASHBOARD_SESSION() {
+    return api('/v1/auth/dashboard-session', { method: 'POST' });
+  },
+
   async GET_PROJECT_CREDENTIALS(msg) {
     const existing = await Storage.getProjectCredentials(msg.projectId);
     if (existing?.api_key) {

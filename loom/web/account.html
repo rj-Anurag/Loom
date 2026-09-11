@@ -107,26 +107,10 @@
     (function () {
       'use strict';
       var api = '';
-      var sessionStorageKey = 'loom_session_token';
       var state = { user: null, projects: [], project: null, chats: [], chatUrl: '', units: [], query: '', ascending: false, loadVersion: 0 };
       var $ = function (id) { return document.getElementById(id); };
 
-      function sessionToken() { return window.localStorage.getItem(sessionStorageKey) || ''; }
-      function headers() {
-        var values = { 'Content-Type': 'application/json' };
-        var token = sessionToken();
-        if (token) values.Authorization = 'Bearer ' + token;
-        return values;
-      }
-      function consumeSessionFragment() {
-        var hash = window.location.hash || '';
-        var params = new URLSearchParams(hash.replace(/^#/, ''));
-        var token = params.get('session');
-        if (!token) return;
-        window.localStorage.setItem(sessionStorageKey, token);
-        window.history.replaceState(null, '', window.location.pathname + window.location.search);
-        $('auth-view').classList.add('handoff-pending');
-      }
+      function headers() { return { 'Content-Type': 'application/json' }; }
       async function request(path, options) {
         var response = await fetch(api + path, options || {});
         if (!response.ok) {
@@ -283,23 +267,6 @@
           document.head.appendChild(script);
         } catch (error) { $('auth-error').textContent = errorMessage(error.message); $('auth-error').classList.remove('hidden'); }
       }
-      async function bootDashboard() {
-        consumeSessionFragment();
-        try {
-          setSignedIn(await request('/v1/auth/me', { headers: headers() }));
-        } catch (error) {
-          if (sessionToken()) {
-            window.localStorage.removeItem(sessionStorageKey);
-            try {
-              setSignedIn(await request('/v1/auth/me', { headers: headers() }));
-              return;
-            } catch (retryError) { /* Fall through to Google sign-in. */ }
-          }
-          $('auth-view').classList.remove('handoff-pending');
-          loadGoogleSignIn();
-        }
-      }
-
       $('context-search').addEventListener('input', function (event) { state.query = event.target.value; renderHistory(); });
       $('sort-toggle').addEventListener('click', function () { state.ascending = !state.ascending; $('sort-toggle').textContent = state.ascending ? 'Oldest first' : 'Newest first'; renderHistory(); });
       $('sidebar-toggle').addEventListener('click', function () { if ($('workspace-sidebar').classList.contains('open')) closeSidebar(); else openSidebar(); });
@@ -309,9 +276,9 @@
         var menu = $('profile-menu'); var willOpen = menu.classList.contains('hidden'); menu.classList.toggle('hidden', !willOpen); $('profile-button').setAttribute('aria-expanded', willOpen ? 'true' : 'false');
       });
       document.addEventListener('click', function (event) { if (!event.target.closest('.profile-wrap')) { $('profile-menu').classList.add('hidden'); $('profile-button').setAttribute('aria-expanded', 'false'); } });
-      $('logout').addEventListener('click', async function () { try { await request('/v1/auth/logout', { method: 'POST', headers: headers() }); } catch (error) { /* Session may already be expired. */ } window.localStorage.removeItem(sessionStorageKey); window.location.reload(); });
+      $('logout').addEventListener('click', async function () { try { await request('/v1/auth/logout', { method: 'POST', headers: headers() }); } catch (error) { /* Session may already be expired. */ } window.location.reload(); });
       syncSidebarAccessibility();
-      bootDashboard();
+      request('/v1/auth/me', { headers: headers() }).then(setSignedIn).catch(loadGoogleSignIn);
     }());
   </script>
 </body>

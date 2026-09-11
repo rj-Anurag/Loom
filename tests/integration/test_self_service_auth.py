@@ -242,3 +242,31 @@ async def test_web_google_login_uses_httponly_cookie_without_exposing_session_to
     assert "HttpOnly" in response.headers["set-cookie"]
     assert response.headers["cache-control"] == "no-store"
     assert (await client.get("/v1/auth/me")).status_code == 200
+
+
+async def test_extension_session_can_launch_web_dashboard(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    extension_auth = await _google_exchange(
+        client,
+        monkeypatch,
+        _identity("dashboard-handoff", display_name="Dashboard User"),
+        client_kind="extension",
+    )
+
+    launch_response = await client.post(
+        "/v1/auth/dashboard-session",
+        headers={"Authorization": f"Bearer {extension_auth['session_token']}"},
+    )
+
+    assert launch_response.status_code == 200, launch_response.text
+    launch_path = launch_response.json()["path"]
+    assert launch_path.startswith("/v1/auth/dashboard-session/loom_session_")
+
+    handoff_response = await client.get(launch_path, follow_redirects=False)
+
+    assert handoff_response.status_code == 303, handoff_response.text
+    assert handoff_response.headers["location"] == "/v1/dashboard"
+    assert "HttpOnly" in handoff_response.headers["set-cookie"]
+    assert handoff_response.headers["cache-control"] == "no-store"

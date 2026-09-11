@@ -407,17 +407,12 @@
       console.warn('[Loom] No project linked — cannot open dashboard');
       return;
     }
-    const account = await Storage.getAccount();
-    if (!account?.session_token) {
-      showError('Sign in to Loom before opening the dashboard.');
+    const launch = await chrome.runtime.sendMessage({ type: 'CREATE_DASHBOARD_SESSION' });
+    if (launch?.error || !launch?.path) {
+      showError(launch?.error || 'Sign in to Loom before opening the dashboard.');
       return;
     }
-    chrome.tabs.create({
-      url: LOOM_CONFIG.LOOM_SERVER_URL
-        + LOOM_CONFIG.DASHBOARD_PATH
-        + '#session='
-        + encodeURIComponent(account.session_token),
-    });
+    chrome.tabs.create({ url: LOOM_CONFIG.LOOM_SERVER_URL + launch.path });
   });
 
   // ── Load projects ───────────────────────────────────────────────────────

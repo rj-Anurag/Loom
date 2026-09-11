@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import redis.asyncio as redis_async
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import UserAuthContext, require_user_auth
@@ -14,6 +17,7 @@ from loom.api.dependencies import get_redis
 from loom.config import settings
 from loom.db import get_session
 from loom.models import User, UserSession
+from loom.security import hash_session_token
 from loom.services.accounts.google import (
     GOOGLE_AUTHORIZATION_ENDPOINT,
     GOOGLE_SCOPES,
@@ -29,6 +33,7 @@ from loom.services.accounts.rate_limit import (
 from loom.services.accounts.service import (
     AccountError,
     google_login,
+    issue_user_session,
     list_user_projects,
     login,
     revoke_session,
@@ -58,6 +63,10 @@ class GoogleExchangeRequest(BaseModel):
         return self
 
 
+class DashboardSessionResponse(BaseModel):
+    path: str
+
+
 def _set_web_session_cookie(response: Response, token: str, client_kind: str) -> None:
     if client_kind != "web":
         return
@@ -67,7 +76,7 @@ def _set_web_session_cookie(response: Response, token: str, client_kind: str) ->
         max_age=settings.user_session_ttl_days * 86400,
         httponly=True,
         secure=settings.environment == "production",
-        samesite="strict",
+        samesite="lax",
         path="/",
     )
 
@@ -166,6 +175,42 @@ async def google_exchange_endpoint(
     return data
 
 
+@router.post("/dashboard-session")
+async def create_dashboard_session_endpoint(
+    auth: UserAuthContext = Depends(require_user_auth),
+    session: AsyncSession = Depends(get_session),
+) -> DashboardSessionResponse:
+    """Create a browser dashboard session from an authenticated extension session."""
+
+    _, token = await issue_user_session(session, user_id=auth.user_id, client_kind="web")
+    return DashboardSessionResponse(path=f"/v1/auth/dashboard-session/{token}")
+
+
+@router.get("/dashboard-session/{token}")
+async def consume_dashboard_session_endpoint(
+    token: str,
+    session: AsyncSession = Depends(get_session),
+) -> RedirectResponse:
+    """Set the dashboard cookie, then leave the handoff URL behind."""
+
+    user_session = (
+        await session.execute(
+            select(UserSession).where(UserSession.token_hash == hash_session_token(token))
+        )
+    ).scalar_one_or_none()
+    if (
+        user_session is None
+        or user_session.client_kind != "web"
+        or user_session.revoked_at is not None
+        or user_session.expires_at <= datetime.now(UTC)
+    ):
+        raise HTTPException(status_code=401, detail="Invalid dashboard session")
+    redirect = RedirectResponse(url="/v1/dashboard", status_code=303)
+    _set_web_session_cookie(redirect, token, "web")
+    redirect.headers["Cache-Control"] = "no-store"
+    return redirect
+
+
 @router.post("/login")
 async def login_endpoint(
     body: LoginRequest,
@@ -230,4 +275,4 @@ async def logout_endpoint(
     user_session = await session.get(UserSession, auth.session_id)
     if user_session is not None:
         await revoke_session(session, user_session)
-    response.delete_cookie("loom_session", path="/", samesite="strict")
+    response.delete_cookie("loom_session", path="/", samesite="lax")

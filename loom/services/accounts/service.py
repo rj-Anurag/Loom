@@ -82,6 +82,22 @@ async def _new_session(
     return user_session, raw_token
 
 
+async def issue_user_session(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    client_kind: str,
+) -> tuple[UserSession, str]:
+    """Issue another session for an already-authenticated user."""
+
+    user = await session.get(User, user_id)
+    if user is None or user.disabled_at is not None:
+        raise AccountError("INVALID_CREDENTIALS")
+    user_session, raw_session_token = await _new_session(session, user, client_kind)
+    await session.commit()
+    return user_session, raw_session_token
+
+
 async def _new_agent(
     session: AsyncSession,
     project_id: uuid.UUID,
