@@ -87,7 +87,7 @@
         linkedProjectName.textContent = resp.projectName || resp.projectId;
         linkedSection.classList.remove('hidden');
         linkSection.classList.add('hidden');
-        setStatus(`Linked to ${resp.projectName || resp.projectId}`, 'linked');
+        hideStatus();
         // Show activity panel and start polling
         showActivityPanel(resp.projectId, resp.projectName);
         refreshSyncStatus();
@@ -125,6 +125,11 @@
   function setStatus(text, type) {
     statusText.textContent = text;
     statusEl.className = 'status ' + (type || '');
+    statusEl.classList.remove('hidden');
+  }
+
+  function hideStatus() {
+    statusEl.classList.add('hidden');
   }
 
   function showError(text) {

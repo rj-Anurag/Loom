@@ -454,33 +454,11 @@
     });
   }
 
-  // ── Confirmation Banner ─────────────────────────────────────────────────
+  // ── Banner Cleanup ──────────────────────────────────────────────────────
 
-  function showLinkedConfirmation(projectName) {
-    const oldBanner = document.getElementById('loom-link-banner');
-    if (oldBanner) oldBanner.remove();
-
-    const banner = document.createElement('div');
-    banner.id = 'loom-link-banner';
-    banner.style.cssText = [
-      'position: fixed; top: 0; left: 0; right: 0; z-index: 99999;',
-      'background: #064e3b; color: #a7f3d0;',
-      'padding: 12px 20px; font-family: system-ui, sans-serif;',
-      'display: flex; align-items: center; gap: 12px;',
-      'box-shadow: 0 2px 12px rgba(0,0,0,0.3);',
-    ].join(' ');
-
-    // escapeHtml is not available in content script scope, so sanitize manually
-    var safeName = String(projectName).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    banner.innerHTML = [
-      '<span style="font-size:18px;">✅</span>',
-      '<span style="flex:1;">',
-      '<strong>Linked</strong> to <strong>' + safeName + '</strong>',
-      '</span>',
-    ].join('');
-
-    document.body.prepend(banner);
-    setTimeout(function () { banner.remove(); }, 3000);
+  function dismissLinkBanner() {
+    const banner = document.getElementById('loom-link-banner');
+    if (banner) banner.remove();
   }
 
   // ── Listen for background messages ──────────────────────────────────────
@@ -488,7 +466,7 @@
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (msg.type === 'LOOM_LINKED') {
       console.log('[Loom] Received LOOM_LINKED:', msg.projectName);
-      showLinkedConfirmation(msg.projectName || 'project');
+      dismissLinkBanner();
       activateLinkedConversation(msg.projectId);
       sendResponse({ ok: true });
     }
