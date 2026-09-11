@@ -51,9 +51,6 @@ async def get_project(
     context_count = await session.scalar(
         select(func.count(ContextUnit.id)).where(ContextUnit.project_id == project_id)
     )
-    agent_count = await session.scalar(
-        select(func.count(Agent.id)).where(Agent.project_id == project_id)
-    )
     chat_count = await session.scalar(
         select(func.count(ChatLink.id)).where(ChatLink.project_id == project_id)
     )
@@ -62,7 +59,9 @@ async def get_project(
         "name": project.name,
         "created_at": project.created_at.isoformat() if project.created_at else "",
         "context_unit_count": context_count or 0,
-        "agent_count": agent_count or 0,
+        # Phase 1 does not track live agent sessions yet. Keep the dashboard honest
+        # until the next phase wires this to heartbeat-backed agent presence.
+        "agent_count": 0,
         "linked_chat_count": chat_count or 0,
     }
 

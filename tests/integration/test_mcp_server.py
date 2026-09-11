@@ -209,6 +209,8 @@ class TestMCPTools:
             result = await get_project_summary()
             assert test_project.name in result
             assert str(test_project.id) in result
+            assert "Active agents: 0" in result
+            assert "Registered agents" not in result
         finally:
             httpx.AsyncClient = old_aclient
             if old_key is None:

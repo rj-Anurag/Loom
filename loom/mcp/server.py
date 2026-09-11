@@ -268,7 +268,7 @@ async def get_project_summary() -> str:
         f"  Created: {project.get('created_at', 'unknown')}\n"
         f"  Context units: {project.get('context_unit_count', 0)}\n"
         f"  Linked chats: {project.get('linked_chat_count', 0)}\n"
-        f"  Registered agents: {project.get('agent_count', 0)}"
+        f"  Active agents: {project.get('agent_count', 0)}"
     )
 
 

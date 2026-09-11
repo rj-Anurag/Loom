@@ -339,6 +339,7 @@ class TestGetProject:
         assert data["id"] == str(test_project.id)
         assert data["name"] == test_project.name
         assert "created_at" in data
+        assert data["agent_count"] == 0
 
     async def test_get_project_no_auth(
         self,
