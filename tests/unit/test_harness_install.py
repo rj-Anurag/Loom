@@ -12,11 +12,11 @@ def _args(target: str, path: str) -> Namespace:
     return Namespace(target=target, path=path)
 
 
-def test_install_claude_creates_project_mcp_and_exact_command(tmp_path, monkeypatch) -> None:
+def test_install_all_creates_project_mcp_without_markdown(tmp_path, monkeypatch) -> None:
     """Claude integration is project-local and keeps credentials out of files."""
     monkeypatch.chdir(tmp_path)
 
-    cmd_install(_args("claude", str(tmp_path)))
+    cmd_install(_args("all", str(tmp_path)))
 
     config = json.loads((tmp_path / ".mcp.json").read_text())
     server = config["mcpServers"]["loom"]
@@ -26,23 +26,20 @@ def test_install_claude_creates_project_mcp_and_exact_command(tmp_path, monkeypa
     assert "LOOM_API_KEY" not in (tmp_path / ".mcp.json").read_text()
     assert "loom_" not in (tmp_path / ".mcp.json").read_text()
 
-    command = (tmp_path / ".claude" / "commands" / "loom.md").read_text()
-    assert "$ARGUMENTS" in command
-    assert "read_context" in command
-    assert "write_context" in command
+    assert not (tmp_path / ".claude" / "commands" / "loom.md").exists()
 
 
-def test_install_codex_adds_idempotent_agent_protocol(tmp_path, monkeypatch) -> None:
-    """Codex receives a durable repository instruction without global mutation."""
+def test_install_codex_does_not_modify_agent_instructions(tmp_path, monkeypatch) -> None:
+    """Codex integration does not create or modify project Markdown files."""
     monkeypatch.chdir(tmp_path)
     agents_file = tmp_path / "AGENTS.md"
+    cmd_install(_args("codex", str(tmp_path)))
+    assert not agents_file.exists()
+
     agents_file.write_text("# Project instructions\n")
 
     cmd_install(_args("codex", str(tmp_path)))
-    cmd_install(_args("codex", str(tmp_path)))
 
     contents = agents_file.read_text()
-    assert contents.count("<!-- loom:context-protocol:start -->") == 1
-    assert "loom context" in contents
-    assert "write_context" in contents
-    assert "loom write" not in contents
+    assert contents == "# Project instructions\n"
+    assert not (tmp_path / ".claude" / "commands" / "loom.md").exists()

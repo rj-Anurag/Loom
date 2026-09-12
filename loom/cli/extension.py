@@ -101,7 +101,7 @@ def install_extension(
     google_client_id: str,
     force: bool = False,
 ) -> ExtensionInstallResult:
-    """Install a configured extension, preserving recognized prior installs."""
+    """Install a configured extension, replacing recognized prior installs."""
     normalized_url = normalize_api_url(api_url)
     destination = _absolute_path(destination)
     if destination.is_symlink():
@@ -133,6 +133,9 @@ def install_extension(
             backup_path = _next_backup_path(destination)
             os.replace(destination, backup_path)
         os.replace(staged_path, destination)
+        if backup_path is not None:
+            shutil.rmtree(backup_path)
+            backup_path = None
     except Exception:
         if backup_path is not None and not os.path.lexists(destination):
             os.replace(backup_path, destination)

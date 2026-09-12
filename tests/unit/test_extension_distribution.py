@@ -88,7 +88,7 @@ def test_install_extension_refuses_overwrite_without_force(tmp_path: Path) -> No
     assert (destination / "keep.txt").read_text(encoding="utf-8") == "user data"
 
 
-def test_force_install_preserves_existing_directory_as_backup(tmp_path: Path) -> None:
+def test_force_install_replaces_existing_directory_without_leaving_backup(tmp_path: Path) -> None:
     destination = tmp_path / "installed-extension"
     destination.mkdir()
     (destination / "keep.txt").write_text("recoverable", encoding="utf-8")
@@ -104,10 +104,10 @@ def test_force_install_preserves_existing_directory_as_backup(tmp_path: Path) ->
         force=True,
     )
 
-    assert result.backup_path is not None
-    assert result.backup_path.is_dir()
-    assert (result.backup_path / "keep.txt").read_text(encoding="utf-8") == "recoverable"
+    assert result.backup_path is None
+    assert not (destination / "keep.txt").exists()
     assert (destination / "manifest.json").is_file()
+    assert list(tmp_path.glob("installed-extension.backup-*")) == []
 
 
 def test_force_install_refuses_a_symbolic_link_destination(tmp_path: Path) -> None:

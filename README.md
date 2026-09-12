@@ -194,8 +194,8 @@ The dashboard reads the complete paginated history instead of the token-limited
 agent retrieval view.
 
 To reconfigure an existing install for another Loom server, repeat the install
-with `--force`. Loom validates the server URL, updates Chrome's host permission,
-and preserves the old extension directory as a backup:
+with `--force`. Loom validates the server URL, replaces the existing extension
+directory with the latest version, and updates Chrome's host permission:
 
 ```bash
 loom extension install --api-url https://loom.example.com --force
@@ -223,7 +223,6 @@ contains a non-working OAuth placeholder.
 
 - `.mcp.json` — project-local Loom MCP server; it can read Loom's private
   user-level project configuration when environment variables are absent
-- `.claude/commands/loom.md` — the exact `/loom` command
 
 After `loom login` and `loom init`, start Claude Code normally:
 
@@ -231,22 +230,14 @@ After `loom login` and `loom init`, start Claude Code normally:
 claude
 ```
 
-Then run:
-
-```text
-/loom implement the authentication flow
-```
-
-Claude calls Loom's `read_context` tool before work and records durable outcomes
-through `write_context` at handoff. Claude may display the MCP prompt itself as
-`/mcp__loom__loom`; the installed project command provides the shorter `/loom`.
+Claude can call Loom's `read_context` and `write_context` MCP tools. Loom does
+not create project-local Markdown commands or instruction files.
 
 ## Codex
 
-`loom init --install all` adds an idempotent Loom context protocol to
-`AGENTS.md`. Loom's MCP process reads the active server and credentials from
-`~/.loom/projects.json`, so no repository secret is required. Register it once
-with:
+Loom does not create or modify `AGENTS.md`. Its MCP process reads the active
+server and credentials from `~/.loom/projects.json`, so no repository secret is
+required. Register it once with:
 
 ```bash
 codex mcp add loom -- loom mcp
@@ -257,9 +248,7 @@ as compatibility overrides for CI or tools that cannot read the user-level
 config.
 
 Start Codex in the project and ask it to use Loom context for the task. Codex
-supports the MCP tools and repository `AGENTS.md` protocol; unlike Claude Code,
-it does not currently use Loom's project file as an exact custom `/loom`
-command.
+can use the registered MCP tools without a generated project instruction file.
 
 ## End-to-end test flow
 
@@ -507,7 +496,7 @@ those platform-specific resources before calling any deployment production.
 Browser AI chat ── Chrome extension ──┐
                                       ├─ FastAPI ─ PostgreSQL/pgvector
 Claude Code ───── MCP + /loom ────────┤      │
-Codex ─────────── MCP + AGENTS.md ────┘      └─ Redis workers/presence
+Codex ─────────────── MCP ────────────┘      └─ Redis workers/presence
                                                     │
                                              Project dashboard
 ```
