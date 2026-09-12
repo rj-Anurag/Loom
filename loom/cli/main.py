@@ -488,7 +488,8 @@ def cmd_login(args: argparse.Namespace) -> None:
             else google_login(url)
         )
     except OAuthLoginError as exc:
-        raise RuntimeError(str(exc)) from exc
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
     save_account(url, data["session_token"])
     user = data["user"]
     projects = data.get("projects", [])

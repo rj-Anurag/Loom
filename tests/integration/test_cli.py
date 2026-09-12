@@ -396,6 +396,24 @@ class TestCLIGoogleLogin:
         with pytest.raises(OAuthLoginError, match="does not expose Google login"):
             google_login("http://test", timeout_seconds=1)
 
+    def test_login_reports_oauth_errors_without_traceback(
+        self, monkeypatch, capsys
+    ) -> None:
+        import loom.cli.main as cli
+
+        def failed_login(_url: str):
+            raise cli.OAuthLoginError("Google login is unavailable")
+
+        monkeypatch.setenv("LOOM_API_URL", "http://test")
+        monkeypatch.setattr(cli, "google_login", failed_login)
+
+        args = cli.build_parser().parse_args(["login", "--install", "none"])
+        with pytest.raises(SystemExit) as exc_info:
+            cli.cmd_login(args)
+
+        assert exc_info.value.code == 1
+        assert capsys.readouterr().err == "Error: Google login is unavailable\n"
+
     def test_google_login_saves_only_account_session(self, monkeypatch, tmp_path) -> None:
         import loom.cli.main as cli
 
