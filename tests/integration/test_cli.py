@@ -379,6 +379,23 @@ class TestCLIInit:
 
 
 class TestCLIGoogleLogin:
+    def test_google_login_reports_missing_server_route(self, monkeypatch) -> None:
+        import httpx
+
+        from loom.cli.oauth import OAuthLoginError, google_login
+
+        def missing_config(url: str, **_kwargs):
+            return httpx.Response(
+                404,
+                json={"detail": "Not Found"},
+                request=httpx.Request("GET", url),
+            )
+
+        monkeypatch.setattr(httpx, "get", missing_config)
+
+        with pytest.raises(OAuthLoginError, match="does not expose Google login"):
+            google_login("http://test", timeout_seconds=1)
+
     def test_google_login_saves_only_account_session(self, monkeypatch, tmp_path) -> None:
         import loom.cli.main as cli
 

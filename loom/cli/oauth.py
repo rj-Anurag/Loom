@@ -134,13 +134,25 @@ def _pkce_pair() -> tuple[str, str]:
 
 
 def google_login(api_url: str, *, timeout_seconds: int = 180) -> dict[str, Any]:
-    config_response = httpx.get(
-        f"{api_url}/v1/auth/google/config",
-        params={"client_kind": "cli"},
-        timeout=30,
-    )
-    config_response.raise_for_status()
-    config = cast(dict[str, Any], config_response.json())
+    try:
+        config_response = httpx.get(
+            f"{api_url}/v1/auth/google/config",
+            params={"client_kind": "cli"},
+            timeout=30,
+        )
+        config_response.raise_for_status()
+        config = cast(dict[str, Any], config_response.json())
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise OAuthLoginError(
+                "This Loom server does not expose Google login. "
+                "Restart or update the API server, then run `loom login` again."
+            ) from exc
+        raise OAuthLoginError(
+            f"Could not load Google login config: HTTP {exc.response.status_code}"
+        ) from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        raise OAuthLoginError(f"Could not load Google login config: {exc}") from exc
     if not config.get("enabled") or not config.get("client_id"):
         raise OAuthLoginError(
             "Google login is not configured on this Loom server. "
