@@ -2,29 +2,24 @@
 
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from loom.api.main import app
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_public_pages_use_the_exaggerated_minimalism_design_system() -> None:
-    client = TestClient(app)
+    frontend = ROOT / "frontend"
+    source_files = list((frontend / "src").rglob("*"))
 
-    for path, page_class in (
-        ("/", "account-page"),
-        ("/v1/projects/example/dashboard", "dashboard-page"),
-    ):
-        response = client.get(path)
-        assert response.status_code == 200
-        assert "/static/shared/product.css" in response.text
-        assert f'class="{page_class}"' in response.text
+    assert not list((frontend / "src").rglob("*.html"))
+    assert not list((frontend / "src").rglob("*.css"))
+    assert any(path.name == "page.tsx" for path in source_files)
+    assert 'from "@mui/material/Card"' in (
+        frontend / "src/components/account-app.tsx"
+    ).read_text()
 
-    stylesheet = (ROOT / "loom/web/shared/product.css").read_text()
-    assert "--loom-violet" in stylesheet
-    assert "prefers-reduced-motion" in stylesheet
-    assert ":focus-visible" in stylesheet
+    theme = (frontend / "src/theme.ts").read_text()
+    assert 'main: "#8b5cf6"' in theme
+    assert "prefers-reduced-motion" in theme
+    assert "focus-visible" in theme
 
 
 def test_extension_uses_one_packaged_visual_system() -> None:

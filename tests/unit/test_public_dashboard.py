@@ -3,36 +3,45 @@
 from fastapi.testclient import TestClient
 
 from loom.api.main import app
+from loom.config import settings
 
 
 def test_public_dashboard_serves_self_service_onboarding() -> None:
-    response = TestClient(app).get("/")
+    response = TestClient(app).get("/", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Continue to Loom" in response.text
-    assert "/v1/auth/google/config" in response.text
-    assert "/v1/auth/google/exchange" in response.text
-    assert "/v1/auth/signup" not in response.text
-    assert "loom init &quot;My Project&quot;" in response.text
+    assert response.status_code == 307
+    assert response.headers["location"] == "http://127.0.0.1:3000/"
 
 
 def test_dashboard_alias_serves_public_account_app() -> None:
-    response = TestClient(app).get("/v1/dashboard")
+    response = TestClient(app).get("/v1/dashboard", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Your projects" in response.text
-    assert "Project context" in response.text
-    assert "/chats" in response.text
-    assert 'id="profile-button"' in response.text
-    assert "loom_session_token" not in response.text
-    assert "/v1/auth/dashboard-session/consume" in response.text
-    assert "window.history.replaceState" in response.text
-    assert "localStorage" not in response.text
-    assert "params.get('session')" not in response.text
+    assert response.status_code == 307
+    assert response.headers["location"] == "http://127.0.0.1:3000/v1/dashboard"
 
 
 def test_legacy_dashboard_alias_serves_public_account_app() -> None:
-    response = TestClient(app).get("/dashboard")
+    response = TestClient(app).get("/dashboard", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Your projects" in response.text
+    assert response.status_code == 307
+    assert response.headers["location"] == "http://127.0.0.1:3000/dashboard"
+
+
+def test_project_dashboard_redirects_to_framework_route() -> None:
+    response = TestClient(app).get(
+        "/v1/projects/example/dashboard",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == (
+        "http://127.0.0.1:3000/v1/projects/example/dashboard"
+    )
+
+
+def test_managed_frontend_hostname_uses_https(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "frontend_host", "loom-frontend.example")
+
+    response = TestClient(app).get("/", follow_redirects=False)
+
+    assert response.headers["location"] == "https://loom-frontend.example/"

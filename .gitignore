@@ -7,6 +7,10 @@ __pycache__/
 .eggs/
 dist/
 build/
+frontend/.next/
+frontend/node_modules/
+frontend/*.tsbuildinfo
+.vercel/
 pip-wheel-metadata/
 .python-version
 

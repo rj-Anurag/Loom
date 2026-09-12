@@ -3,13 +3,11 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 
 import redis.asyncio as redis_async
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,10 +23,16 @@ from loom.api.routers import (
     projects,
     tasks,
 )
+from loom.config import settings
 from loom.db import get_session
 
 logger = logging.getLogger(__name__)
-WEB_ROOT = Path(__file__).resolve().parents[1] / "web"
+
+
+def _frontend_origin() -> str:
+    if settings.frontend_host:
+        return f"https://{settings.frontend_host.strip().rstrip('/')}"
+    return settings.frontend_url.rstrip("/")
 
 
 @asynccontextmanager
@@ -146,14 +150,19 @@ app.include_router(extension.router, tags=["extension"])
 app.include_router(branches.router, prefix="/v1/projects", tags=["branches"])
 app.include_router(tasks.router, prefix="/v1/projects", tags=["tasks"])
 
-app.mount("/static", StaticFiles(directory=str(WEB_ROOT)), name="static")
-
-
 @app.get("/")
+async def public_dashboard() -> RedirectResponse:
+    return RedirectResponse(_frontend_origin() + "/", status_code=307)
+
+
 @app.get("/dashboard")
+async def dashboard_alias() -> RedirectResponse:
+    return RedirectResponse(_frontend_origin() + "/dashboard", status_code=307)
+
+
 @app.get("/v1/dashboard")
-async def public_dashboard() -> FileResponse:
-    return FileResponse(WEB_ROOT / "account.html")
+async def versioned_dashboard_alias() -> RedirectResponse:
+    return RedirectResponse(_frontend_origin() + "/v1/dashboard", status_code=307)
 
 
 @app.get("/health")
@@ -194,5 +203,8 @@ async def readiness(
 
 
 @app.get("/v1/projects/{project_id}/dashboard")
-async def project_dashboard(project_id: str) -> FileResponse:
-    return FileResponse(WEB_ROOT / "dashboard.html")
+async def project_dashboard(project_id: str) -> RedirectResponse:
+    return RedirectResponse(
+        _frontend_origin() + f"/v1/projects/{project_id}/dashboard",
+        status_code=307,
+    )

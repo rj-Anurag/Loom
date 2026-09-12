@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     redis_socket_timeout_seconds: float = 5.0
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    frontend_url: str = "http://127.0.0.1:3000"
+    """Public origin of the Next.js frontend."""
+    frontend_host: str = ""
+    """Optional public hostname supplied by managed deployment platforms."""
     environment: str = "development"
     bootstrap_token: str = ""
     """Operator secret required by first-run setup outside development."""

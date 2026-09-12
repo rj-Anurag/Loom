@@ -20,6 +20,8 @@ services:
         value: production
       - key: API_HOST
         value: 0.0.0.0
+      - key: FRONTEND_URL
+        value: https://loom-frontend.vercel.app
       - key: EMBEDDING_PROVIDER
         value: stub
       - key: SUMMARIZATION_PROVIDER

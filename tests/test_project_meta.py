@@ -20,8 +20,7 @@ def test_runtime_assets_are_included_in_distribution():
         data = tomllib.load(f)
 
     package_data = data["tool"]["setuptools"]["package-data"]["loom"]
-    assert "web/**/*.html" in package_data
-    assert "web/**/*.css" in package_data
+    assert not any(asset.startswith("web/") for asset in package_data)
     assert "services/context/migrations/*.sql" in package_data
 
 
