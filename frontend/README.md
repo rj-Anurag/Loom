@@ -20,4 +20,5 @@ Production builds use `npm run build` and Next.js standalone output. The
 production Compose topology can provision the frontend as a separate service.
 The hosted frontend is deployed to Vercel and proxies API requests to
 `https://loom-api-zzy0.onrender.com` unless `LOOM_API_INTERNAL_URL` overrides
-that origin.
+that origin. The production frontend is available at
+`https://loom-frontend-anurags-projects-cc627272.vercel.app`.

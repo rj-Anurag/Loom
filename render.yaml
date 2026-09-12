@@ -21,7 +21,7 @@ services:
       - key: API_HOST
         value: 0.0.0.0
       - key: FRONTEND_URL
-        value: https://loom-frontend.vercel.app
+        value: https://loom-frontend-anurags-projects-cc627272.vercel.app
       - key: EMBEDDING_PROVIDER
         value: stub
       - key: SUMMARIZATION_PROVIDER
