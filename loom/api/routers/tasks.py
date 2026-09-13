@@ -12,23 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.api.auth import AuthContext, require_auth
+from loom.api.auth import AuthContext, require_project_agent
 from loom.db import get_session
-from loom.models import Agent, Task
+from loom.models import Task
 from loom.services.coordination import CoordinationService
 
 router = APIRouter()
-
-
-async def _verify_project_access(
-    session: AsyncSession,
-    project_id: uuid.UUID,
-    agent_id: uuid.UUID,
-) -> None:
-    """Verify the agent belongs to the project. Raises 404 if not."""
-    agent = await session.get(Agent, agent_id)
-    if agent is None or agent.project_id != project_id:
-        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
 
 
 class CreateTaskRequest(BaseModel):
@@ -80,11 +69,10 @@ class TaskResponse(BaseModel):
 async def create_task_endpoint(
     project_id: uuid.UUID,
     body: CreateTaskRequest,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> TaskResponse:
     """Create a new task."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     try:
         task = await svc.create_task(
@@ -112,11 +100,10 @@ async def create_task_endpoint(
 async def list_tasks_endpoint(
     project_id: uuid.UUID,
     status: str | None = None,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> list[TaskResponse]:
     """List tasks for a project, optionally filtered by status."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     tasks = await svc.list_tasks(project_id, status=status)
     return [_task_to_response(t) for t in tasks]
@@ -134,11 +121,10 @@ async def list_tasks_endpoint(
 async def get_task_endpoint(
     project_id: uuid.UUID,
     task_id: uuid.UUID,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> TaskResponse:
     """Get a single task by ID."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     task = await svc.get_task(task_id)
     if task is None or task.project_id != project_id:
@@ -160,11 +146,10 @@ async def assign_task_endpoint(
     project_id: uuid.UUID,
     task_id: uuid.UUID,
     body: AssignTaskRequest,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> TaskResponse:
     """Assign a task to an agent."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     existing_task = await svc.get_task(task_id)
     if existing_task is None or existing_task.project_id != project_id:
@@ -199,11 +184,10 @@ async def start_task_endpoint(
     project_id: uuid.UUID,
     task_id: uuid.UUID,
     body: StartTaskRequest,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> TaskResponse:
     """Start work on a task, optionally linking a branch."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     existing_task = await svc.get_task(task_id)
     if existing_task is None or existing_task.project_id != project_id:
@@ -235,11 +219,10 @@ async def start_task_endpoint(
 async def complete_task_endpoint(
     project_id: uuid.UUID,
     task_id: uuid.UUID,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> TaskResponse:
     """Mark a task as completed."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     existing_task = await svc.get_task(task_id)
     if existing_task is None or existing_task.project_id != project_id:
@@ -268,11 +251,10 @@ async def complete_task_endpoint(
 async def fail_task_endpoint(
     project_id: uuid.UUID,
     task_id: uuid.UUID,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> TaskResponse:
     """Mark a task as failed."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     existing_task = await svc.get_task(task_id)
     if existing_task is None or existing_task.project_id != project_id:

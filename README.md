@@ -314,6 +314,8 @@ pytest -q tests/integration/test_cli.py tests/integration/test_mcp_server.py
 The complete local template is [.env.example](.env.example). Important values:
 
 - `DATABASE_URL`, `REDIS_URL` — required infrastructure
+- `CORS_ALLOWED_ORIGINS` — comma-separated browser-origin allowlist; defaults
+  to the configured frontend origin
 - `EMBEDDING_PROVIDER` — `stub`, `openai`, or `local`
 - `OPENAI_API_KEY` — required only for OpenAI embeddings
 - `SUMMARIZATION_PROVIDER` — `stub` or `groq`

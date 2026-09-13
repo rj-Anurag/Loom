@@ -1,13 +1,14 @@
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 import redis.asyncio as redis_async
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +36,31 @@ def _frontend_origin() -> str:
     return settings.frontend_url.rstrip("/")
 
 
+def _cors_origins() -> list[str]:
+    return list(settings.browser_origins)
+
+
+def validate_security_config() -> None:
+    """Fail startup when browser/auth settings are unsafe or malformed."""
+
+    for origin in settings.browser_origins:
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise RuntimeError(f"Invalid browser origin: {origin!r}")
+        if settings.environment == "production" and parsed.scheme != "https":
+            raise RuntimeError("Production browser origins must use HTTPS")
+    if settings.environment == "production" and settings.allow_legacy_uuid_tokens:
+        raise RuntimeError("Legacy UUID credentials must be disabled in production")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Lifespan handler for startup/shutdown events.
@@ -42,6 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Starts a background task that periodically sweeps for offline agents
     and emits ``agent_offline`` events.
     """
+    validate_security_config()
     try:
         sweep_task = asyncio.create_task(_periodic_offline_sweep())
         yield
@@ -92,7 +119,7 @@ async def _periodic_offline_sweep() -> None:
                     for key, data in zip(keys, results):
                         if data:
                             key_text = key.decode() if isinstance(key, bytes) else key
-                            agent_id = key_text[len(PRESENCE_KEY_PREFIX):]
+                            agent_id = key_text[len(PRESENCE_KEY_PREFIX) :]
                             raw_pid = data.get("project_id", "")
                             pid = raw_pid.decode() if isinstance(raw_pid, bytes) else raw_pid
                             if pid:
@@ -122,8 +149,7 @@ async def _periodic_offline_sweep() -> None:
 app = FastAPI(
     title="Loom API",
     description=(
-        "Loom context server — bridges browser AI chats and"
-        " CLI agents into a shared context store"
+        "Loom context server — bridges browser AI chats and CLI agents into a shared context store"
     ),
     version="0.1.0",
     lifespan=lifespan,
@@ -131,14 +157,34 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    # Bearer authentication does not require browser credentials/cookies.
-    # Keep origins configurable at the reverse-proxy level without combining
-    # wildcard origins with credentialed CORS.
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=_cors_origins(),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    """Apply browser hardening and prevent authentication response caching."""
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.url.path.startswith("/v1/auth"):
+        response.headers["Cache-Control"] = "no-store"
+    if settings.environment == "production":
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+    return response
+
 
 app.include_router(context.router, prefix="/v1/projects", tags=["context"])
 app.include_router(auth.router, tags=["auth"])
@@ -149,6 +195,7 @@ app.include_router(projects.router, prefix="/v1/projects", tags=["projects"])
 app.include_router(extension.router, tags=["extension"])
 app.include_router(branches.router, prefix="/v1/projects", tags=["branches"])
 app.include_router(tasks.router, prefix="/v1/projects", tags=["tasks"])
+
 
 @app.get("/")
 async def public_dashboard() -> RedirectResponse:

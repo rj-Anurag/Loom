@@ -14,14 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from loom.config import settings
 from loom.models import Agent, Project, ProjectMembership, User, UserSession
 from loom.security import (
-    generate_api_key,
     generate_session_token,
-    hash_api_key,
     hash_password,
     hash_session_token,
     password_hash_needs_upgrade,
     verify_password,
 )
+from loom.services.accounts.credentials import issue_agent_credential
 from loom.services.accounts.google import GoogleIdentity
 
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -69,13 +68,15 @@ async def _new_session(
     session: AsyncSession,
     user: User,
     client_kind: str,
+    *,
+    lifetime: timedelta | None = None,
 ) -> tuple[UserSession, str]:
     raw_token = generate_session_token()
     user_session = UserSession(
         user_id=user.id,
         token_hash=hash_session_token(raw_token),
         client_kind=client_kind,
-        expires_at=datetime.now(UTC) + timedelta(days=settings.user_session_ttl_days),
+        expires_at=datetime.now(UTC) + (lifetime or timedelta(days=settings.user_session_ttl_days)),
     )
     session.add(user_session)
     await session.flush()
@@ -87,38 +88,59 @@ async def issue_user_session(
     *,
     user_id: uuid.UUID,
     client_kind: str,
+    lifetime: timedelta | None = None,
 ) -> tuple[UserSession, str]:
     """Issue another session for an already-authenticated user."""
 
     user = await session.get(User, user_id)
     if user is None or user.disabled_at is not None:
         raise AccountError("INVALID_CREDENTIALS")
-    user_session, raw_session_token = await _new_session(session, user, client_kind)
+    user_session, raw_session_token = await _new_session(
+        session,
+        user,
+        client_kind,
+        lifetime=lifetime,
+    )
     await session.commit()
     return user_session, raw_session_token
 
 
-async def _new_agent(
+async def exchange_user_session(
     session: AsyncSession,
-    project_id: uuid.UUID,
     *,
-    kind: str,
-    name: str,
-    created_by_user_id: uuid.UUID,
-) -> tuple[Agent, str]:
-    raw_key = generate_api_key()
-    agent = Agent(
-        project_id=project_id,
-        kind=kind,
-        name=name,
-        created_by_user_id=created_by_user_id,
-        credentials_ref=hash_api_key(raw_key),
-        key_hint=raw_key[-8:],
-        expires_at=datetime.now(UTC) + timedelta(days=settings.agent_key_ttl_days),
-    )
-    session.add(agent)
-    await session.flush()
-    return agent, raw_key
+    token: str,
+    expected_client_kind: str,
+    new_client_kind: str,
+) -> str:
+    """Atomically consume one session and replace it with a fresh session.
+
+    This is used for browser handoffs so a token exposed to client-side URL
+    handling is never retained as the long-lived cookie credential.
+    """
+
+    now = datetime.now(UTC)
+    row = (
+        await session.execute(
+            select(UserSession, User)
+            .join(User, User.id == UserSession.user_id)
+            .where(UserSession.token_hash == hash_session_token(token))
+            .with_for_update()
+        )
+    ).one_or_none()
+    if row is None:
+        raise AccountError("INVALID_SESSION_HANDOFF")
+    old_session, user = row
+    if (
+        old_session.client_kind != expected_client_kind
+        or old_session.revoked_at is not None
+        or old_session.expires_at <= now
+        or user.disabled_at is not None
+    ):
+        raise AccountError("INVALID_SESSION_HANDOFF")
+    old_session.revoked_at = now
+    _, replacement_token = await _new_session(session, user, new_client_kind)
+    await session.commit()
+    return replacement_token
 
 
 async def login(
@@ -142,9 +164,7 @@ async def login(
         await session.execute(select(User).where(User.email == normalized_email))
     ).scalar_one_or_none()
     password_hash = (
-        user.password_hash
-        if user is not None and user.password_hash
-        else _DUMMY_PASSWORD_HASH
+        user.password_hash if user is not None and user.password_hash else _DUMMY_PASSWORD_HASH
     )
     password_valid = verify_password(password, password_hash)
     if user is None or not password_valid or user.disabled_at is not None:
@@ -270,9 +290,9 @@ async def create_user_project(
     session.add(project)
     await session.flush()
     session.add(ProjectMembership(project_id=project.id, user_id=user_id, role="owner"))
-    agent, raw_api_key = await _new_agent(
+    agent, raw_api_key = await issue_agent_credential(
         session,
-        project.id,
+        project_id=project.id,
         kind=_agent_kind(client_kind),
         name=client_name.strip(),
         created_by_user_id=user_id,
@@ -300,9 +320,9 @@ async def provision_agent(
         raise AccountError("PROJECT_NOT_FOUND")
     if membership.role not in {"owner", "admin"}:
         raise AccountError("INSUFFICIENT_ROLE")
-    agent, raw_key = await _new_agent(
+    agent, raw_key = await issue_agent_credential(
         session,
-        project_id,
+        project_id=project_id,
         kind=kind,
         name=name,
         created_by_user_id=user_id,

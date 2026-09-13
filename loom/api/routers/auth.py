@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import timedelta
 from typing import Any, Literal
 
 import redis.asyncio as redis_async
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.api.auth import UserAuthContext, require_user_auth
@@ -17,7 +16,6 @@ from loom.api.dependencies import get_redis
 from loom.config import settings
 from loom.db import get_session
 from loom.models import User, UserSession
-from loom.security import hash_session_token
 from loom.services.accounts.google import (
     GOOGLE_AUTHORIZATION_ENDPOINT,
     GOOGLE_SCOPES,
@@ -32,6 +30,7 @@ from loom.services.accounts.rate_limit import (
 )
 from loom.services.accounts.service import (
     AccountError,
+    exchange_user_session,
     google_login,
     issue_user_session,
     list_user_projects,
@@ -181,29 +180,34 @@ async def google_exchange_endpoint(
 
 @router.post("/dashboard-session")
 async def create_dashboard_session_endpoint(
+    response: Response,
     auth: UserAuthContext = Depends(require_user_auth),
     session: AsyncSession = Depends(get_session),
 ) -> DashboardSessionResponse:
     """Create a browser dashboard session from an authenticated extension session."""
 
-    _, token = await issue_user_session(session, user_id=auth.user_id, client_kind="web")
+    if auth.client_kind != "extension":
+        raise HTTPException(status_code=403, detail="DASHBOARD_HANDOFF_NOT_ALLOWED")
+    _, token = await issue_user_session(
+        session,
+        user_id=auth.user_id,
+        client_kind="web",
+        lifetime=timedelta(minutes=5),
+    )
+    response.headers["Cache-Control"] = "no-store"
     return DashboardSessionResponse(path=f"/v1/dashboard#handoff={token}")
 
 
-async def _dashboard_session(token: str, session: AsyncSession) -> UserSession:
-    user_session = (
-        await session.execute(
-            select(UserSession).where(UserSession.token_hash == hash_session_token(token))
+async def _consume_dashboard_session(token: str, session: AsyncSession) -> str:
+    try:
+        return await exchange_user_session(
+            session,
+            token=token,
+            expected_client_kind="web",
+            new_client_kind="web",
         )
-    ).scalar_one_or_none()
-    if (
-        user_session is None
-        or user_session.client_kind != "web"
-        or user_session.revoked_at is not None
-        or user_session.expires_at <= datetime.now(UTC)
-    ):
-        raise HTTPException(status_code=401, detail="Invalid dashboard session")
-    return user_session
+    except AccountError as exc:
+        raise HTTPException(status_code=401, detail="Invalid dashboard session") from exc
 
 
 @router.post("/dashboard-session/consume", status_code=204)
@@ -214,8 +218,8 @@ async def consume_dashboard_session_cookie_endpoint(
 ) -> None:
     """Exchange a dashboard fragment token for a first-party browser cookie."""
 
-    await _dashboard_session(body.token, session)
-    _set_web_session_cookie(response, body.token, "web")
+    cookie_token = await _consume_dashboard_session(body.token, session)
+    _set_web_session_cookie(response, cookie_token, "web")
     response.headers["Cache-Control"] = "no-store"
 
 
@@ -226,9 +230,9 @@ async def consume_dashboard_session_endpoint(
 ) -> RedirectResponse:
     """Set the dashboard cookie, then leave the handoff URL behind."""
 
-    await _dashboard_session(token, session)
+    cookie_token = await _consume_dashboard_session(token, session)
     redirect = RedirectResponse(url="/v1/dashboard", status_code=303)
-    _set_web_session_cookie(redirect, token, "web")
+    _set_web_session_cookie(redirect, cookie_token, "web")
     redirect.headers["Cache-Control"] = "no-store"
     return redirect
 
@@ -297,4 +301,10 @@ async def logout_endpoint(
     user_session = await session.get(UserSession, auth.session_id)
     if user_session is not None:
         await revoke_session(session, user_session)
-    response.delete_cookie("loom_session", path="/", samesite="lax")
+    response.delete_cookie(
+        "loom_session",
+        path="/",
+        secure=settings.environment == "production",
+        httponly=True,
+        samesite="lax",
+    )

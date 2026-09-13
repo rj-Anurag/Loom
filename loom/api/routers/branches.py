@@ -13,26 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.api.auth import AuthContext, require_auth
+from loom.api.auth import AuthContext, require_project_agent
 from loom.db import get_session
-from loom.models import Agent
 from loom.services.coordination import CoordinationService
 
 router = APIRouter()
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-
-async def _verify_project_access(
-    session: AsyncSession,
-    project_id: uuid.UUID,
-    agent_id: uuid.UUID,
-) -> None:
-    """Verify the agent belongs to the project. Raises 404 if not."""
-    agent = await session.get(Agent, agent_id)
-    if agent is None or agent.project_id != project_id:
-        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -67,11 +52,10 @@ class MergeBranchResponse(BaseModel):
 async def create_branch_endpoint(
     project_id: uuid.UUID,
     body: CreateBranchRequest,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Create a new branch for a project."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     from loom.services.retrieval.queue import get_redis
 
     redis = None
@@ -119,11 +103,10 @@ async def create_branch_endpoint(
 async def list_branches_endpoint(
     project_id: uuid.UUID,
     status: str | None = None,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """List branches for a project, optionally filtered by status."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     try:
         branches = await svc.list_branches(project_id, status=status)
@@ -157,11 +140,10 @@ async def list_branches_endpoint(
 async def get_branch_endpoint(
     project_id: uuid.UUID,
     branch_id: uuid.UUID,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Get a single branch by ID."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     svc = CoordinationService(session)
     branch = await svc.get_branch(branch_id)
     if branch is None or branch.project_id != project_id:
@@ -194,11 +176,10 @@ async def get_branch_endpoint(
 async def merge_branch_endpoint(
     project_id: uuid.UUID,
     branch_id: uuid.UUID,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> MergeBranchResponse:
     """Merge a branch into main."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     from loom.services.retrieval.queue import get_redis
 
     redis = None

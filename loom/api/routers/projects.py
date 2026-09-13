@@ -21,10 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from loom.api.auth import (
     AuthContext,
     PrincipalContext,
-    UserAuthContext,
-    require_auth,
+    ProjectAuthorization,
     require_principal,
-    require_user_auth,
+    require_project_agent,
+    require_project_member,
+    require_project_principal,
 )
 from loom.api.dependencies import get_redis
 from loom.config import settings
@@ -37,7 +38,6 @@ from loom.services.accounts.rate_limit import (
 )
 from loom.services.accounts.service import (
     create_user_project,
-    get_membership,
     list_user_projects,
 )
 from loom.services.context.service import list_context_history
@@ -87,20 +87,6 @@ class LinkChatResponse(BaseModel):
     platform: str
     linked_at: str
     api_key: str = ""
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-
-async def _verify_project_access(
-    session: AsyncSession,
-    project_id: uuid.UUID,
-    agent_id: uuid.UUID,
-) -> None:
-    """Verify the agent belongs to the project. Raises 404 if not."""
-    agent = await session.get(Agent, agent_id)
-    if agent is None or agent.project_id != project_id:
-        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -200,12 +186,11 @@ async def create_project_endpoint(
 async def link_chat_endpoint(
     project_id: uuid.UUID,
     body: LinkChatRequest,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Link a chat URL to a project.  Idempotent: sending the same
     ``chat_url`` twice returns the same link."""
-    await _verify_project_access(session, project_id, auth.agent_id)
     try:
         return await link_chat(
             session,
@@ -234,18 +219,11 @@ async def link_chat_endpoint(
 )
 async def list_project_chats_endpoint(
     project_id: uuid.UUID,
-    auth: PrincipalContext = Depends(require_principal),
+    auth: PrincipalContext = Depends(require_project_principal),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """List linked chats for an authorized project member or agent."""
 
-    if auth.kind == "user":
-        assert auth.user_id is not None
-        if await get_membership(session, auth.user_id, project_id) is None:
-            raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
-    else:
-        assert auth.agent_id is not None
-        await _verify_project_access(session, project_id, auth.agent_id)
     return await list_chat_links(session, project_id)
 
 
@@ -259,17 +237,10 @@ async def list_project_chats_endpoint(
 )
 async def get_project_endpoint(
     project_id: uuid.UUID,
-    auth: PrincipalContext = Depends(require_principal),
+    auth: PrincipalContext = Depends(require_project_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Get a single project by ID."""
-    if auth.kind == "user":
-        assert auth.user_id is not None
-        if await get_membership(session, auth.user_id, project_id) is None:
-            raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
-    else:
-        assert auth.agent_id is not None
-        await _verify_project_access(session, project_id, auth.agent_id)
     try:
         return await get_project(session, project_id)
     except ValueError as exc:
@@ -284,13 +255,11 @@ async def get_account_project_history(
     project_id: uuid.UUID,
     limit: int = Query(100, ge=1, le=200),
     cursor: str | None = Query(None, max_length=512),
-    auth: UserAuthContext = Depends(require_user_auth),
+    auth: ProjectAuthorization = Depends(require_project_member),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Read complete project history through a human account membership."""
 
-    if await get_membership(session, auth.user_id, project_id) is None:
-        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
     try:
         return await list_context_history(
             session,

@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     """Public origin of the Next.js frontend."""
     frontend_host: str = ""
     """Optional public hostname supplied by managed deployment platforms."""
+    cors_allowed_origins: str = ""
+    """Comma-separated browser origins; defaults to the configured frontend."""
     environment: str = "development"
     bootstrap_token: str = ""
     """Operator secret required by first-run setup outside development."""
@@ -59,6 +61,19 @@ class Settings(BaseSettings):
     @property
     def async_database_url(self) -> str:
         return _as_asyncpg_url(self.database_url)
+
+    @property
+    def browser_origins(self) -> tuple[str, ...]:
+        configured = tuple(
+            origin.strip().rstrip("/")
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        )
+        if configured:
+            return configured
+        if self.frontend_host:
+            return (f"https://{self.frontend_host.strip().rstrip('/')}",)
+        return (self.frontend_url.rstrip("/"),)
 
 
 settings = Settings()

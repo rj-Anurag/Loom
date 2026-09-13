@@ -7,7 +7,11 @@ from types import SimpleNamespace
 import pytest
 
 from loom.config import settings
-from loom.services.accounts.google import GoogleAuthError, verify_google_exchange
+from loom.services.accounts.google import (
+    GoogleAuthError,
+    _identity_from_claims,
+    verify_google_exchange,
+)
 
 
 @pytest.mark.parametrize(
@@ -75,3 +79,27 @@ async def test_cli_exchange_accepts_only_exact_loopback_redirect_shape(
 
     with pytest.raises(GoogleAuthError, match="INVALID_GOOGLE_EXCHANGE"):
         await verify_google_exchange(exchange)
+
+
+def test_google_identity_rejects_oversized_subject() -> None:
+    with pytest.raises(GoogleAuthError, match="GOOGLE_EMAIL_NOT_VERIFIED"):
+        _identity_from_claims(
+            {
+                "sub": "x" * 256,
+                "email": "user@example.com",
+                "email_verified": True,
+            }
+        )
+
+
+def test_google_identity_bounds_display_name_for_storage() -> None:
+    identity = _identity_from_claims(
+        {
+            "sub": "google-subject",
+            "email": "user@example.com",
+            "email_verified": True,
+            "name": "x" * 500,
+        }
+    )
+
+    assert len(identity.display_name) == 255

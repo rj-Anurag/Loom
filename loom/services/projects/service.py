@@ -11,8 +11,8 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.models import Agent, ChatLink, ContextUnit, Project
-from loom.security import generate_api_key, hash_api_key
+from loom.models import ChatLink, ContextUnit, Project
+from loom.services.accounts.credentials import issue_agent_credential
 
 
 async def list_projects(
@@ -83,11 +83,12 @@ async def create_project(
     await session.flush()
 
     # Auto-create a browser-kind agent for the extension to use
-    agent = Agent(project_id=project.id, kind=agent_kind, name=agent_name)
-    api_key = generate_api_key()
-    agent.credentials_ref = hash_api_key(api_key)
-    session.add(agent)
-    await session.flush()
+    agent, api_key = await issue_agent_credential(
+        session,
+        project_id=project.id,
+        kind=agent_kind,
+        name=agent_name,
+    )
     await session.refresh(project)
     await session.commit()
 

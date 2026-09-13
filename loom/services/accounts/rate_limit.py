@@ -9,6 +9,14 @@ from redis.exceptions import RedisError
 
 from loom.config import settings
 
+_FIXED_WINDOW_SCRIPT = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count
+"""
+
 
 class RateLimitExceededError(RuntimeError):
     pass
@@ -33,9 +41,12 @@ async def enforce_rate_limit(
     digest = hashlib.sha256(identifier.strip().casefold().encode("utf-8")).hexdigest()
     key = f"loom:rate:{operation}:{digest}"
     try:
-        count = await redis.incr(key)
-        if count == 1:
-            await redis.expire(key, settings.auth_rate_limit_window_seconds)
+        count = await redis.eval(
+            _FIXED_WINDOW_SCRIPT,
+            1,
+            key,
+            settings.auth_rate_limit_window_seconds,
+        )
     except RedisError as exc:
         raise RateLimitUnavailableError from exc
     if count > settings.auth_rate_limit_attempts:

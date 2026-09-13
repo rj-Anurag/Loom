@@ -278,13 +278,58 @@ async def test_extension_session_can_launch_web_dashboard(
     assert authenticated_response.status_code == 200, authenticated_response.text
     assert authenticated_response.json()["display_name"] == "Dashboard User"
 
-    # Keep the redirect endpoint for extension builds released before the
-    # first-party fragment exchange was introduced.
+    # A handoff credential is single-use and cannot be replayed through the
+    # legacy redirect endpoint after the first-party exchange consumes it.
     handoff_path = f"/v1/auth/dashboard-session/{token}"
 
     handoff_response = await client.get(handoff_path, follow_redirects=False)
 
-    assert handoff_response.status_code == 303, handoff_response.text
-    assert handoff_response.headers["location"] == "/v1/dashboard"
-    assert "HttpOnly" in handoff_response.headers["set-cookie"]
-    assert handoff_response.headers["cache-control"] == "no-store"
+    assert handoff_response.status_code == 401, handoff_response.text
+
+
+async def test_dashboard_handoff_requires_an_extension_session(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    cli_auth = await _google_exchange(
+        client,
+        monkeypatch,
+        _identity("cli-handoff"),
+        client_kind="cli",
+    )
+
+    response = await client.post(
+        "/v1/auth/dashboard-session",
+        headers={"Authorization": f"Bearer {cli_auth['session_token']}"},
+    )
+
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "DASHBOARD_HANDOFF_NOT_ALLOWED"
+
+
+async def test_cookie_authenticated_mutation_requires_a_trusted_origin(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    async def fake_verify(_request: object) -> GoogleIdentity:
+        return _identity("csrf-cookie")
+
+    monkeypatch.setattr(settings, "google_oauth_enabled", True)
+    monkeypatch.setattr(auth_router, "verify_google_exchange", fake_verify)
+    login_response = await client.post(
+        "/v1/auth/google/exchange",
+        json={"client_kind": "web", "id_token": "google-token"},
+    )
+    assert login_response.status_code == 200, login_response.text
+
+    rejected = await client.post(
+        "/v1/auth/logout",
+        headers={"Origin": "https://attacker.example"},
+    )
+    assert rejected.status_code == 403, rejected.text
+
+    accepted = await client.post(
+        "/v1/auth/logout",
+        headers={"Origin": settings.browser_origins[0]},
+    )
+    assert accepted.status_code == 204, accepted.text

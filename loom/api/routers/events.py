@@ -12,15 +12,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
-from sqlalchemy import or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from loom.api.auth import authenticate_agent
 from loom.config import settings
 from loom.db import get_session
-from loom.security import hash_api_key
 from loom.services.events.manager import connection_manager
 
 logger = logging.getLogger(__name__)
@@ -48,35 +46,10 @@ async def get_ws_agent(
 
     # Query-token auth remains available only for local compatibility. Public
     # dashboards use authenticated HTTP polling so secrets never enter URLs.
-    from loom.models import Agent
-
-    if token.startswith("loom_"):
-        agent = (
-            await session.execute(
-                select(Agent).where(
-                    Agent.credentials_ref == hash_api_key(token),
-                    Agent.revoked_at.is_(None),
-                    or_(Agent.expires_at.is_(None), Agent.expires_at > datetime.now(UTC)),
-                )
-            )
-        ).scalar_one_or_none()
-    elif settings.allow_legacy_uuid_tokens:
-        try:
-            agent_id = uuid.UUID(token)
-        except ValueError:
-            await websocket.close(code=4001, reason="INVALID_TOKEN")
-            return None
-        agent = await session.get(Agent, agent_id)
-        if agent is not None and (
-            agent.revoked_at is not None
-            or (agent.expires_at is not None and agent.expires_at <= datetime.now(UTC))
-        ):
-            agent = None
-    else:
+    try:
+        agent = await authenticate_agent(token, session)
+    except HTTPException:
         await websocket.close(code=4001, reason="INVALID_TOKEN")
-        return None
-    if agent is None:
-        await websocket.close(code=4001, reason="UNKNOWN_AGENT")
         return None
     agent_id = agent.id
     if agent.project_id != project_id:

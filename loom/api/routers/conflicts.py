@@ -14,22 +14,11 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.api.auth import AuthContext, require_auth
+from loom.api.auth import AuthContext, require_project_agent
 from loom.db import get_session
-from loom.models import Agent, ContextUnit, PendingBranch
+from loom.models import ContextUnit, PendingBranch
 
 router = APIRouter()
-
-
-async def _verify_project_access(
-    session: AsyncSession,
-    project_id: uuid.UUID,
-    agent_id: uuid.UUID,
-) -> None:
-    """Verify the agent belongs to the project. Raises 404 if not."""
-    agent = await session.get(Agent, agent_id)
-    if agent is None or agent.project_id != project_id:
-        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
 
 
 class ResolveConflictRequest(BaseModel):
@@ -47,26 +36,29 @@ class ResolveConflictRequest(BaseModel):
 )
 async def list_conflicts(
     project_id: uuid.UUID,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """List all unresolved (pending) conflicts for a project."""
-    await _verify_project_access(session, project_id, auth.agent_id)
 
     rows = (
-        await session.execute(
-            text(
-                "SELECT pb.id, pb.context_unit_id, pb.conflict_type, "
-                "       pb.resolution, pb.created_at, pb.branch_id "
-                "FROM pending_branches pb "
-                "JOIN context_units cu ON cu.id = pb.context_unit_id "
-                "WHERE cu.project_id = :pid "
-                "AND pb.resolution = 'pending' "
-                "ORDER BY pb.created_at DESC"
-            ),
-            {"pid": project_id},
+        (
+            await session.execute(
+                text(
+                    "SELECT pb.id, pb.context_unit_id, pb.conflict_type, "
+                    "       pb.resolution, pb.created_at, pb.branch_id "
+                    "FROM pending_branches pb "
+                    "JOIN context_units cu ON cu.id = pb.context_unit_id "
+                    "WHERE cu.project_id = :pid "
+                    "AND pb.resolution = 'pending' "
+                    "ORDER BY pb.created_at DESC"
+                ),
+                {"pid": project_id},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     return [
         {
@@ -93,11 +85,10 @@ async def resolve_conflict(
     project_id: uuid.UUID,
     branch_id: uuid.UUID,
     body: ResolveConflictRequest,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Resolve a pending conflict by updating its resolution status."""
-    await _verify_project_access(session, project_id, auth.agent_id)
 
     branch = (
         await session.execute(

@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.api.auth import AuthContext, require_auth
+from loom.api.auth import AuthContext, require_project_agent_scope
 from loom.api.dependencies import get_redis
 from loom.db import get_session
 from loom.schemas.events import ProjectEvent
@@ -165,7 +165,7 @@ class ContextHistoryResponse(BaseModel):
 async def context_history_endpoint(
     project_id: uuid.UUID,
     params: ContextHistoryQuery = Depends(),
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent_scope),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """List complete context for dashboards without retrieval-budget limits."""
@@ -203,7 +203,7 @@ async def context_history_endpoint(
 async def read_context_endpoint(
     project_id: uuid.UUID,
     params: ReadContextQuery = Depends(),
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent_scope),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Retrieve context units for a project.
@@ -247,7 +247,7 @@ async def read_context_endpoint(
 async def write_context_endpoint(
     project_id: uuid.UUID,
     body: WriteContextRequest,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_project_agent_scope),
     session: AsyncSession = Depends(get_session),
     redis: redis_async.Redis | None = Depends(get_redis),
 ) -> JSONResponse:

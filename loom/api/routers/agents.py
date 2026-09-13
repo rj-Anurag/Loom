@@ -23,10 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from loom.api.auth import (
     AuthContext,
     PrincipalContext,
-    UserAuthContext,
+    ProjectAuthorization,
     require_auth,
+    require_matching_project_agent,
     require_principal,
-    require_user_auth,
+    require_project_admin,
+    require_project_member,
 )
 from loom.api.dependencies import get_redis
 from loom.config import settings
@@ -34,13 +36,13 @@ from loom.db import get_session
 from loom.models import Agent as AgentModel
 from loom.models import Project
 from loom.schemas.events import ProjectEvent
-from loom.security import generate_api_key, hash_api_key
+from loom.services.accounts.credentials import issue_agent_credential
 from loom.services.accounts.rate_limit import (
     RateLimitExceededError,
     RateLimitUnavailableError,
     enforce_rate_limit,
 )
-from loom.services.accounts.service import get_membership, provision_agent
+from loom.services.accounts.service import provision_agent
 from loom.services.coordination.presence import (
     get_active_agents,
     record_heartbeat,
@@ -115,9 +117,7 @@ async def agent_heartbeat(
             },
             timestamp=datetime.now(UTC).isoformat(),
         ).model_dump()
-        asyncio.create_task(
-            connection_manager.broadcast(str(auth.project_id), event)
-        )
+        asyncio.create_task(connection_manager.broadcast(str(auth.project_id), event))
 
     return {
         "status": "ok",
@@ -138,7 +138,7 @@ async def agent_heartbeat(
 )
 async def get_project_agents_presence(
     project_id: uuid.UUID,
-    auth: AuthContext = Depends(require_auth),
+    auth: AuthContext = Depends(require_matching_project_agent),
     redis: redis_async.Redis | None = Depends(get_redis),
 ) -> list[dict[str, str]]:
     """Get all active agents in a project.
@@ -146,13 +146,6 @@ async def get_project_agents_presence(
     Returns presence data (status, task_id) for each agent that has
     sent a heartbeat within the TTL window.
     """
-    # Cross-project access check: the authenticated agent must belong
-    # to the requested project.
-    if auth.project_id is not None and auth.project_id != project_id:
-        raise HTTPException(
-            status_code=403,
-            detail="PROJECT_MISMATCH",
-        )
     return await get_active_agents(redis, str(project_id))
 
 
@@ -252,14 +245,12 @@ async def register_agent(
         raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
 
     # Create agent
-    agent = AgentModel(
+    agent, api_key = await issue_agent_credential(
+        session,
         project_id=project_id,
         kind=body.kind,
         name=body.name,
     )
-    api_key = generate_api_key()
-    agent.credentials_ref = hash_api_key(api_key)
-    session.add(agent)
     await session.commit()
     await session.refresh(agent)
 
@@ -274,13 +265,11 @@ async def register_agent(
 @router.get("/projects/{project_id}/agents")
 async def list_project_agents(
     project_id: uuid.UUID,
-    auth: UserAuthContext = Depends(require_user_auth),
+    auth: ProjectAuthorization = Depends(require_project_member),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """List credential metadata for an account member; never return raw keys."""
 
-    if await get_membership(session, auth.user_id, project_id) is None:
-        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
     result = await session.execute(
         select(AgentModel)
         .where(AgentModel.project_id == project_id)
@@ -305,16 +294,11 @@ async def list_project_agents(
 async def revoke_project_agent(
     project_id: uuid.UUID,
     agent_id: uuid.UUID,
-    auth: UserAuthContext = Depends(require_user_auth),
+    auth: ProjectAuthorization = Depends(require_project_admin),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     """Revoke a project key without deleting its provenance record."""
 
-    membership = await get_membership(session, auth.user_id, project_id)
-    if membership is None:
-        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
-    if membership.role not in {"owner", "admin"}:
-        raise HTTPException(status_code=403, detail="INSUFFICIENT_ROLE")
     agent = await session.get(AgentModel, agent_id)
     if agent is None or agent.project_id != project_id:
         raise HTTPException(status_code=404, detail="AGENT_NOT_FOUND")

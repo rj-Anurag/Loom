@@ -65,13 +65,14 @@ def _identity_from_claims(claims: dict[str, Any]) -> GoogleIdentity:
     sub = str(claims.get("sub") or "").strip()
     email = str(claims.get("email") or "").strip()
     verified = claims.get("email_verified") in {True, "true", "True", "1", 1}
-    if not sub or not email or not verified:
+    if not sub or len(sub) > 255 or not email or len(email) > 320 or not verified:
         raise GoogleAuthError("GOOGLE_EMAIL_NOT_VERIFIED")
+    display_name = str(claims.get("name") or email.split("@", 1)[0]).strip()[:255]
     return GoogleIdentity(
         sub=sub,
         email=email,
         email_verified=True,
-        display_name=str(claims.get("name") or email.split("@", 1)[0]).strip(),
+        display_name=display_name or email.split("@", 1)[0][:255],
         avatar_url=str(claims["picture"]).strip() if claims.get("picture") else None,
     )
 
