@@ -1,5 +1,7 @@
 """Public account dashboard route contract."""
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from loom.api.main import app
@@ -45,3 +47,15 @@ def test_managed_frontend_hostname_uses_https(monkeypatch) -> None:
     response = TestClient(app).get("/", follow_redirects=False)
 
     assert response.headers["location"] == "https://loom-frontend.example/"
+
+
+def test_dashboard_reuses_google_sdk_across_logout() -> None:
+    source = (
+        Path(__file__).resolve().parents[2] / "frontend/src/components/account-app.tsx"
+    ).read_text()
+
+    assert 'from "next/script"' in source
+    assert 'id="google-identity-services"' in source
+    assert "disableAutoSelect()" in source
+    assert "setUser(null)" in source
+    assert "window.location.reload()" not in source

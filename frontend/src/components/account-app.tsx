@@ -16,6 +16,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
+import Script from "next/script";
 import {
   useCallback,
   useDeferredValue,
@@ -50,6 +51,7 @@ declare global {
             element: HTMLElement,
             options: Record<string, string | number>,
           ): void;
+          disableAutoSelect(): void;
         };
       };
     };
@@ -79,74 +81,66 @@ function messageDetails(unit: ContextUnit) {
 }
 
 function GoogleButton({
+  clientId,
+  error,
+  ready,
   onCredential,
-  onError,
 }: {
+  clientId: string;
+  error: string;
+  ready: boolean;
   onCredential: (credential: string) => void;
-  onError: (message: string) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    const script = document.createElement("script");
-
-    async function configure() {
-      try {
-        const config = await apiRequest<{
-          enabled: boolean;
-          client_id: string;
-        }>("/v1/auth/google/config?client_kind=web");
-        if (!config.enabled) throw new Error("GOOGLE_AUTH_NOT_CONFIGURED");
-        script.src = "https://accounts.google.com/gsi/client";
-        script.async = true;
-        script.onload = () => {
-          if (cancelled || !rootRef.current || !window.google) return;
-          window.google.accounts.id.initialize({
-            client_id: config.client_id,
-            callback: ({ credential }) => onCredential(credential),
-          });
-          window.google.accounts.id.renderButton(rootRef.current, {
-            theme: "filled_black",
-            size: "large",
-            width: 320,
-          });
-        };
-        script.onerror = () => onError("Google sign-in could not be loaded.");
-        document.head.appendChild(script);
-      } catch (error) {
-        if (!cancelled)
-          onError(
-            friendlyError(
-              error instanceof Error ? error.message : "Request failed",
-            ),
-          );
-      }
-    }
-
-    void configure();
+    const root = rootRef.current;
+    if (!ready || !clientId || !root || !window.google) return;
+    root.replaceChildren();
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: ({ credential }) => onCredential(credential),
+    });
+    window.google.accounts.id.renderButton(root, {
+      theme: "filled_black",
+      size: "large",
+      width: 320,
+    });
     return () => {
-      cancelled = true;
-      script.remove();
+      root.replaceChildren();
     };
-  }, [onCredential, onError]);
+  }, [clientId, onCredential, ready]);
 
-  return <Box ref={rootRef} sx={{ minHeight: 44, mt: 3 }} />;
+  return (
+    <Box sx={{ minHeight: 44, mt: 3 }}>
+      <div ref={rootRef} />
+      {!error && (!ready || !clientId) && (
+        <Button
+          disabled
+          startIcon={<CircularProgress size={16} />}
+          sx={{ height: 40, width: 320 }}
+          variant="outlined"
+        >
+          Loading Google sign-in…
+        </Button>
+      )}
+    </Box>
+  );
 }
 
 function AuthView({
   authError,
   authenticate,
+  googleClientId,
+  googleError,
+  googleReady,
 }: {
   authError: string;
   authenticate: (credential: string) => void;
+  googleClientId: string;
+  googleError: string;
+  googleReady: boolean;
 }) {
-  const [googleError, setGoogleError] = useState("");
-  const reportGoogleError = useCallback(
-    (message: string) => setGoogleError(message),
-    [],
-  );
-
   return (
     <Box
       component="main"
@@ -249,8 +243,10 @@ function AuthView({
               extension.
             </Typography>
             <GoogleButton
+              clientId={googleClientId}
+              error={googleError}
               onCredential={authenticate}
-              onError={reportGoogleError}
+              ready={googleReady}
             />
             {(authError || googleError) && (
               <Alert severity="error" sx={{ mt: 2 }}>
@@ -352,10 +348,17 @@ function AuthView({
   );
 }
 
-export function AccountApp() {
+function AccountAppContent({
+  googleReady,
+  googleScriptError,
+}: {
+  googleReady: boolean;
+  googleScriptError: string;
+}) {
   const theme = useTheme();
   const desktop = useMediaQuery(theme.breakpoints.up("md"));
   const [booting, setBooting] = useState(true);
+  const [revealSignIn, setRevealSignIn] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
@@ -368,9 +371,37 @@ export function AccountApp() {
   const [loadingProject, setLoadingProject] = useState(false);
   const [projectError, setProjectError] = useState("");
   const [authError, setAuthError] = useState("");
+  const [googleClientId, setGoogleClientId] = useState("");
+  const [googleConfigError, setGoogleConfigError] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [profileAnchor, setProfileAnchor] = useState<HTMLElement | null>(null);
   const loadVersion = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGoogleConfig() {
+      try {
+        const config = await apiRequest<{
+          enabled: boolean;
+          client_id: string;
+        }>("/v1/auth/google/config?client_kind=web");
+        if (!config.enabled || !config.client_id)
+          throw new Error("GOOGLE_AUTH_NOT_CONFIGURED");
+        if (!cancelled) setGoogleClientId(config.client_id);
+      } catch (error) {
+        if (!cancelled)
+          setGoogleConfigError(
+            friendlyError(
+              error instanceof Error ? error.message : "Request failed",
+            ),
+          );
+      }
+    }
+    void loadGoogleConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadHistory = useCallback(
     async (projectId: string, version: number) => {
@@ -460,6 +491,9 @@ export function AccountApp() {
   );
 
   useEffect(() => {
+    let cancelled = false;
+    const revealTimer = window.setTimeout(() => setRevealSignIn(true), 150);
+
     async function boot() {
       const params = new URLSearchParams(window.location.hash.slice(1));
       const token = params.get("handoff");
@@ -475,17 +509,23 @@ export function AccountApp() {
             body: JSON.stringify({ token }),
           });
         }
-        applySession(await apiRequest<AuthPayload>("/v1/auth/me"));
+        const session = await apiRequest<AuthPayload>("/v1/auth/me");
+        if (!cancelled) applySession(session);
       } catch {
-        if (token)
+        if (token && !cancelled)
           setAuthError(
             "Your dashboard link expired. Open the dashboard from the Loom extension again.",
           );
       } finally {
-        setBooting(false);
+        window.clearTimeout(revealTimer);
+        if (!cancelled) setBooting(false);
       }
     }
     void boot();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(revealTimer);
+    };
   }, [applySession]);
 
   const selectedChat = chats.find((chat) => chat.chat_url === chatUrl);
@@ -502,7 +542,7 @@ export function AccountApp() {
     return ascending ? filtered.toReversed() : filtered;
   }, [ascending, chatUrl, deferredQuery, units]);
 
-  if (booting) {
+  if (booting && !revealSignIn) {
     return (
       <Stack
         alignItems="center"
@@ -514,7 +554,15 @@ export function AccountApp() {
     );
   }
   if (!user)
-    return <AuthView authError={authError} authenticate={authenticate} />;
+    return (
+      <AuthView
+        authError={authError}
+        authenticate={authenticate}
+        googleClientId={googleClientId}
+        googleError={googleScriptError || googleConfigError}
+        googleReady={googleReady}
+      />
+    );
 
   const closeDrawer = () => setDrawerOpen(false);
   const sidebar = (
@@ -770,8 +818,22 @@ export function AccountApp() {
             onClick={async () => {
               try {
                 await apiRequest<void>("/v1/auth/logout", { method: "POST" });
+                setAuthError("");
+              } catch (error) {
+                setAuthError(
+                  friendlyError(
+                    error instanceof Error ? error.message : "Request failed",
+                  ),
+                );
               } finally {
-                window.location.reload();
+                window.google?.accounts.id.disableAutoSelect();
+                loadVersion.current += 1;
+                setProfileAnchor(null);
+                setUser(null);
+                setProjects([]);
+                setProject(null);
+                setChats([]);
+                setUnits([]);
               }
             }}
           >
@@ -976,5 +1038,31 @@ export function AccountApp() {
         </Box>
       </Box>
     </Box>
+  );
+}
+
+export function AccountApp() {
+  const [googleReady, setGoogleReady] = useState(false);
+  const [googleScriptError, setGoogleScriptError] = useState("");
+
+  return (
+    <>
+      <Script
+        id="google-identity-services"
+        src="https://accounts.google.com/gsi/client"
+        strategy="afterInteractive"
+        onReady={() => {
+          setGoogleScriptError("");
+          setGoogleReady(true);
+        }}
+        onError={() =>
+          setGoogleScriptError("Google sign-in could not be loaded.")
+        }
+      />
+      <AccountAppContent
+        googleReady={googleReady}
+        googleScriptError={googleScriptError}
+      />
+    </>
   );
 }
