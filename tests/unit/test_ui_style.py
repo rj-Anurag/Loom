@@ -12,9 +12,9 @@ def test_public_pages_use_the_exaggerated_minimalism_design_system() -> None:
     assert not list((frontend / "src").rglob("*.html"))
     assert not list((frontend / "src").rglob("*.css"))
     assert any(path.name == "page.tsx" for path in source_files)
-    assert 'from "@mui/material/Card"' in (
-        frontend / "src/components/account-app.tsx"
-    ).read_text()
+    assert 'from "@mui/material/Card"' in (frontend / "src/components/account-app.tsx").read_text()
+    assert "☰" not in (frontend / "src/components/account-app.tsx").read_text()
+    assert "<LoomMark />" in (frontend / "src/components/project-dashboard.tsx").read_text()
 
     theme = (frontend / "src/theme.ts").read_text()
     assert 'main: "#8b5cf6"' in theme

@@ -36,9 +36,7 @@ def test_project_dashboard_redirects_to_framework_route() -> None:
     )
 
     assert response.status_code == 307
-    assert response.headers["location"] == (
-        "http://127.0.0.1:3000/v1/projects/example/dashboard"
-    )
+    assert response.headers["location"] == ("http://127.0.0.1:3000/v1/projects/example/dashboard")
 
 
 def test_managed_frontend_hostname_uses_https(monkeypatch) -> None:
@@ -56,6 +54,10 @@ def test_dashboard_reuses_google_sdk_across_logout() -> None:
 
     assert 'from "next/script"' in source
     assert 'id="google-identity-services"' in source
+    assert source.count("window.google.accounts.id.initialize(") == 1
+    assert 'let initializedGoogleClientId = ""' in source
+    assert "use_fedcm_for_button: true" in source
+    assert 'className="g_id_signout"' in source
     assert "disableAutoSelect()" in source
     assert "setUser(null)" in source
     assert "window.location.reload()" not in source

@@ -224,7 +224,7 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
           }}
         >
           <Stack direction="row" alignItems="center" spacing={1.5}>
-            <LoomMark compact />
+            <LoomMark />
             <Box>
               <Typography
                 sx={{

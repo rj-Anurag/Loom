@@ -15,6 +15,14 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://accounts.google.com" />
+        <link
+          rel="preconnect"
+          href="https://accounts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body>
         <AppRouterCacheProvider>
           <Providers>{children}</Providers>

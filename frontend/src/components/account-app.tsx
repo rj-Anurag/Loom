@@ -46,6 +46,9 @@ declare global {
           initialize(config: {
             client_id: string;
             callback: (result: { credential: string }) => void;
+            auto_select?: boolean;
+            button_auto_select?: boolean;
+            use_fedcm_for_button?: boolean;
           }): void;
           renderButton(
             element: HTMLElement,
@@ -59,6 +62,8 @@ declare global {
 }
 
 const mono = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+let initializedGoogleClientId = "";
+let googleCredentialHandler: ((credential: string) => void) | null = null;
 
 function platformName(chat: Chat): string {
   if (chat.platform) return chat.platform.replace(/^www\./, "");
@@ -81,65 +86,63 @@ function messageDetails(unit: ContextUnit) {
 }
 
 function GoogleButton({
-  clientId,
   error,
-  ready,
-  onCredential,
+  initialized,
 }: {
-  clientId: string;
   error: string;
-  ready: boolean;
-  onCredential: (credential: string) => void;
+  initialized: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const [rendered, setRendered] = useState(false);
 
   useEffect(() => {
     const root = rootRef.current;
-    if (!ready || !clientId || !root || !window.google) return;
+    if (!initialized || !root || !window.google) return;
+    let cancelled = false;
     root.replaceChildren();
-    window.google.accounts.id.initialize({
-      client_id: clientId,
-      callback: ({ credential }) => onCredential(credential),
-    });
     window.google.accounts.id.renderButton(root, {
+      logo_alignment: "left",
+      shape: "rectangular",
+      text: "signin_with",
       theme: "filled_black",
+      type: "standard",
       size: "large",
       width: 320,
     });
+    queueMicrotask(() => {
+      if (!cancelled) setRendered(true);
+    });
     return () => {
+      cancelled = true;
       root.replaceChildren();
     };
-  }, [clientId, onCredential, ready]);
+  }, [initialized]);
 
   return (
-    <Box sx={{ minHeight: 44, mt: 3 }}>
-      <div ref={rootRef} />
-      {!error && (!ready || !clientId) && (
+    <Box sx={{ height: 44, mt: 3, position: "relative", width: 320 }}>
+      {!error && !rendered && (
         <Button
           disabled
           startIcon={<CircularProgress size={16} />}
-          sx={{ height: 40, width: 320 }}
+          sx={{ height: 40, left: 0, position: "absolute", top: 0, width: 320 }}
           variant="outlined"
         >
           Loading Google sign-in…
         </Button>
       )}
+      <Box ref={rootRef} sx={{ position: "relative", zIndex: 1 }} />
     </Box>
   );
 }
 
 function AuthView({
   authError,
-  authenticate,
-  googleClientId,
   googleError,
-  googleReady,
+  googleInitialized,
 }: {
   authError: string;
-  authenticate: (credential: string) => void;
-  googleClientId: string;
   googleError: string;
-  googleReady: boolean;
+  googleInitialized: boolean;
 }) {
   return (
     <Box
@@ -242,12 +245,7 @@ function AuthView({
               One Google identity connects your dashboard, CLI, and browser
               extension.
             </Typography>
-            <GoogleButton
-              clientId={googleClientId}
-              error={googleError}
-              onCredential={authenticate}
-              ready={googleReady}
-            />
+            <GoogleButton error={googleError} initialized={googleInitialized} />
             {(authError || googleError) && (
               <Alert severity="error" sx={{ mt: 2 }}>
                 {authError || googleError}
@@ -373,6 +371,7 @@ function AccountAppContent({
   const [authError, setAuthError] = useState("");
   const [googleClientId, setGoogleClientId] = useState("");
   const [googleConfigError, setGoogleConfigError] = useState("");
+  const [googleInitialized, setGoogleInitialized] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [profileAnchor, setProfileAnchor] = useState<HTMLElement | null>(null);
   const loadVersion = useRef(0);
@@ -491,6 +490,37 @@ function AccountAppContent({
   );
 
   useEffect(() => {
+    googleCredentialHandler = authenticate;
+    return () => {
+      if (googleCredentialHandler === authenticate)
+        googleCredentialHandler = null;
+    };
+  }, [authenticate]);
+
+  useEffect(() => {
+    if (!googleReady || !googleClientId || !window.google) return;
+    if (initializedGoogleClientId !== googleClientId) {
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: ({ credential }) =>
+          void googleCredentialHandler?.(credential),
+        auto_select: false,
+        button_auto_select: false,
+        use_fedcm_for_button: true,
+      });
+      initializedGoogleClientId = googleClientId;
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setGoogleInitialized(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [googleClientId, googleReady]);
+
+  useEffect(() => {
     let cancelled = false;
     const revealTimer = window.setTimeout(() => setRevealSignIn(true), 150);
 
@@ -557,10 +587,8 @@ function AccountAppContent({
     return (
       <AuthView
         authError={authError}
-        authenticate={authenticate}
-        googleClientId={googleClientId}
         googleError={googleScriptError || googleConfigError}
-        googleReady={googleReady}
+        googleInitialized={googleInitialized}
       />
     );
 
@@ -770,16 +798,17 @@ function AccountAppContent({
         }}
       >
         <Stack direction="row" alignItems="center" spacing={1.5}>
-          {!desktop && (
+          {!desktop ? (
             <Button
               aria-label="Open project navigation"
               onClick={() => setDrawerOpen(true)}
-              sx={{ fontSize: 22, minWidth: 42 }}
+              sx={{ minWidth: 44, p: 0.5 }}
             >
-              ☰
+              <LoomMark compact />
             </Button>
+          ) : (
+            <LoomMark />
           )}
-          <LoomMark compact={!desktop} />
           {desktop && (
             <Typography color="text.secondary">/ Workspace</Typography>
           )}
@@ -815,6 +844,7 @@ function AccountAppContent({
           onClose={() => setProfileAnchor(null)}
         >
           <MenuItem
+            className="g_id_signout"
             onClick={async () => {
               try {
                 await apiRequest<void>("/v1/auth/logout", { method: "POST" });
