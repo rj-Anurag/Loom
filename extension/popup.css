@@ -48,11 +48,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .brand-copy { flex: 1; min-width: 0; }
 .brand-copy h1 { margin: 0; font-size: 17px; font-weight: 740; letter-spacing: -.04em; }
 .brand-copy p { margin: 1px 0 0; color: var(--loom-muted); font: 600 9px/1.2 var(--loom-mono); letter-spacing: .1em; text-transform: uppercase; }
-.brand-mark { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 32px; height: 32px; padding: 7px; border: 1px solid var(--loom-line-strong); border-radius: 10px; background: #101012; box-shadow: inset 0 1px rgba(255,255,255,.05), 0 10px 28px rgba(0,0,0,.35); }
-.brand-mark span { display: block; width: 4px; border-radius: 99px; background: var(--loom-violet-bright); transform-origin: bottom; animation: loomSignal 2.4s ease-in-out infinite; }
-.brand-mark span:nth-child(1) { height: 8px; animation-delay: -.4s; }
-.brand-mark span:nth-child(2) { height: 16px; animation-delay: -.2s; }
-.brand-mark span:nth-child(3) { height: 12px; }
+.brand-mark { display: block; width: 32px; height: 32px; object-fit: contain; filter: drop-shadow(0 10px 14px rgba(0,0,0,.3)); }
 
 .icon-btn { width: 32px; min-height: 32px; margin: 0; padding: 0; border: 1px solid var(--loom-line); border-radius: 9px; color: #c9c7cd; background: rgba(18,18,21,.88); font-size: 15px; transition: transform .16s ease, border-color .16s ease, background .16s ease; }
 .icon-btn:hover { transform: translateY(-2px); border-color: var(--loom-line-strong); background: var(--loom-raised); }
@@ -142,7 +138,6 @@ button:disabled { opacity: .48; cursor: wait; }
 .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 6px; border: 2px solid var(--loom-line); border-top-color: var(--loom-violet); border-radius: 50%; vertical-align: middle; animation: spin .65s linear infinite; }
 
 @keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes loomSignal { 0%, 100% { opacity: .55; transform: scaleY(.72); } 50% { opacity: 1; transform: scaleY(1); } }
 @keyframes statusPulse { 0%, 100% { opacity: .68; } 50% { opacity: 1; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {

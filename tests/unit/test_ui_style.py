@@ -27,10 +27,13 @@ def test_extension_uses_one_packaged_visual_system() -> None:
     source_css = (ROOT / "extension/popup.css").read_bytes()
     source_js = (ROOT / "extension/popup.js").read_text()
     packaged_css = (ROOT / "loom/browser_extension/popup.css").read_bytes()
+    packaged_logo = (ROOT / "loom/browser_extension/logo.png").read_bytes()
 
     assert "<style>" not in source_html
     assert 'class="popup-page"' in source_html
+    assert 'src="logo.png"' in source_html
     assert source_css == packaged_css
+    assert (ROOT / "extension/logo.png").read_bytes() == packaged_logo
     assert b"--loom-violet" in source_css
     assert b"prefers-reduced-motion" in source_css
     assert ".style.display" not in source_js

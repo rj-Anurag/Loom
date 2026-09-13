@@ -143,6 +143,7 @@ def test_package_extension_creates_chrome_ready_credential_free_zip(tmp_path: Pa
         names = set(package.namelist())
         assert "manifest.json" in names
         assert "config.js" in names
+        assert "logo.png" in names
         assert "popup.html" in names
         assert all(not name.startswith("loom-extension/") for name in names)
         config = package.read("config.js").decode("utf-8")
