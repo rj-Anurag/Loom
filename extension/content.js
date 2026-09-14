@@ -13,6 +13,33 @@
   let linkedProjectId = null;
   let backfilledProjectId = null;
   let backfillPromise = null;
+  let contentScriptActive = true;
+
+  function errorMessage(error) {
+    if (!error) return 'Unknown error';
+    return error.message || String(error);
+  }
+
+  function extensionContextAvailable() {
+    try {
+      return contentScriptActive && !!(chrome.runtime && chrome.runtime.id);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function deactivateContentScript() {
+    if (!contentScriptActive) return;
+    contentScriptActive = false;
+    stopObserver();
+    window.removeEventListener('popstate', updateChatUrl);
+    window.removeEventListener('hashchange', updateChatUrl);
+    console.info('[Loom] Content script stopped because the extension was reloaded');
+  }
+
+  function reportHandledIssue(message, error) {
+    console.info(message, errorMessage(error));
+  }
 
   function resetCaptureState() {
     acceptedMessages = new Set();
@@ -27,6 +54,7 @@
   // ── URL Change Tracking ──────────────────────────────────────────────────
 
   function updateChatUrl() {
+    if (!contentScriptActive) return;
     const newUrl = LoomShared.normalizeChatUrl(window.location.href);
     if (newUrl !== chatUrl) {
       console.log('[Loom] URL changed:', chatUrl, '→', newUrl);
@@ -44,7 +72,7 @@
     try {
       window.addEventListener('popstate', updateChatUrl);
       window.addEventListener('hashchange', updateChatUrl);
-    } catch (e) { console.warn('[Loom] Could not add event listeners:', e); }
+    } catch (e) { reportHandledIssue('[Loom] Could not add event listeners:', e); }
     try {
       const origPushState = history.pushState;
       history.pushState = function () {
@@ -56,7 +84,7 @@
         origReplaceState.apply(this, arguments);
         updateChatUrl();
       };
-    } catch (e) { console.warn('[Loom] Could not override history:', e); }
+    } catch (e) { reportHandledIssue('[Loom] Could not override history:', e); }
   }
 
   // ── Message Collection ──────────────────────────────────────────────────
@@ -189,20 +217,31 @@
   function sendBackgroundMessage(message) {
     return new Promise(function (resolve) {
       try {
-        if (!chrome.runtime || !chrome.runtime.id) {
-          resolve({ error: 'Extension context is unavailable.' });
+        if (!extensionContextAvailable()) {
+          deactivateContentScript();
+          resolve({ error: 'Extension context is unavailable.', contextInvalidated: true });
           return;
         }
         chrome.runtime.sendMessage(message, function (response) {
-          const lastError = chrome.runtime.lastError;
-          if (lastError) {
-            resolve({ error: lastError.message || 'Background message failed.' });
-            return;
+          try {
+            const lastError = chrome.runtime.lastError;
+            if (lastError) {
+              var message = lastError.message || 'Background message failed.';
+              var invalidated = !extensionContextAvailable() || /extension context (?:is )?invalidated/i.test(message);
+              if (invalidated) deactivateContentScript();
+              resolve({ error: message, contextInvalidated: invalidated });
+              return;
+            }
+            resolve(response || {});
+          } catch (error) {
+            deactivateContentScript();
+            resolve({ error: errorMessage(error), contextInvalidated: true });
           }
-          resolve(response || {});
         });
       } catch (err) {
-        resolve({ error: err.message || String(err) });
+        var invalidated = !extensionContextAvailable() || /extension context (?:is )?invalidated/i.test(errorMessage(err));
+        if (invalidated) deactivateContentScript();
+        resolve({ error: errorMessage(err), contextInvalidated: invalidated });
       }
     });
   }
@@ -247,13 +286,15 @@
     }).then(resp => {
       if (resp?.error) {
         releaseRecords(records);
-        console.warn('[Loom] History sync deferred:', resp.error);
+        if (!resp.contextInvalidated) {
+          reportHandledIssue('[Loom] History sync deferred:', resp.error);
+        }
         return 0;
       }
       var accepted = (resp?.synced || 0) + (resp?.queued || 0);
       if (accepted !== records.length) {
         releaseRecords(records);
-        console.warn('[Loom] History sync was not accepted; it will be retried');
+        console.info('[Loom] History sync was not accepted; it will be retried');
         return 0;
       }
       acceptRecords(records);
@@ -261,12 +302,13 @@
       return accepted;
     }).catch(err => {
       releaseRecords(records);
-      console.warn('[Loom] Sync failed:', err.message);
+      reportHandledIssue('[Loom] Sync failed:', err);
       return 0;
     });
   }
 
   function flushMessages() {
+    if (!contentScriptActive) return Promise.resolve(0);
     if (LoomShared.normalizeChatUrl(window.location.href) !== chatUrl) {
       updateChatUrl();
       return Promise.resolve(0);
@@ -295,11 +337,12 @@
   }
 
   async function backfillConversationHistory(projectId) {
-    if (!projectId || backfilledProjectId === projectId) return;
+    if (!contentScriptActive || !projectId || backfilledProjectId === projectId) return;
     if (backfillPromise) return backfillPromise;
 
     backfillPromise = (async function () {
       var scroller = findConversationScroller();
+      if (!scroller) return;
       var originalBottomOffset = scroller.scrollHeight - scroller.scrollTop;
       var previousHeight = -1;
       var previousCount = -1;
@@ -309,6 +352,7 @@
       // scrolled upward. Keep requesting the top until both DOM count and
       // scroll height remain unchanged for three passes.
       for (var pass = 0; pass < 40 && stablePasses < 3; pass++) {
+        if (!contentScriptActive) return;
         scroller.scrollTop = 0;
         scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
         await wait(400);
@@ -337,6 +381,7 @@
   }
 
   function activateLinkedConversation(projectId) {
+    if (!contentScriptActive || !projectId) return;
     if (linkedProjectId !== projectId) {
       resetCaptureState();
       backfilledProjectId = null;
@@ -345,22 +390,28 @@
     stopObserver();
     backfillConversationHistory(projectId)
       .catch(function (err) {
-        console.warn('[Loom] Historical backfill failed:', err.message);
+        reportHandledIssue('[Loom] Historical backfill failed:', err);
       })
-      .finally(startObserver);
+      .finally(function () {
+        if (contentScriptActive && linkedProjectId === projectId) startObserver();
+      });
   }
 
   // ── Observer + Polling ──────────────────────────────────────────────────
 
   function scheduleFlush(delay) {
+    if (!contentScriptActive) return;
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(function () {
       flushTimer = null;
-      flushMessages();
+      flushMessages().catch(function (err) {
+        reportHandledIssue('[Loom] Scheduled sync failed:', err);
+      });
     }, delay || 750);
   }
 
   function startObserver() {
+    if (!contentScriptActive || !document.body) return;
     if (observer) {
       scheduleFlush(100);
       return;
@@ -374,7 +425,11 @@
     });
 
     // Poll every 5s as a fallback
-    pollInterval = setInterval(flushMessages, 5000);
+    pollInterval = setInterval(function () {
+      flushMessages().catch(function (err) {
+        reportHandledIssue('[Loom] Polling sync failed:', err);
+      });
+    }, 5000);
 
     // Immediately sync any messages already rendered
     scheduleFlush(100);
@@ -399,13 +454,16 @@
   // ── Link Check ──────────────────────────────────────────────────────────
 
   async function checkLink() {
+    if (!contentScriptActive) return;
     try {
       const response = await sendBackgroundMessage({
         type: 'CHECK_LINK',
         chatUrl,
       });
       if (response?.error) {
-        console.warn('[Loom] Failed to check link:', response.error);
+        if (!response.contextInvalidated) {
+          reportHandledIssue('[Loom] Failed to check link:', response.error);
+        }
         return;
       }
       if (response && response.linked) {
@@ -416,7 +474,7 @@
         console.log('[Loom] Chat not linked — prompting user');
       }
     } catch (err) {
-      console.warn('[Loom] Failed to check link:', err.message);
+      reportHandledIssue('[Loom] Failed to check link:', err);
     }
   }
 
@@ -430,6 +488,7 @@
   // ── Listen for background messages ──────────────────────────────────────
 
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+    if (!contentScriptActive || !msg || typeof msg.type !== 'string') return false;
     if (msg.type === 'LOOM_LINKED') {
       console.log('[Loom] Received LOOM_LINKED:', msg.projectName);
       dismissLinkBanner();
@@ -443,9 +502,14 @@
     if (msg.type === 'RESCAN') {
       resetCaptureState();
       backfilledProjectId = null;
-      activateLinkedConversation(linkedProjectId);
+      if (linkedProjectId) {
+        activateLinkedConversation(linkedProjectId);
+      } else {
+        checkLink();
+      }
       sendResponse({ ok: true });
     }
+    return false;
   });
 
   // ── Console Debug Hooks ─────────────────────────────────────────────────

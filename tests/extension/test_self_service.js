@@ -62,6 +62,25 @@ test('content sync cleanup tolerates stale records', () => {
   assert.match(content, /if \(el\.dataset\) delete el\.dataset\.loomPending;/);
 });
 
+test('content script shuts down cleanly when an extension reload invalidates its context', () => {
+  const content = fs.readFileSync(path.join(root, 'extension/content.js'), 'utf8');
+
+  assert.match(content, /function extensionContextAvailable\(\)/);
+  assert.match(content, /function deactivateContentScript\(\)/);
+  assert.match(content, /stopObserver\(\);\s+window\.removeEventListener\('popstate'/);
+  assert.match(content, /contextInvalidated: true/);
+  assert.match(content, /if \(!contentScriptActive\) return Promise\.resolve\(0\);/);
+  assert.match(content, /if \(contentScriptActive && linkedProjectId === projectId\) startObserver\(\);/);
+  assert.doesNotMatch(content, /console\.warn/);
+});
+
+test('content message listener ignores malformed messages and rescans only linked chats', () => {
+  const content = fs.readFileSync(path.join(root, 'extension/content.js'), 'utf8');
+
+  assert.match(content, /if \(!contentScriptActive \|\| !msg \|\| typeof msg\.type !== 'string'\) return false;/);
+  assert.match(content, /if \(linkedProjectId\) \{\s+activateLinkedConversation\(linkedProjectId\);\s+\} else \{\s+checkLink\(\);/);
+});
+
 test('content script does not cover chat pages with link banners', () => {
   const content = fs.readFileSync(path.join(root, 'extension/content.js'), 'utf8');
 
