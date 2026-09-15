@@ -30,6 +30,7 @@ from typing import Any, cast
 
 import httpx
 
+from loom import __version__
 from loom.cli.account import clear_account, load_account, load_account_api_url, save_account
 from loom.cli.extension import (
     ExtensionDistributionError,
@@ -656,6 +657,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="loom",
         description="Loom CLI — share project context across browser and coding agents",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # loom context

@@ -7,6 +7,44 @@ on:
     branches: [main]
 
 jobs:
+  installer:
+    name: Installer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install from checkout (macOS and Linux)
+        if: runner.os != 'Windows'
+        run: ./install.sh --python python
+        env:
+          PIPX_HOME: ${{ runner.temp }}/pipx
+          PIPX_BIN_DIR: ${{ runner.temp }}/pipx-bin
+      - name: Install from checkout (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\install.ps1 -Python python
+        env:
+          PIPX_HOME: ${{ runner.temp }}/pipx
+          PIPX_BIN_DIR: ${{ runner.temp }}/pipx-bin
+      - name: Verify installed CLI (macOS and Linux)
+        if: runner.os != 'Windows'
+        run: '"$PIPX_BIN_DIR/loom" --version'
+        env:
+          PIPX_BIN_DIR: ${{ runner.temp }}/pipx-bin
+      - name: Verify installed CLI (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '& "$env:PIPX_BIN_DIR\loom.exe" --version'
+        env:
+          PIPX_BIN_DIR: ${{ runner.temp }}/pipx-bin
+
   lint:
     runs-on: ubuntu-latest
     steps:

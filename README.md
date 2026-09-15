@@ -23,39 +23,53 @@ See [loom-architecture.md](loom-architecture.md) for the detailed architecture.
 
 ## Install Loom as a user
 
-Python 3.11 or newer is required. On macOS or Linux, install the `loom` command
-directly from GitHub without cloning the repository:
+Python 3.11 or newer and Git are required. Clone the repository so the unpacked
+extension source and the system installer come from the same reviewed revision:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rj-Anurag/Loom/main/install.sh | bash
+git clone https://github.com/rj-Anurag/Loom.git
+cd Loom
 ```
 
-The installer uses `pipx` so Loom receives an isolated Python environment. It
-installs `pipx` with Homebrew when Homebrew is available, or into the current
-Python user's site directory otherwise. It never uses `sudo`. Restart the
-terminal if `loom` is not immediately on `PATH`, then verify the installation:
+On macOS or Linux:
 
 ```bash
+./install.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+.\install.ps1
+```
+
+Both installers use `pipx` to create an isolated, user-level environment and
+never request administrator privileges. From a checkout they install that exact
+checkout; the source can be overridden with `--source` on macOS/Linux or
+`-Source` on Windows. Restart the terminal if needed, then verify:
+
+```bash
+loom --version
 loom --help
 ```
 
-The equivalent manual commands are:
+Next, prepare the configured unpacked extension and print its directory:
 
 ```bash
-brew install pipx       # macOS; skip when pipx is already installed
-pipx ensurepath
-pipx install "git+https://github.com/rj-Anurag/Loom.git"
+loom extension install --api-url https://loom-api-zzy0.onrender.com
+loom extension status --check-api
+loom extension path
 ```
 
-To upgrade or uninstall:
+Load the printed directory in `chrome://extensions` using **Developer mode →
+Load unpacked**. The installer-generated directory is used instead of loading
+the checked-in `extension/` directory directly because it injects the server's
+Chrome OAuth client ID and narrows host permissions to the selected API.
 
-```bash
-pipx upgrade loom
-pipx uninstall loom
-```
-
-This installs the client tools only. The hosted API owns the database and
-Redis services, so users do not need Docker or a local server.
+See [docs/installation.md](docs/installation.md) for upgrades, uninstalling,
+platform prerequisites, self-hosted servers, and troubleshooting. This installs
+the client tools only; hosted users do not need Docker, PostgreSQL, Redis, or a
+local API server.
 
 ## Public self-service quick start
 
@@ -153,8 +167,8 @@ API keys so every browser and coding agent retains its own audit identity.
 
 ## Browser extension
 
-The CLI includes the complete extension, so a user does not need to clone Loom.
-Install a credential-free copy configured for the hosted MVP:
+The CLI includes the complete extension and stages a configured, credential-free
+copy from the cloned revision for the hosted MVP:
 
 ```bash
 loom extension install --api-url https://loom-api-zzy0.onrender.com

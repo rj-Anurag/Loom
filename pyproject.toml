@@ -5,6 +5,22 @@ description = "Context layer for the agentic era — bridges browser AI chats an
 requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"
+authors = [
+    { name = "Anurag" },
+]
+keywords = ["agents", "context", "mcp", "cli", "browser-extension"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Framework :: FastAPI",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+]
 
 dependencies = [
     "fastapi>=0.115.0",
@@ -25,6 +41,12 @@ dependencies = [
     "mcp>=1.0.0,<2.0.0",
     "google-auth[requests]>=2.35.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/rj-Anurag/Loom"
+Repository = "https://github.com/rj-Anurag/Loom.git"
+Issues = "https://github.com/rj-Anurag/Loom/issues"
+Changelog = "https://github.com/rj-Anurag/Loom/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 local-embeddings = [

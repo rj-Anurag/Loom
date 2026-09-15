@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added user-level `pipx` installers for macOS, Linux, and Windows that install
+  the exact cloned checkout by default, plus CLI version reporting and a full
+  clone-to-Load-unpacked installation guide.
+- Added cross-platform installer smoke tests and a tag-gated release workflow
+  that validates wheel/source metadata, checks the bundled extension, emits
+  SHA-256 checksums, and publishes immutable GitHub release assets.
 - Replaced the public email/password happy path with verified Google identity:
   CLI Authorization Code + PKCE, Chrome Identity for the extension, and Google
   ID token exchange for the web dashboard.

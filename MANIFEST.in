@@ -1,0 +1,6 @@
+include CHANGELOG.md
+include LICENSE
+include install.sh
+include install.ps1
+recursive-include loom/browser_extension *
+recursive-include loom/services/context/migrations *.sql

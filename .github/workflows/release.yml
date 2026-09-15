@@ -1,0 +1,67 @@
+name: Release CLI distribution
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Validate tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: test "v$(python -c 'import loom; print(loom.__version__)')" = "$GITHUB_REF_NAME"
+      - name: Install build tooling
+        run: python -m pip install --upgrade build twine
+      - name: Build wheel and source archive
+        run: python -m build
+      - name: Validate package metadata
+        run: python -m twine check dist/*
+      - name: Smoke-test the built wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/loom-wheel-smoke"
+          "$RUNNER_TEMP/loom-wheel-smoke/bin/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/loom-wheel-smoke/bin/loom" --version
+          "$RUNNER_TEMP/loom-wheel-smoke/bin/python" -c "from importlib.resources import files; assert (files('loom') / 'browser_extension' / 'manifest.json').is_file()"
+      - name: Create checksums
+        run: |
+          cp install.sh install.ps1 dist/
+          cd dist
+          sha256sum *.whl *.tar.gz install.sh install.ps1 > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loom-distribution
+          path: dist/
+          if-no-files-found: error
+
+  publish-github-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: loom-distribution
+          path: dist
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+          fi
