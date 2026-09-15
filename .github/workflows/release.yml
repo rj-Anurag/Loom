@@ -33,7 +33,7 @@ jobs:
           "$RUNNER_TEMP/loom-wheel-smoke/bin/python" -m pip install dist/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/loom-wheel-smoke/bin/loom" --version
-          "$RUNNER_TEMP/loom-wheel-smoke/bin/python" -c "from importlib.resources import files; assert (files('loom') / 'browser_extension' / 'manifest.json').is_file()"
+          "$RUNNER_TEMP/loom-wheel-smoke/bin/python" -c "from importlib.resources import files; manifest = files('loom').joinpath('browser_extension', 'manifest.json'); assert manifest.read_text(), 'manifest.json is empty'"
       - name: Create checksums
         run: |
           cp install.sh install.ps1 dist/
