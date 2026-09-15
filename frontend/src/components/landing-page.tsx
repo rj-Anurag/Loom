@@ -671,7 +671,7 @@ export function LandingPage() {
           >
             <Button
               component="a"
-              href="/dashboard"
+              href="/v1/dashboard"
               size="large"
               variant="contained"
             >
