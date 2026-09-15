@@ -81,6 +81,16 @@ test('content message listener ignores malformed messages and rescans only linke
   assert.match(content, /if \(linkedProjectId\) \{\s+activateLinkedConversation\(linkedProjectId\);\s+\} else \{\s+checkLink\(\);/);
 });
 
+test('handled extension failures do not populate Chrome extension errors', () => {
+  const popup = fs.readFileSync(path.join(root, 'extension/popup.js'), 'utf8');
+  const worker = fs.readFileSync(path.join(root, 'extension/background.js'), 'utf8');
+
+  assert.doesNotMatch(popup, /console\.(?:warn|error)/);
+  assert.doesNotMatch(worker, /console\.(?:warn|error)/);
+  assert.match(popup, /'Link failed: ' \+ err\.message/);
+  assert.match(worker, /sendResponse\(\{ error: err\.message \|\| String\(err\) \}\)/);
+});
+
 test('content script does not cover chat pages with link banners', () => {
   const content = fs.readFileSync(path.join(root, 'extension/content.js'), 'utf8');
 

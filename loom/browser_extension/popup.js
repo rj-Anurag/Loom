@@ -105,7 +105,7 @@
       }
     } catch (err) {
       setStatus('Could not connect to Loom. Is the server running?', 'error');
-      console.error('[Loom] Popup init error:', err);
+      console.info('[Loom] Popup init issue:', err);
     }
   });
 
@@ -292,7 +292,7 @@
         renderAgents(resp?.agents || []);
       }
     } catch (err) {
-      console.warn('[Loom] Agent presence poll failed:', err.message);
+      console.info('[Loom] Agent presence poll failed:', err.message);
     }
   }
 
@@ -316,7 +316,7 @@
           '</div>';
       }).join('');
     } catch (err) {
-      console.warn('[Loom] Conflict poll failed:', err.message);
+      console.info('[Loom] Conflict poll failed:', err.message);
     }
   }
 
@@ -409,7 +409,7 @@
 
   dashboardBtn.addEventListener('click', async function () {
     if (!currentlyLinkedProjectId) {
-      console.warn('[Loom] No project linked — cannot open dashboard');
+      console.info('[Loom] No project linked — cannot open dashboard');
       return;
     }
     const launch = await chrome.runtime.sendMessage({ type: 'CREATE_DASHBOARD_SESSION' });
@@ -445,7 +445,7 @@
       }
     } catch (err) {
       setStatus('Server unreachable — try again shortly', 'error');
-      console.error('[Loom] Load projects error:', err);
+      console.info('[Loom] Load projects issue:', err);
     }
   }
 
@@ -635,7 +635,7 @@
       showError(err.message.indexOf('abort') !== -1
         ? 'Server not responding. Is Loom running?'
         : 'Link failed: ' + err.message);
-      console.error('[Loom] Link error:', err);
+      console.info('[Loom] Link issue:', err);
       linkBtn.disabled = false;
       linkBtn.textContent = 'Link conversation';
     }

@@ -140,7 +140,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   handler(msg, sender)
     .then(sendResponse)
     .catch(err => {
-      console.error(`[Loom] Error handling ${msg.type}:`, err);
+      console.info(`[Loom] Handled ${msg.type} failure:`, err);
       sendResponse({ error: err.message || String(err) });
     });
   return true; // keep channel open for async response
@@ -334,7 +334,7 @@ const MESSAGE_HANDLERS = {
   async SYNC_MESSAGES(msg) {
     const linkInfo = await Storage.getProjectForChat(msg.chatUrl);
     if (!linkInfo) {
-      console.warn('[Loom] Cannot sync — chat not linked to any project:', msg.chatUrl);
+      console.info('[Loom] Cannot sync — chat not linked to any project:', msg.chatUrl);
       return { synced: 0 };
     }
     let synced = 0;
@@ -346,7 +346,7 @@ const MESSAGE_HANDLERS = {
       } catch (err) {
         await Storage.enqueuePendingSync(msg.chatUrl, message);
         queued++;
-        console.warn('[Loom] Sync queued for retry:', err.message);
+        console.info('[Loom] Sync queued for retry:', err.message);
       }
     }
     return { synced: synced, queued: queued };
@@ -475,7 +475,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   const project = await Storage.getCurrentProject();
   if (!project) {
-    console.warn('[Loom] Push-to-Loom: No project linked');
+    console.info('[Loom] Push-to-Loom: No project linked');
     return;
   }
 
@@ -508,7 +508,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     );
     console.log('[Loom] Pushed to', project.projectName || project.projectId, '- id:', result.id);
   } catch (err) {
-    console.error('[Loom] Push-to-Loom failed:', err.message);
+    console.info('[Loom] Push-to-Loom failed:', err.message);
   }
 });
 
@@ -539,7 +539,7 @@ async function pollConflictsAndUpdateBadge() {
   } catch (err) {
     // Don't clear badge on transient errors — stale data is better
     // than silently dropping the badge. Log and move on.
-    console.warn('[Loom] Conflict poll failed:', err.message);
+    console.info('[Loom] Conflict poll failed:', err.message);
   }
 }
 
