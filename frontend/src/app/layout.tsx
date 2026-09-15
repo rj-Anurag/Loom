@@ -5,6 +5,9 @@ import type { ReactNode } from "react";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    "https://loom-frontend-anurags-projects-cc627272.vercel.app",
+  ),
   title: "Loom — Shared agent context",
   description:
     "Persistent project memory for browser conversations and terminal agents.",
