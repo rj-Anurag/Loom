@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import {
   AlertTriangle,
   ArrowRight,
@@ -101,9 +102,15 @@ function goTo(id: string) {
 
 function LoomLogo() {
   return (
-    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-[0_0_30px_rgba(139,92,246,.3)]">
-      L
-    </span>
+    <Image
+      src="/loom-logo.png"
+      alt=""
+      aria-hidden="true"
+      width={36}
+      height={36}
+      priority
+      className="size-9 shrink-0 rounded-xl shadow-[0_0_30px_rgba(139,92,246,.3)]"
+    />
   );
 }
 
