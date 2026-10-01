@@ -237,8 +237,9 @@ contains a non-working OAuth placeholder.
 
 `loom init --install all` creates:
 
-- `.mcp.json` — project-local Loom MCP server; it can read Loom's private
-  user-level project configuration when environment variables are absent
+- `.mcp.json` — project-local Loom MCP server with
+  `LOOM_SOURCE_TYPE=claude_code`; it reads Loom's private user-level project
+  configuration when environment variables are absent
 
 After `loom login` and `loom init`, start Claude Code normally:
 
@@ -246,8 +247,31 @@ After `loom login` and `loom init`, start Claude Code normally:
 claude
 ```
 
-Claude can call Loom's `read_context` and `write_context` MCP tools. Loom does
-not create project-local Markdown commands or instruction files.
+Claude may ask you to approve the repository's project MCP server the first
+time it opens. Claude can then call Loom's `read_context` and `write_context`
+tools. To install the automatic memory protocol, run:
+
+```bash
+loom install claude --with-instructions
+```
+
+Loom manages one block in `AGENTS.md` and one small `CLAUDE.md` block that
+imports `AGENTS.md`. Existing instructions outside those markers are preserved.
+
+## OpenCode
+
+Install OpenCode's project-local MCP registration from a connected repository:
+
+```bash
+loom install opencode
+loom install opencode --with-instructions
+```
+
+The installer creates or merges `opencode.json`, records writes as `opencode`,
+and leaves unrelated configuration untouched. OpenCode reads the managed root
+`AGENTS.md` protocol directly. Existing `opencode.jsonc` files are never
+rewritten or shadowed; move that configuration to `opencode.json` before
+running the installer.
 
 ## Codex
 
@@ -299,11 +323,13 @@ Use this sequence to verify the complete product rather than isolated screens:
 
 8. Open the dashboard from the popup. Confirm the linked-chat count, context
    count, human/assistant roles, source URL, and new message.
-9. Start Claude Code, run `/loom continue the retry-policy work`, and confirm it
-   cites or uses the browser context.
-10. Start Codex with its Loom MCP registration and ask for the same context.
-11. Let an agent record one durable result through the Loom MCP tool, then
-    verify it appears in the CLI and dashboard.
+9. Start Claude Code and ask it to continue the retry-policy work. Confirm it
+   reads the browser context and writes a structured result with Claude source
+   and session provenance.
+10. Start OpenCode and ask it to continue from Claude's result. Confirm it
+    reads Claude's result and writes its own structured result.
+11. Start Codex and retrieve both handoffs, then verify they also appear in the
+    CLI and dashboard.
 
 ## Automated verification
 

@@ -138,17 +138,18 @@ def _format_unit(u: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+class HarnessInstallError(RuntimeError):
+    """Raised when a harness integration cannot be installed safely."""
 
 
-class CodexInstallError(RuntimeError):
+class CodexInstallError(HarnessInstallError):
     """Raised when the Codex MCP registration cannot be installed safely."""
 
 
 _LOOM_INSTRUCTIONS_START = "<!-- loom:start -->"
 _LOOM_INSTRUCTIONS_END = "<!-- loom:end -->"
+_LOOM_CLAUDE_START = "<!-- loom:claude:start -->"
+_LOOM_CLAUDE_END = "<!-- loom:claude:end -->"
 _LOOM_INSTRUCTIONS = f"""{_LOOM_INSTRUCTIONS_START}
 ## Loom Project Memory
 
@@ -159,6 +160,10 @@ _LOOM_INSTRUCTIONS = f"""{_LOOM_INSTRUCTIONS_START}
 - Task results must include the task name, files touched, tests, blockers, and next steps.
 - Never store credentials, secrets, or noisy raw terminal logs in Loom.
 {_LOOM_INSTRUCTIONS_END}
+"""
+_LOOM_CLAUDE_IMPORT = f"""{_LOOM_CLAUDE_START}
+@AGENTS.md
+{_LOOM_CLAUDE_END}
 """
 
 
@@ -175,25 +180,84 @@ def _write_text_atomic(path: Path, content: str) -> None:
             temporary.unlink()
 
 
-def _install_codex_instructions(root: Path) -> Path:
-    path = root / "AGENTS.md"
+def _managed_block_content(
+    path: Path,
+    *,
+    start_marker: str,
+    end_marker: str,
+    block: str,
+) -> tuple[str, str]:
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    start_count = existing.count(_LOOM_INSTRUCTIONS_START)
-    end_count = existing.count(_LOOM_INSTRUCTIONS_END)
+    start_count = existing.count(start_marker)
+    end_count = existing.count(end_marker)
     if start_count != end_count or start_count > 1:
-        raise CodexInstallError(
+        raise HarnessInstallError(
             f"Cannot update malformed Loom instruction markers in {path}."
         )
     if start_count == 1:
-        start = existing.index(_LOOM_INSTRUCTIONS_START)
-        end = existing.index(_LOOM_INSTRUCTIONS_END, start) + len(_LOOM_INSTRUCTIONS_END)
-        updated = existing[:start] + _LOOM_INSTRUCTIONS.rstrip() + existing[end:]
+        start = existing.index(start_marker)
+        end = existing.index(end_marker, start) + len(end_marker)
+        updated = existing[:start] + block.rstrip() + existing[end:]
     else:
         separator = "" if not existing else ("\n" if existing.endswith("\n") else "\n\n")
-        updated = existing + separator + _LOOM_INSTRUCTIONS
+        updated = existing + separator + block
+    return existing, updated
+
+
+def _install_shared_instructions(root: Path) -> Path:
+    path = root / "AGENTS.md"
+    existing, updated = _managed_block_content(
+        path,
+        start_marker=_LOOM_INSTRUCTIONS_START,
+        end_marker=_LOOM_INSTRUCTIONS_END,
+        block=_LOOM_INSTRUCTIONS,
+    )
     if updated != existing:
         _write_text_atomic(path, updated)
     return path
+
+
+def _install_claude_instructions(root: Path) -> Path:
+    path = root / "CLAUDE.md"
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    start_count = existing.count(_LOOM_CLAUDE_START)
+    end_count = existing.count(_LOOM_CLAUDE_END)
+    if start_count != end_count or start_count > 1:
+        raise HarnessInstallError(
+            f"Cannot update malformed Loom instruction markers in {path}."
+        )
+    if start_count == 0 and any(
+        line.strip() == "@AGENTS.md" for line in existing.splitlines()
+    ):
+        return path
+    original, updated = _managed_block_content(
+        path,
+        start_marker=_LOOM_CLAUDE_START,
+        end_marker=_LOOM_CLAUDE_END,
+        block=_LOOM_CLAUDE_IMPORT,
+    )
+    if updated != original:
+        _write_text_atomic(path, updated)
+    return path
+
+
+def _validate_instruction_files(root: Path, target: str) -> None:
+    _managed_block_content(
+        root / "AGENTS.md",
+        start_marker=_LOOM_INSTRUCTIONS_START,
+        end_marker=_LOOM_INSTRUCTIONS_END,
+        block=_LOOM_INSTRUCTIONS,
+    )
+    if target not in {"claude", "all"}:
+        return
+    path = root / "CLAUDE.md"
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    start_count = existing.count(_LOOM_CLAUDE_START)
+    end_count = existing.count(_LOOM_CLAUDE_END)
+    if start_count != end_count or start_count > 1:
+        raise HarnessInstallError(
+            f"Cannot update malformed Loom instruction markers in {path}."
+        )
 
 
 def _codex_registration_matches(data: dict[str, Any]) -> bool:
@@ -258,8 +322,7 @@ def _install_codex() -> None:
     print("✅ Codex MCP registration installed.")
 
 
-def _install_claude(root: Path) -> list[Path]:
-    """Create Claude Code's project-local MCP server configuration."""
+def _claude_registration(root: Path) -> tuple[Path, dict[str, object], bool]:
     config_path = root / ".mcp.json"
     config: dict[str, object] = {}
     if config_path.exists():
@@ -274,8 +337,97 @@ def _install_claude(root: Path) -> list[Path]:
     servers = config.setdefault("mcpServers", {})
     if not isinstance(servers, dict):
         raise ValueError(f"mcpServers must be an object in {config_path}")
-    servers["loom"] = {"command": "loom", "args": ["mcp"]}
-    _write_text(config_path, json.dumps(config, indent=2) + "\n")
+    expected = {
+        "command": "loom",
+        "args": ["mcp"],
+        "env": {"LOOM_SOURCE_TYPE": "claude_code"},
+    }
+    existing = servers.get("loom")
+    if existing is not None and existing != expected:
+        raise HarnessInstallError(
+            "An incompatible Claude Code MCP registration named 'loom' already exists. "
+            "Run `claude mcp remove loom --scope project`, then rerun "
+            "`loom install claude`."
+        )
+    if existing is None:
+        servers["loom"] = expected
+    return config_path, config, existing is None
+
+
+def _install_claude(root: Path) -> list[Path]:
+    """Create Claude Code's project-local MCP server configuration."""
+    config_path, config, changed = _claude_registration(root)
+    if changed:
+        _write_text_atomic(config_path, json.dumps(config, indent=2) + "\n")
+        print("✅ Claude Code MCP registration installed.")
+    else:
+        print("✅ Claude Code MCP registration is already configured.")
+    print(
+        "Claude Code may show this project MCP server as pending approval. "
+        "Open `claude` in the repository and approve the trusted server when prompted."
+    )
+    return [config_path]
+
+
+def _opencode_registration(root: Path) -> tuple[Path, dict[str, object], bool]:
+    config_path = root / "opencode.json"
+    jsonc_path = root / "opencode.jsonc"
+    if jsonc_path.exists():
+        detail = (
+            f"Both {config_path.name} and {jsonc_path.name} exist"
+            if config_path.exists()
+            else f"{jsonc_path.name} exists"
+        )
+        raise HarnessInstallError(
+            f"Cannot safely install OpenCode: {detail}. Move the configuration to "
+            "opencode.json, then rerun `loom install opencode`."
+        )
+
+    config: dict[str, object] = {}
+    if config_path.exists():
+        try:
+            parsed = json.loads(config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HarnessInstallError(
+                f"Cannot update invalid JSON file: {config_path}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise HarnessInstallError(
+                f"Cannot update non-object OpenCode configuration: {config_path}"
+            )
+        config = parsed
+    else:
+        config["$schema"] = "https://opencode.ai/config.json"
+
+    servers = config.setdefault("mcp", {})
+    if not isinstance(servers, dict):
+        raise HarnessInstallError(f"mcp must be an object in {config_path}")
+    expected = {
+        "type": "local",
+        "command": ["loom", "mcp"],
+        "enabled": True,
+        "environment": {"LOOM_SOURCE_TYPE": "opencode"},
+    }
+    existing = servers.get("loom")
+    if existing is not None and existing != expected:
+        raise HarnessInstallError(
+            "An incompatible OpenCode MCP registration named 'loom' already exists. "
+            "Remove `mcp.loom` from opencode.json, then rerun "
+            "`loom install opencode`."
+        )
+    if existing is None:
+        servers["loom"] = expected
+    return config_path, config, existing is None
+
+
+def _install_opencode(root: Path) -> list[Path]:
+    """Create OpenCode's project-local MCP server configuration."""
+    config_path, config, changed = _opencode_registration(root)
+    if changed:
+        _write_text_atomic(config_path, json.dumps(config, indent=2) + "\n")
+        print("✅ OpenCode MCP registration installed.")
+    else:
+        print("✅ OpenCode MCP registration is already configured.")
     return [config_path]
 
 
@@ -288,20 +440,29 @@ def cmd_install(args: argparse.Namespace) -> None:
 
     created: list[Path] = []
     try:
+        if getattr(args, "with_instructions", False):
+            _validate_instruction_files(root, args.target)
         if args.target in {"claude", "all"}:
-            created.extend(_install_claude(root))
+            _claude_registration(root)
+        if args.target in {"opencode", "all"}:
+            _opencode_registration(root)
         if args.target in {"codex", "all"}:
             _install_codex()
-            if getattr(args, "with_instructions", False):
-                created.append(_install_codex_instructions(root))
-            else:
-                print(
-                    "Codex tools are available. Rerun with `--with-instructions` "
-                    "to install the automatic read/write protocol."
-                )
-        elif getattr(args, "with_instructions", False):
-            raise CodexInstallError("--with-instructions requires target 'codex' or 'all'.")
-    except (CodexInstallError, ValueError) as exc:
+        if args.target in {"claude", "all"}:
+            created.extend(_install_claude(root))
+        if args.target in {"opencode", "all"}:
+            created.extend(_install_opencode(root))
+        if getattr(args, "with_instructions", False):
+            created.append(_install_shared_instructions(root))
+            if args.target in {"claude", "all"}:
+                created.append(_install_claude_instructions(root))
+            print("✅ Automatic Loom read/write protocol installed.")
+        else:
+            print(
+                "Loom MCP tools are available. Rerun with `--with-instructions` "
+                "to install the automatic read/write protocol."
+            )
+    except (HarnessInstallError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
@@ -862,14 +1023,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_init.add_argument(
         "--install",
-        choices=["all", "claude", "codex", "none"],
+        choices=["all", "claude", "codex", "opencode", "none"],
         default="all",
         help="Install native harness integration files (default: all)",
     )
     p_init.add_argument(
         "--with-instructions",
         action="store_true",
-        help="Install the managed Loom protocol in AGENTS.md when Codex is included",
+        help="Install the managed Loom protocol in project instruction files",
     )
 
     # loom login/logout
@@ -879,7 +1040,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_login.add_argument("--agent-name", default="Loom CLI", help="Name for this local agent")
     p_login.add_argument(
         "--install",
-        choices=["all", "claude", "codex", "none"],
+        choices=["all", "claude", "codex", "opencode", "none"],
         default="all",
     )
     p_login.add_argument("--with-instructions", action="store_true")
@@ -894,7 +1055,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_switch.add_argument("--agent-name", default="Loom CLI", help="Name for this machine")
     p_switch.add_argument(
         "--install",
-        choices=["all", "claude", "codex", "none"],
+        choices=["all", "claude", "codex", "opencode", "none"],
         default="all",
     )
     p_switch.add_argument("--with-instructions", action="store_true")
@@ -907,7 +1068,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # loom install
     p_install = sub.add_parser("install", help="Install Loom integration in a coding project")
-    p_install.add_argument("target", choices=["all", "claude", "codex"])
+    p_install.add_argument("target", choices=["all", "claude", "codex", "opencode"])
     p_install.add_argument(
         "--path",
         default=".",

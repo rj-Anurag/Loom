@@ -4,7 +4,10 @@
       "command": "loom",
       "args": [
         "mcp"
-      ]
+      ],
+      "env": {
+        "LOOM_SOURCE_TYPE": "claude_code"
+      }
     }
   }
 }

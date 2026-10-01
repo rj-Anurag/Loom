@@ -41,6 +41,7 @@ docker-compose.override.yml
 # Tools
 tools/orchestrator/state.json
 .gstack/
+plan/
 
 # Test
 .coverage

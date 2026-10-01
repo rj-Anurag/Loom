@@ -285,6 +285,63 @@ class TestMCPTools:
         assert count == 2
 
     @pytest.mark.asyncio
+    async def test_cross_harness_writes_keep_source_and_session_provenance(
+        self,
+        test_project: Project,
+        test_agent: Agent,
+        db_session,
+        monkeypatch,
+    ) -> None:
+        import httpx
+
+        from loom.mcp.server import write_context
+
+        monkeypatch.setenv("LOOM_API_KEY", str(test_agent.id))
+        monkeypatch.setenv("LOOM_PROJECT_ID", str(test_project.id))
+        monkeypatch.setenv("LOOM_API_URL", "http://test")
+
+        class MockAsyncClient(httpx.AsyncClient):
+            def __init__(self, **kwargs):
+                from loom.api.main import app
+
+                super().__init__(transport=ASGITransport(app=app), base_url="http://test")
+
+        monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+        content = f"Cross-harness result {test_project.id}"
+
+        for source, session in (
+            ("claude_code", "claude-session"),
+            ("opencode", "opencode-session"),
+        ):
+            monkeypatch.setenv("LOOM_SOURCE_TYPE", source)
+            monkeypatch.setenv("LOOM_SESSION_ID", session)
+            result = await write_context(
+                content=content,
+                type="task_result",
+                task_name=f"{source} handoff",
+                tests=[{"command": "pytest -q", "status": "passed"}],
+            )
+            assert "created" in result
+            assert f"source={source}" in result
+            assert f"session={session}" in result
+
+        units = (
+            await db_session.execute(
+                select(ContextUnit)
+                .where(ContextUnit.content == content)
+                .order_by(ContextUnit.source_type)
+            )
+        ).scalars().all()
+        assert [(unit.source_type, unit.source_session_id) for unit in units] == [
+            ("claude_code", "claude-session"),
+            ("opencode", "opencode-session"),
+        ]
+        assert [unit.context_metadata["task_name"] for unit in units] == [
+            "claude_code handoff",
+            "opencode handoff",
+        ]
+
+    @pytest.mark.asyncio
     async def test_missing_config_raises_error(self, monkeypatch, tmp_path) -> None:
         """MCP server raises helpful error when config is missing."""
         from loom.mcp.server import _check_config
