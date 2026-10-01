@@ -358,20 +358,20 @@ export function DocsSite() {
           </Section>
 
           <Section id="claude-code" eyebrow="Integration" title="Claude Code">
-            <CodeBlock code={'loom install claude\nloom install claude --with-instructions'} />
-            <p>The project <Pill>.mcp.json</Pill> identifies writes as <Pill>claude_code</Pill>. Claude may ask you to approve the project MCP server the first time it opens. The optional flag also installs the shared memory protocol in <Pill>AGENTS.md</Pill> and a managed <Pill>CLAUDE.md</Pill> import.</p>
+            <CodeBlock code={'loom install Claude'} />
+            <p>The project <Pill>.mcp.json</Pill> identifies writes as <Pill>claude_code</Pill>. Claude may ask you to approve the project MCP server the first time it opens. Loom does not create or modify Markdown instruction files.</p>
             <p>Start Claude Code normally from the project. It can read relevant project memory before work and write a structured, verified result for the next agent.</p>
           </Section>
 
           <Section id="opencode" eyebrow="Integration" title="OpenCode">
-            <CodeBlock code={'loom install opencode\nloom install opencode --with-instructions'} />
-            <p>Loom creates or merges <Pill>opencode.json</Pill>, registers the local MCP server, and identifies writes as <Pill>opencode</Pill>. OpenCode reads the shared root <Pill>AGENTS.md</Pill> protocol directly.</p>
+            <CodeBlock code={'loom install OpenCode'} />
+            <p>Loom creates or merges <Pill>opencode.json</Pill>, registers the local MCP server, and identifies writes as <Pill>opencode</Pill>. Markdown files are left untouched.</p>
           </Section>
 
           <Section id="codex" eyebrow="Integration" title="Codex">
             <p>Run the installer from a repository already connected with <Pill>loom init</Pill>. Loom verifies or creates the global Codex MCP registration without embedding credentials.</p>
-            <CodeBlock code={'loom install codex\nloom install codex --with-instructions'} />
-            <p>The optional flag installs an idempotent managed block in <Pill>AGENTS.md</Pill> so Codex reads project memory before work and writes durable verified results afterward. Everything outside Loom&apos;s markers is preserved.</p>
+            <CodeBlock code={'loom install Codex'} />
+            <p>The installer configures MCP access only and leaves Markdown instruction files untouched.</p>
             <p>The MCP process selects the nearest <Pill>.loom/project.json</Pill>, reads the matching credential from <Pill>~/.loom/projects.json</Pill>, and records Codex source and session provenance.</p>
           </Section>
 
@@ -385,13 +385,13 @@ export function DocsSite() {
             <div className="table-wrap"><table><thead><tr><th>Command</th><th>Purpose and important options</th></tr></thead><tbody>
               <tr><td><Pill>loom login</Pill></td><td>Google PKCE sign-in. Development fallback: <Pill>--email</Pill>. Optional <Pill>--project-id</Pill>, <Pill>--agent-name</Pill>, and <Pill>--install</Pill>.</td></tr>
               <tr><td><Pill>loom logout</Pill></td><td>Revoke the saved account session for the active server.</td></tr>
-              <tr><td><Pill>loom init [name]</Pill></td><td>Create a project or connect one with <Pill>--project-id</Pill>. Writes <Pill>.loom/project.json</Pill>; supports <Pill>--install all|claude|codex|opencode|none</Pill>, <Pill>--with-instructions</Pill>, and operator-only <Pill>--bootstrap</Pill>.</td></tr>
+              <tr><td><Pill>loom init [name]</Pill></td><td>Create a project or connect one with <Pill>--project-id</Pill>. Writes <Pill>.loom/project.json</Pill>; supports <Pill>--install all|claude|codex|opencode|none</Pill> and operator-only <Pill>--bootstrap</Pill>.</td></tr>
               <tr><td><Pill>loom projects</Pill></td><td>List projects visible to the signed-in account. Add <Pill>--json</Pill> for machine-readable output.</td></tr>
               <tr><td><Pill>loom switch &lt;project&gt;</Pill></td><td>Select an existing project and provision a machine-specific agent credential.</td></tr>
               <tr><td><Pill>loom config</Pill></td><td>Show the active server, masked credential, project ID, and credential-store location.</td></tr>
               <tr><td><Pill>loom context &lt;query&gt;</Pill></td><td>Retrieve context. Options: <Pill>--budget</Pill>, <Pill>--scope onboarding|task|full</Pill>, <Pill>--json</Pill>.</td></tr>
               <tr><td><Pill>loom mcp</Pill></td><td>Start the stdio MCP server for coding-agent clients.</td></tr>
-              <tr><td><Pill>loom install &lt;target&gt;</Pill></td><td>Install native project integration for <Pill>all</Pill>, <Pill>claude</Pill>, <Pill>codex</Pill>, or <Pill>opencode</Pill>; use <Pill>--path</Pill> for another repository and <Pill>--with-instructions</Pill> for the shared memory protocol.</td></tr>
+              <tr><td><Pill>loom install &lt;target&gt;</Pill></td><td>Install native project integration for <Pill>all</Pill>, <Pill>claude</Pill>, <Pill>codex</Pill>, or <Pill>opencode</Pill>; use <Pill>--path</Pill> for another repository. Target names are case-insensitive.</td></tr>
               <tr><td><Pill>loom extension install</Pill></td><td>Stage a credential-free unpacked extension. Supports <Pill>--api-url</Pill>, <Pill>--google-client-id</Pill>, <Pill>--path</Pill>, and <Pill>--force</Pill>.</td></tr>
               <tr><td><Pill>loom extension status</Pill></td><td>Validate the manifest, OAuth setup, host permission, and credential hygiene. Add <Pill>--check-api</Pill>.</td></tr>
               <tr><td><Pill>loom extension path</Pill></td><td>Print the unpacked extension directory.</td></tr>

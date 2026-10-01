@@ -12,13 +12,17 @@ from loom.cli.main import build_parser, cmd_install
 
 
 def _args(target: str, path: str) -> Namespace:
-    return Namespace(target=target, path=path, with_instructions=False)
+    return Namespace(target=target, path=path)
 
 
-def test_install_all_creates_project_mcp_without_markdown(tmp_path, monkeypatch) -> None:
-    """Claude integration is project-local and keeps credentials out of files."""
+def test_install_all_preserves_existing_markdown(tmp_path, monkeypatch) -> None:
+    """Harness installation never changes project instruction files."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("loom.cli.main._install_codex", lambda: None)
+    agents_file = tmp_path / "AGENTS.md"
+    claude_file = tmp_path / "CLAUDE.md"
+    agents_file.write_text("# Existing agent instructions\n")
+    claude_file.write_text("# Existing Claude instructions\n")
 
     cmd_install(_args("all", str(tmp_path)))
 
@@ -39,7 +43,21 @@ def test_install_all_creates_project_mcp_without_markdown(tmp_path, monkeypatch)
     }
     assert "LOOM_API_KEY" not in (tmp_path / "opencode.json").read_text()
 
+    assert agents_file.read_text() == "# Existing agent instructions\n"
+    assert claude_file.read_text() == "# Existing Claude instructions\n"
+    assert sorted(path.name for path in tmp_path.glob("*.md")) == [
+        "AGENTS.md",
+        "CLAUDE.md",
+    ]
     assert not (tmp_path / ".claude" / "commands" / "loom.md").exists()
+
+
+def test_install_all_does_not_create_markdown(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("loom.cli.main._install_codex", lambda: None)
+
+    cmd_install(_args("all", str(tmp_path)))
+
+    assert list(tmp_path.rglob("*.md")) == []
 
 
 def test_install_codex_does_not_modify_agent_instructions(tmp_path, monkeypatch) -> None:
@@ -57,37 +75,6 @@ def test_install_codex_does_not_modify_agent_instructions(tmp_path, monkeypatch)
     contents = agents_file.read_text()
     assert contents == "# Project instructions\n"
     assert not (tmp_path / ".claude" / "commands" / "loom.md").exists()
-
-
-def test_install_codex_manages_only_loom_instruction_block(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("loom.cli.main._install_codex", lambda: None)
-    agents_file = tmp_path / "AGENTS.md"
-    agents_file.write_text("# Project instructions\n\nKeep this text.\n")
-    args = Namespace(target="codex", path=str(tmp_path), with_instructions=True)
-
-    cmd_install(args)
-    first = agents_file.read_text()
-    cmd_install(args)
-    second = agents_file.read_text()
-
-    assert first == second
-    assert first.startswith("# Project instructions\n\nKeep this text.\n")
-    assert first.count("<!-- loom:start -->") == 1
-    assert first.count("<!-- loom:end -->") == 1
-    assert "read_context" in first
-    assert "write_context" in first
-
-
-def test_install_codex_rejects_malformed_instruction_markers(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("loom.cli.main._install_codex", lambda: None)
-    agents_file = tmp_path / "AGENTS.md"
-    original = "# Project\n\n<!-- loom:start -->\nbroken\n"
-    agents_file.write_text(original)
-
-    with pytest.raises(SystemExit):
-        cmd_install(Namespace(target="codex", path=str(tmp_path), with_instructions=True))
-
-    assert agents_file.read_text() == original
 
 
 def test_install_codex_registers_source_provenance(tmp_path, monkeypatch) -> None:
@@ -206,41 +193,6 @@ def test_install_claude_refuses_conflict_unchanged(tmp_path) -> None:
     assert config_path.read_text() == original
 
 
-def test_install_claude_instructions_import_agents_and_preserve_content(tmp_path) -> None:
-    claude_file = tmp_path / "CLAUDE.md"
-    claude_file.write_text("# Existing Claude instructions\n")
-    args = Namespace(
-        target="claude",
-        path=str(tmp_path),
-        with_instructions=True,
-    )
-
-    cmd_install(args)
-    first_claude = claude_file.read_text()
-    first_agents = (tmp_path / "AGENTS.md").read_text()
-    cmd_install(args)
-
-    assert claude_file.read_text() == first_claude
-    assert first_claude.startswith("# Existing Claude instructions\n")
-    assert first_claude.count("@AGENTS.md") == 1
-    assert "<!-- loom:claude:start -->" in first_claude
-    assert (tmp_path / "AGENTS.md").read_text() == first_agents
-    assert "read_context" in first_agents
-    assert "write_context" in first_agents
-
-
-def test_install_claude_leaves_existing_agents_import_unchanged(tmp_path) -> None:
-    claude_file = tmp_path / "CLAUDE.md"
-    original = "@AGENTS.md\n\n# Existing Claude instructions\n"
-    claude_file.write_text(original)
-
-    cmd_install(
-        Namespace(target="claude", path=str(tmp_path), with_instructions=True)
-    )
-
-    assert claude_file.read_text() == original
-
-
 def test_install_opencode_preserves_config_and_is_idempotent(tmp_path) -> None:
     config_path = tmp_path / "opencode.json"
     config_path.write_text(
@@ -307,43 +259,6 @@ def test_install_all_preflights_local_conflicts_before_writes(tmp_path, monkeypa
     assert not (tmp_path / "opencode.json").exists()
 
 
-def test_install_with_malformed_agents_markers_writes_nothing(tmp_path) -> None:
-    agents_file = tmp_path / "AGENTS.md"
-    original = "<!-- loom:start -->\nbroken\n"
-    agents_file.write_text(original)
-
-    with pytest.raises(SystemExit):
-        cmd_install(
-            Namespace(
-                target="opencode",
-                path=str(tmp_path),
-                with_instructions=True,
-            )
-        )
-
-    assert agents_file.read_text() == original
-    assert not (tmp_path / "opencode.json").exists()
-
-
-def test_install_with_malformed_claude_markers_writes_nothing(tmp_path) -> None:
-    claude_file = tmp_path / "CLAUDE.md"
-    original = "<!-- loom:claude:start -->\n@AGENTS.md\n"
-    claude_file.write_text(original)
-
-    with pytest.raises(SystemExit):
-        cmd_install(
-            Namespace(
-                target="claude",
-                path=str(tmp_path),
-                with_instructions=True,
-            )
-        )
-
-    assert claude_file.read_text() == original
-    assert not (tmp_path / ".mcp.json").exists()
-    assert not (tmp_path / "AGENTS.md").exists()
-
-
 def test_install_parser_accepts_opencode_for_all_project_flows() -> None:
     parser = build_parser()
     for command in ("init", "login", "switch"):
@@ -353,3 +268,18 @@ def test_install_parser_accepts_opencode_for_all_project_flows() -> None:
         argv.extend(["--install", "opencode"])
         assert parser.parse_args(argv).install == "opencode"
     assert parser.parse_args(["install", "opencode"]).target == "opencode"
+
+
+def test_install_parser_accepts_branded_harness_casing() -> None:
+    parser = build_parser()
+
+    assert parser.parse_args(["install", "OpenCode"]).target == "opencode"
+    assert parser.parse_args(["install", "Codex"]).target == "codex"
+    assert parser.parse_args(["install", "Claude"]).target == "claude"
+
+    for command in ("init", "login", "switch"):
+        argv = [command]
+        if command == "switch":
+            argv.append("project-id")
+        argv.extend(["--install", "OpenCode"])
+        assert parser.parse_args(argv).install == "opencode"

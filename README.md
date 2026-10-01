@@ -95,7 +95,7 @@ only its server and project identity, so different repositories cannot silently
 use whichever project was selected most recently:
 
 ```bash
-loom init "My Project" --install all --with-instructions
+loom init "My Project" --install all
 ```
 
 On another machine, sign in and select an existing project:
@@ -249,29 +249,20 @@ claude
 
 Claude may ask you to approve the repository's project MCP server the first
 time it opens. Claude can then call Loom's `read_context` and `write_context`
-tools. To install the automatic memory protocol, run:
-
-```bash
-loom install claude --with-instructions
-```
-
-Loom manages one block in `AGENTS.md` and one small `CLAUDE.md` block that
-imports `AGENTS.md`. Existing instructions outside those markers are preserved.
+tools. Loom never creates or modifies project Markdown instruction files.
 
 ## OpenCode
 
 Install OpenCode's project-local MCP registration from a connected repository:
 
 ```bash
-loom install opencode
-loom install opencode --with-instructions
+loom install OpenCode
 ```
 
 The installer creates or merges `opencode.json`, records writes as `opencode`,
-and leaves unrelated configuration untouched. OpenCode reads the managed root
-`AGENTS.md` protocol directly. Existing `opencode.jsonc` files are never
-rewritten or shadowed; move that configuration to `opencode.json` before
-running the installer.
+and leaves unrelated configuration untouched. Existing `opencode.jsonc` files
+are never rewritten or shadowed; move that configuration to `opencode.json`
+before running the installer. Loom does not create or modify Markdown files.
 
 ## Codex
 
@@ -282,17 +273,11 @@ repository:
 loom install codex
 ```
 
-Add the automatic read-before-work and write-after-verification protocol only
-when you want Loom to manage a marked section of `AGENTS.md`:
-
-```bash
-loom install codex --with-instructions
-```
-
 The MCP process selects the nearest `.loom/project.json`, reads its matching
 credential from `~/.loom/projects.json`, and records writes as `codex_cli` with
 a process-level session ID. `LOOM_API_URL`, `LOOM_PROJECT_ID`, and
 `LOOM_API_KEY` remain compatibility overrides for controlled CI environments.
+The installer does not create or modify Markdown files.
 
 If a different MCP server already uses the name `loom`, the installer leaves it
 unchanged and prints the explicit removal and reinstall commands.
@@ -304,7 +289,7 @@ Use this sequence to verify the complete product rather than isolated screens:
 1. Start PostgreSQL/Redis, apply migrations, and start Uvicorn with
    `uvicorn loom.api.main:app --host 0.0.0.0 --port 8000`.
 2. Configure Google OAuth as described below, then run `loom login`.
-3. Run `loom init "E2E Test" --install all --with-instructions`, then verify the CLI is connected:
+3. Run `loom init "E2E Test" --install all`, then verify the CLI is connected:
 
    ```bash
    loom config
