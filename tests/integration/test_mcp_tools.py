@@ -5,7 +5,7 @@ Tests cover:
 - write_context tool: creates units, idempotent via content-based client_uuid
 - write_context tool: supports parent_ids / parent_relations
 - get_project_summary tool: returns summary-type units only
-- ToolRegistry: lists 3 tools with valid MCP schemas
+- ToolRegistry: lists 5 tools with valid MCP schemas
 - Error handling: missing required fields, unknown tool names
 """
 
@@ -75,15 +75,21 @@ async def tool_registry(
 
 
 @pytest.mark.asyncio
-async def test_registry_lists_three_tools(
+async def test_registry_lists_all_tools(
     tool_registry: Any,
 ) -> None:
-    """ToolRegistry.list_tools() returns definitions for all 3 tools."""
+    """ToolRegistry.list_tools() returns every public tool definition."""
     tools = tool_registry.list_tools()
-    assert len(tools) == 3
+    assert len(tools) == 5
 
     names = {t["name"] for t in tools}
-    assert names == {"read_context", "write_context", "get_project_summary"}
+    assert names == {
+        "read_context",
+        "write_context",
+        "get_project_summary",
+        "list_recent_context",
+        "list_sources",
+    }
 
     # Each tool must have a name, description, and inputSchema
     for t in tools:
@@ -100,6 +106,32 @@ async def test_registry_unknown_tool(tool_registry: Any) -> None:
     result = await tool_registry.call("nonexistent_tool", {})
     assert "error" in result
     assert "unknown" in result["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_registry_visibility_tools_share_context_services(
+    tool_registry: Any,
+) -> None:
+    written = await tool_registry.call(
+        "write_context",
+        {
+            "content": "Visibility registry decision",
+            "type": "decision",
+        },
+    )
+
+    recent = await tool_registry.call(
+        "list_recent_context",
+        {"limit": 10, "source_type": "mcp_agent", "type": "decision"},
+    )
+    assert [unit["id"] for unit in recent["units"]] == [written["id"]]
+    assert recent["units"][0]["parent_ids"] == []
+
+    sources = await tool_registry.call("list_sources", {})
+    assert len(sources["sources"]) == 1
+    assert sources["sources"][0]["source_type"] == "mcp_agent"
+    assert sources["sources"][0]["source_session_id"] is None
+    assert sources["sources"][0]["unit_count"] == 1
 
 
 # ── read_context tool ─────────────────────────────────────────────────────────

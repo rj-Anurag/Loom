@@ -282,6 +282,27 @@ The installer does not create or modify Markdown files.
 If a different MCP server already uses the name `loom`, the installer leaves it
 unchanged and prints the explicit removal and reinstall commands.
 
+## Inspect project memory
+
+The inspection commands are read-only and use the project selected by the
+nearest `.loom/project.json`:
+
+```bash
+loom status
+loom links
+loom history --limit 20
+loom history --source opencode --session <session-id> --type task_result
+```
+
+Each command also supports `--json`. `loom links` shows linked browser chats
+and harness sessions observed in stored provenance. An observed session is
+historical activity, not an indication that the agent process is currently
+online. Loom commands do not create or modify Markdown instruction files.
+
+MCP clients can inspect the same information with `list_recent_context` and
+`list_sources`. Recent units include full IDs and parent citations for durable
+handoffs.
+
 ## End-to-end test flow
 
 Use this sequence to verify the complete product rather than isolated screens:
@@ -308,13 +329,13 @@ Use this sequence to verify the complete product rather than isolated screens:
 
 8. Open the dashboard from the popup. Confirm the linked-chat count, context
    count, human/assistant roles, source URL, and new message.
-9. Start Claude Code and ask it to continue the retry-policy work. Confirm it
-   reads the browser context and writes a structured result with Claude source
+9. Start OpenCode and ask it to continue the retry-policy work. Confirm it
+   reads the browser context and writes a structured result with OpenCode source
    and session provenance.
-10. Start OpenCode and ask it to continue from Claude's result. Confirm it
-    reads Claude's result and writes its own structured result.
-11. Start Codex and retrieve both handoffs, then verify they also appear in the
-    CLI and dashboard.
+10. Start Codex and retrieve the OpenCode handoff, then inspect it with
+    `loom history --source opencode` and `loom links`.
+11. When Claude Code access is available, optionally repeat the handoff through
+    Claude and confirm its source and session remain independently traceable.
 
 ## Automated verification
 

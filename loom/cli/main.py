@@ -30,6 +30,7 @@ import textwrap
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -136,6 +137,69 @@ def _format_unit(u: dict[str, Any]) -> str:
         content = content[:500] + "..."
     lines.append(f"  content: {textwrap.shorten(content, width=200, placeholder='...')}")
     return "\n".join(lines)
+
+
+def _format_history_unit(unit: dict[str, Any]) -> str:
+    """Format complete provenance for chronological inspection."""
+    lines = [
+        f"[{unit.get('type', '?')}] {unit.get('id', '?')}",
+        f"  source: {unit.get('source_type', 'mcp_agent')}",
+        f"  session: {unit.get('source_session_id') or '-'}",
+        f"  agent: {unit.get('agent_name') or unit.get('agent_id', '?')}",
+        f"  created: {unit.get('created_at', '?')}",
+        f"  parents: {', '.join(unit.get('parent_ids') or []) or '-'}",
+    ]
+    metadata = unit.get("metadata") or {}
+    if metadata:
+        lines.append(f"  metadata: {json.dumps(metadata, sort_keys=True)}")
+    lines.append(f"  content: {unit.get('content', '')}")
+    return "\n".join(lines)
+
+
+def _normalized_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    path = parsed.path.rstrip("/") or "/"
+    return urlunsplit(
+        (parsed.scheme.lower(), parsed.netloc.lower(), path, parsed.query, "")
+    )
+
+
+def _inspection_get(
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+) -> Any:
+    """GET project inspection data with actionable CLI failures."""
+    try:
+        response = httpx.get(
+            f"{_api_url()}{path}",
+            params=params,
+            headers=_headers(),
+            timeout=30,
+        )
+    except httpx.RequestError as exc:
+        print(f"Error: Loom API is unavailable at {_api_url()}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    if response.status_code == 401:
+        print(
+            "Error: Authentication failed. Run `loom login` and `loom switch` "
+            "to refresh this repository's credential.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    if response.status_code == 403:
+        print("Error: This credential cannot access the selected project.", file=sys.stderr)
+        raise SystemExit(1)
+    if response.status_code == 404:
+        print("Error: The selected Loom project was not found.", file=sys.stderr)
+        raise SystemExit(1)
+    if response.status_code >= 400:
+        print(f"Error: {_response_detail(response)}", file=sys.stderr)
+        raise SystemExit(1)
+    return response.json()
 
 
 class HarnessInstallError(RuntimeError):
@@ -864,6 +928,145 @@ def cmd_config(args: argparse.Namespace) -> None:
     print("Credential store = ~/.loom/projects.json")
 
 
+def cmd_status(args: argparse.Namespace) -> None:
+    """Show the selected project's reachable memory state."""
+    _check_project_config()
+    config = resolve_project_config()
+    project = cast(
+        dict[str, Any],
+        _inspection_get(f"/v1/projects/{config.project_id}"),
+    )
+    source_data = cast(
+        dict[str, Any],
+        _inspection_get(f"/v1/projects/{config.project_id}/context/sources"),
+    )
+    observed_sessions = sum(
+        1
+        for source in source_data.get("sources", [])
+        if source.get("source_type") != "browser_chat"
+        and source.get("source_session_id")
+    )
+    status = {
+        "api_status": "ok",
+        "api_url": config.api_url,
+        "project_id": config.project_id,
+        "project_name": project.get("name", ""),
+        "selection_source": config.source,
+        "context_unit_count": project.get("context_unit_count", 0),
+        "linked_chat_count": project.get("linked_chat_count", 0),
+        "observed_session_count": observed_sessions,
+    }
+    if args.json:
+        print(json.dumps(status, indent=2, default=str))
+        return
+    print(f"Project           = {status['project_name']} ({status['project_id']})")
+    print(f"API               = {status['api_url']} ({status['api_status']})")
+    print(f"Selection source  = {status['selection_source']}")
+    print(f"Context units     = {status['context_unit_count']}")
+    print(f"Linked chats      = {status['linked_chat_count']}")
+    print(f"Observed sessions = {status['observed_session_count']}")
+
+
+def cmd_links(args: argparse.Namespace) -> None:
+    """List linked browser chats and observed harness sessions."""
+    _check_project_config()
+    project_id = _project_id()
+    chats = cast(
+        list[dict[str, Any]],
+        _inspection_get(f"/v1/projects/{project_id}/chats"),
+    )
+    source_data = cast(
+        dict[str, Any],
+        _inspection_get(f"/v1/projects/{project_id}/context/sources"),
+    )
+    sources = cast(list[dict[str, Any]], source_data.get("sources", []))
+
+    browser_counts: dict[str, int] = {}
+    for source in sources:
+        if source.get("source_type") != "browser_chat":
+            continue
+        normalized = _normalized_url(source.get("source_url"))
+        if normalized:
+            browser_counts[normalized] = browser_counts.get(normalized, 0) + int(
+                source.get("unit_count", 0)
+            )
+
+    linked_chats = []
+    for chat in chats:
+        entry = dict(chat)
+        entry["captured_unit_count"] = browser_counts.get(
+            _normalized_url(chat.get("chat_url")) or "",
+            0,
+        )
+        linked_chats.append(entry)
+    sessions = [source for source in sources if source.get("source_type") != "browser_chat"]
+    payload = {"chats": linked_chats, "sessions": sessions}
+
+    if args.json:
+        print(json.dumps(payload, indent=2, default=str))
+        return
+
+    print("Linked browser chats")
+    if not linked_chats:
+        print("  None")
+    for chat in linked_chats:
+        title = chat.get("title") or "Untitled chat"
+        platform = chat.get("platform") or "unknown"
+        print(f"  {title} [{platform}]")
+        print(
+            f"    linked={chat.get('linked_at') or '?'} "
+            f"captured={chat['captured_unit_count']}"
+        )
+        print(f"    {chat.get('chat_url', '')}")
+
+    print("\nObserved harness sessions")
+    if not sessions:
+        print("  None")
+    for source in sessions:
+        print(
+            f"  {source.get('source_type', '?')} "
+            f"session={source.get('source_session_id') or '(unscoped)'}"
+        )
+        print(
+            f"    agent={source.get('agent_name') or source.get('agent_id', '?')} "
+            f"units={source.get('unit_count', 0)} "
+            f"last={source.get('last_seen_at', '?')}"
+        )
+
+
+def cmd_history(args: argparse.Namespace) -> None:
+    """List chronological project memory without relevance ranking."""
+    _check_project_config()
+    params = {
+        "limit": args.limit,
+        "cursor": args.cursor,
+        "source_type": args.source,
+        "source_session_id": args.session,
+        "type": args.type,
+    }
+    data = cast(
+        dict[str, Any],
+        _inspection_get(
+            f"/v1/projects/{_project_id()}/context/history",
+            params={key: value for key, value in params.items() if value is not None},
+        ),
+    )
+    if args.json:
+        print(json.dumps(data, indent=2, default=str))
+        return
+
+    units = data.get("units", [])
+    if not units:
+        print("No project memory found for these filters.")
+        return
+    for index, unit in enumerate(units, 1):
+        print(f"--- Unit {index} ---")
+        print(_format_history_unit(unit))
+        print()
+    if data.get("has_more"):
+        print(f"Next cursor: {data.get('next_cursor')}")
+
+
 # ── CLI Entry Point ───────────────────────────────────────────────────────────
 
 
@@ -955,6 +1158,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     # loom config
     sub.add_parser("config", help="Show current configuration")
+
+    p_status = sub.add_parser("status", help="Show project memory status")
+    p_status.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    p_links = sub.add_parser(
+        "links",
+        help="List linked browser chats and observed harness sessions",
+    )
+    p_links.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    p_history = sub.add_parser("history", help="List recent project memory")
+    p_history.add_argument(
+        "--limit",
+        type=int,
+        choices=range(1, 201),
+        default=20,
+        metavar="1-200",
+        help="Number of units to return (default: 20)",
+    )
+    p_history.add_argument("--cursor", help="Continue from a previous history page")
+    p_history.add_argument("--source", help="Filter by source type")
+    p_history.add_argument("--session", help="Filter by source session ID")
+    p_history.add_argument(
+        "--type",
+        choices=["message", "decision", "artifact_ref", "task_result", "summary"],
+        help="Filter by context unit type",
+    )
+    p_history.add_argument("--json", action="store_true", help="Output raw JSON")
 
     # loom mcp
     sub.add_parser("mcp", help="Start the MCP stdio server (for AI CLI tools)")
@@ -1071,6 +1302,9 @@ def main() -> None:
         "projects": cmd_projects,
         "switch": cmd_switch,
         "config": cmd_config,
+        "status": cmd_status,
+        "links": cmd_links,
+        "history": cmd_history,
         "install": cmd_install,
         "extension": cmd_extension,
     }

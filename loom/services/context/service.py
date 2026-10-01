@@ -19,9 +19,10 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import redis.asyncio as redis_async
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models import (
@@ -624,6 +625,30 @@ def _decode_history_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         raise ValueError("INVALID_CURSOR") from None
 
 
+async def _validate_context_reader(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    agent_id: uuid.UUID | None,
+) -> None:
+    if await session.get(Project, project_id) is None:
+        raise ValueError("PROJECT_NOT_FOUND")
+    if agent_id is None:
+        return
+    agent = await session.get(Agent, agent_id)
+    if agent is None or agent.project_id != project_id:
+        raise ValueError("AGENT_MISMATCH")
+
+
+def _normalize_source_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    path = parsed.path.rstrip("/") or "/"
+    return urlunsplit(
+        (parsed.scheme.lower(), parsed.netloc.lower(), path, parsed.query, "")
+    )
+
+
 async def list_context_history(
     session: AsyncSession,
     project_id: uuid.UUID,
@@ -631,6 +656,9 @@ async def list_context_history(
     *,
     limit: int = 100,
     cursor: str | None = None,
+    source_type: str | None = None,
+    source_session_id: str | None = None,
+    unit_type: str | None = None,
 ) -> dict[str, Any]:
     """Return an append-only project's context in stable cursor pages.
 
@@ -638,17 +666,18 @@ async def list_context_history(
     it never ranks, summarizes, or truncates content to fit an agent token
     budget.
     """
-    project = await session.get(Project, project_id)
-    if project is None:
-        raise ValueError("PROJECT_NOT_FOUND")
-
-    if agent_id is not None:
-        agent = await session.get(Agent, agent_id)
-        if agent is None or agent.project_id != project_id:
-            raise ValueError("AGENT_MISMATCH")
+    await _validate_context_reader(session, project_id, agent_id)
 
     page_limit = min(max(limit, 1), 200)
     statement = select(ContextUnit).where(ContextUnit.project_id == project_id)
+    if source_type:
+        statement = statement.where(ContextUnit.source_type == source_type)
+    if source_session_id:
+        statement = statement.where(
+            ContextUnit.source_session_id == source_session_id
+        )
+    if unit_type:
+        statement = statement.where(ContextUnit.type == unit_type)
     if cursor:
         cursor_time, cursor_id = _decode_history_cursor(cursor)
         statement = statement.where(
@@ -673,6 +702,16 @@ async def list_context_history(
     rows = list(result.all())
     has_more = len(rows) > page_limit
     units = rows[:page_limit]
+    unit_ids = [unit.id for unit, _ in units]
+    parent_map: dict[uuid.UUID, list[str]] = defaultdict(list)
+    if unit_ids:
+        edge_rows = await session.execute(
+            select(ContextEdge.child_id, ContextEdge.parent_id).where(
+                ContextEdge.child_id.in_(unit_ids)
+            )
+        )
+        for child_id, parent_id in edge_rows:
+            parent_map[child_id].append(str(parent_id))
     next_cursor = (
         _encode_history_cursor(units[-1][0].created_at, units[-1][0].id)
         if has_more and units
@@ -694,12 +733,78 @@ async def list_context_history(
                 "agent_id": str(unit.agent_id),
                 "agent_name": agent_name,
                 "version": unit.version,
+                "parent_ids": parent_map[unit.id],
             }
             for unit, agent_name in units
         ],
         "next_cursor": next_cursor,
         "has_more": has_more,
     }
+
+
+async def list_context_sources(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    agent_id: uuid.UUID | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Return observed provenance sources for one authorized project."""
+    await _validate_context_reader(session, project_id, agent_id)
+
+    result = await session.execute(
+        select(
+            ContextUnit.source_type,
+            ContextUnit.source_session_id,
+            ContextUnit.source_url,
+            ContextUnit.agent_id,
+            Agent.name.label("agent_name"),
+            func.count(ContextUnit.id).label("unit_count"),
+            func.min(ContextUnit.created_at).label("first_seen_at"),
+            func.max(ContextUnit.created_at).label("last_seen_at"),
+        )
+        .join(Agent, Agent.id == ContextUnit.agent_id)
+        .where(ContextUnit.project_id == project_id)
+        .group_by(
+            ContextUnit.source_type,
+            ContextUnit.source_session_id,
+            ContextUnit.source_url,
+            ContextUnit.agent_id,
+            Agent.name,
+        )
+    )
+
+    grouped: dict[tuple[str, str | None, str | None, uuid.UUID], dict[str, Any]] = {}
+    for row in result:
+        browser_source = row.source_type == "browser_chat"
+        source_url = _normalize_source_url(row.source_url) if browser_source else None
+        source_session_id = None if browser_source else row.source_session_id
+        key = (row.source_type, source_session_id, source_url, row.agent_id)
+        existing = grouped.get(key)
+        if existing is None:
+            grouped[key] = {
+                "source_type": row.source_type,
+                "source_session_id": source_session_id,
+                "source_url": source_url,
+                "agent_id": str(row.agent_id),
+                "agent_name": row.agent_name,
+                "unit_count": int(row.unit_count),
+                "first_seen_at": row.first_seen_at.isoformat(),
+                "last_seen_at": row.last_seen_at.isoformat(),
+            }
+            continue
+        existing["unit_count"] += int(row.unit_count)
+        existing["first_seen_at"] = min(
+            existing["first_seen_at"], row.first_seen_at.isoformat()
+        )
+        existing["last_seen_at"] = max(
+            existing["last_seen_at"], row.last_seen_at.isoformat()
+        )
+
+    sources = sorted(
+        grouped.values(),
+        key=lambda source: (source["last_seen_at"], source["source_type"]),
+        reverse=True,
+    )
+    return {"sources": sources}
 
 
 async def read_context(

@@ -24,6 +24,7 @@ from loom.schemas.events import ProjectEvent
 from loom.services.context.service import (
     VersionConflict,
     list_context_history,
+    list_context_sources,
     read_context,
     write_context,
 )
@@ -140,7 +141,7 @@ class ReadContextUnitModel(BaseModel):
     agent_id: str
     agent_name: str | None = None
     version: int = 1
-    parent_ids: list[str] = []
+    parent_ids: list[str] = Field(default_factory=list)
     relevance_score: float = 0.0
 
 
@@ -158,6 +159,11 @@ class ContextHistoryQuery(BaseModel):
 
     limit: int = Field(100, ge=1, le=200)
     cursor: str | None = Field(None, max_length=512)
+    source_type: str | None = Field(None, max_length=64)
+    source_session_id: str | None = Field(None, max_length=255)
+    unit_type: Literal[
+        "message", "decision", "artifact_ref", "task_result", "summary"
+    ] | None = Field(None, alias="type")
 
 
 class ContextHistoryResponse(BaseModel):
@@ -166,6 +172,23 @@ class ContextHistoryResponse(BaseModel):
     units: list[ReadContextUnitModel]
     next_cursor: str | None
     has_more: bool
+
+
+class ContextSourceModel(BaseModel):
+    """One observed provenance source within a project."""
+
+    source_type: str
+    source_session_id: str | None = None
+    source_url: str | None = None
+    agent_id: str
+    agent_name: str | None = None
+    unit_count: int
+    first_seen_at: str
+    last_seen_at: str
+
+
+class ContextSourcesResponse(BaseModel):
+    sources: list[ContextSourceModel]
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -196,11 +219,48 @@ async def context_history_endpoint(
             auth.agent_id,
             limit=params.limit,
             cursor=params.cursor,
+            source_type=params.source_type,
+            source_session_id=params.source_session_id,
+            unit_type=params.unit_type,
         )
     except ValueError as exc:
         error_code = str(exc)
         status_map = {
             "INVALID_CURSOR": 400,
+            "PROJECT_NOT_FOUND": 404,
+            "AGENT_MISMATCH": 403,
+        }
+        raise HTTPException(
+            status_code=status_map.get(error_code, 400),
+            detail=error_code,
+        )
+
+
+@router.get(
+    "/{project_id}/context/sources",
+    response_model=ContextSourcesResponse,
+    responses={
+        200: {"description": "Observed context provenance sources"},
+        401: {"description": "Missing or invalid auth"},
+        403: {"description": "Agent does not belong to this project"},
+        404: {"description": "Project not found"},
+    },
+)
+async def context_sources_endpoint(
+    project_id: uuid.UUID,
+    auth: AuthContext = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """List browser and harness sources observed in project context."""
+    try:
+        return await list_context_sources(
+            session,
+            project_id,
+            auth.agent_id,
+        )
+    except ValueError as exc:
+        error_code = str(exc)
+        status_map = {
             "PROJECT_NOT_FOUND": 404,
             "AGENT_MISMATCH": 403,
         }

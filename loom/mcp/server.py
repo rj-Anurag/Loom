@@ -185,6 +185,105 @@ async def read_context(
 
 
 @mcp.tool(description=(
+    "List the newest project context units without relevance ranking. "
+    "Use this to inspect recent work or filter memory by source, session, or type."
+))
+async def list_recent_context(
+    limit: int = 20,
+    source_type: str | None = None,
+    source_session_id: str | None = None,
+    type: str | None = None,
+) -> str:
+    """List recent context with complete provenance and parent citations."""
+    _check_config()
+    if not 1 <= limit <= 200:
+        return "limit must be between 1 and 200."
+    params: dict[str, Any] = {"limit": limit}
+    if source_type:
+        params["source_type"] = source_type
+    if source_session_id:
+        params["source_session_id"] = source_session_id
+    if type:
+        params["type"] = type
+    async with _http_client() as client:
+        resp = await client.get(
+            f"/v1/projects/{_project_id()}/context/history",
+            params=params,
+            headers=_headers(),
+        )
+        if resp.status_code == 401:
+            return "Authentication failed. Run `loom init` to refresh the saved credential."
+        if resp.status_code == 404:
+            return "Project not found. Run `loom switch` to select a saved project."
+        if resp.status_code in {400, 403, 422}:
+            detail = resp.json().get("detail", "invalid request")
+            return f"Recent context request rejected: {detail}"
+        resp.raise_for_status()
+        data = resp.json()
+
+    units = data.get("units", [])
+    if not units:
+        return "No recent context found for these filters."
+    lines = [f"Recent context ({len(units)} unit(s)):"]
+    for unit in units:
+        lines.extend(
+            [
+                "",
+                f"[{unit.get('type', '?')}] id={unit.get('id', '?')} "
+                f"source={unit.get('source_type', 'mcp_agent')} "
+                f"session={unit.get('source_session_id') or '-'}",
+                f"  agent={unit.get('agent_name') or unit.get('agent_id', 'unknown')} "
+                f"created={unit.get('created_at', 'unknown')}",
+                f"  parents: {', '.join(unit.get('parent_ids') or []) or '-'}",
+                f"  {unit.get('content', '')}",
+            ]
+        )
+    if data.get("has_more"):
+        lines.append(f"\nMore context is available; next cursor={data.get('next_cursor')}")
+    return "\n".join(lines)
+
+
+@mcp.tool(description=(
+    "List browser and coding-harness sources observed in the current Loom project. "
+    "Sessions represent stored provenance, not live agent presence."
+))
+async def list_sources() -> str:
+    """List project provenance sources and their activity ranges."""
+    _check_config()
+    async with _http_client() as client:
+        resp = await client.get(
+            f"/v1/projects/{_project_id()}/context/sources",
+            headers=_headers(),
+        )
+        if resp.status_code == 401:
+            return "Authentication failed. Run `loom init` to refresh the saved credential."
+        if resp.status_code == 404:
+            return "Project not found. Run `loom switch` to select a saved project."
+        if resp.status_code == 403:
+            return "This credential cannot access the selected project."
+        resp.raise_for_status()
+        data = resp.json()
+
+    sources = data.get("sources", [])
+    if not sources:
+        return "No context sources have been observed for this project."
+    lines = [f"Observed context sources ({len(sources)}):"]
+    for source in sources:
+        identity = source.get("source_url") or source.get("source_session_id") or "unscoped"
+        lines.extend(
+            [
+                "",
+                f"source={source.get('source_type', '?')} identity={identity}",
+                f"  agent={source.get('agent_name') or source.get('agent_id', 'unknown')} "
+                f"units={source.get('unit_count', 0)}",
+                f"  first={source.get('first_seen_at', '?')} "
+                f"last={source.get('last_seen_at', '?')}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool(description=(
     "Write a new context unit to the Loom project. "
     "Use this to store decisions, task results, summaries, "
     "or any information that should be persisted for future "

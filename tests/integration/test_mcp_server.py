@@ -63,6 +63,8 @@ class TestMCPTools:
         assert "read_context" in tool_names
         assert "write_context" in tool_names
         assert "get_project_summary" in tool_names
+        assert "list_recent_context" in tool_names
+        assert "list_sources" in tool_names
 
         prompts = await mcp.list_prompts()
         assert any(prompt.name == "loom" for prompt in prompts)
@@ -244,6 +246,65 @@ class TestMCPTools:
                 del os.environ["LOOM_API_URL"]
             else:
                 os.environ["LOOM_API_URL"] = old_url
+
+    @pytest.mark.asyncio
+    async def test_visibility_tools_use_http_api_and_report_provenance(
+        self,
+        test_project: Project,
+        test_agent: Agent,
+        monkeypatch,
+    ) -> None:
+        import httpx
+
+        from loom.mcp.server import list_recent_context, list_sources, write_context
+
+        monkeypatch.setenv("LOOM_API_KEY", str(test_agent.id))
+        monkeypatch.setenv("LOOM_PROJECT_ID", str(test_project.id))
+        monkeypatch.setenv("LOOM_API_URL", "http://test")
+        monkeypatch.setenv("LOOM_SOURCE_TYPE", "opencode")
+        monkeypatch.setenv("LOOM_SESSION_ID", "visibility-session")
+
+        class MockAsyncClient(httpx.AsyncClient):
+            def __init__(self, **kwargs):
+                from loom.api.main import app
+
+                super().__init__(transport=ASGITransport(app=app), base_url="http://test")
+
+        monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+        write_result = await write_context(
+            content="Distinctive visibility result",
+            type="decision",
+        )
+        unit_id = write_result.split()[2]
+
+        recent = await list_recent_context(
+            limit=10,
+            source_type="opencode",
+            source_session_id="visibility-session",
+            type="decision",
+        )
+        assert unit_id in recent
+        assert "Distinctive visibility result" in recent
+        assert "source=opencode" in recent
+        assert "session=visibility-session" in recent
+
+        sources = await list_sources()
+        assert "source=opencode" in sources
+        assert "identity=visibility-session" in sources
+        assert "units=1" in sources
+
+    @pytest.mark.asyncio
+    async def test_internal_registry_exposes_visibility_tools(
+        self,
+        db_session,
+        test_project: Project,
+        test_agent: Agent,
+    ) -> None:
+        from loom.services.context.mcp_tools import ToolRegistry
+
+        registry = ToolRegistry(db_session, test_project.id, test_agent.id)
+        names = {tool["name"] for tool in registry.list_tools()}
+        assert {"list_recent_context", "list_sources"} <= names
 
     @pytest.mark.asyncio
     async def test_write_idempotency_is_scoped_to_mcp_session(

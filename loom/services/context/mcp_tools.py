@@ -14,7 +14,12 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.services.context.provenance import metadata_from_tool_arguments
-from loom.services.context.service import read_context, write_context
+from loom.services.context.service import (
+    list_context_history,
+    list_context_sources,
+    read_context,
+    write_context,
+)
 
 _CLIENT_UUID_NAMESPACE = uuid.NAMESPACE_DNS
 """Namespace used for deterministic client_uuid generation (UUID v5)."""
@@ -286,6 +291,77 @@ class WriteContextTool(MCPTool):
         }
 
 
+class ListRecentContextTool(MCPTool):
+    """List recent project context without relevance ranking."""
+
+    name = "list_recent_context"
+    description = (
+        "List newest project context with provenance and optional source, "
+        "session, and context-type filters."
+    )
+    input_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "default": 20,
+            },
+            "source_type": {"type": "string"},
+            "source_session_id": {"type": "string"},
+            "type": {
+                "type": "string",
+                "enum": ["message", "decision", "artifact_ref", "task_result", "summary"],
+            },
+        },
+        "required": [],
+    }
+
+    async def call(self, args: dict[str, Any]) -> dict[str, Any]:
+        limit = args.get("limit", 20)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            return {"error": "limit must be between 1 and 200"}
+        try:
+            return await list_context_history(
+                self.session,
+                self.project_id,
+                self.agent_id,
+                limit=limit,
+                source_type=args.get("source_type"),
+                source_session_id=args.get("source_session_id"),
+                unit_type=args.get("type"),
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+
+class ListSourcesTool(MCPTool):
+    """List observed project provenance sources."""
+
+    name = "list_sources"
+    description = (
+        "List browser and coding-harness sources observed in project context. "
+        "Sessions are stored provenance, not live presence."
+    )
+    input_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+
+    async def call(self, args: dict[str, Any]) -> dict[str, Any]:
+        _ = args
+        try:
+            return await list_context_sources(
+                self.session,
+                self.project_id,
+                self.agent_id,
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+
 class GetProjectSummaryTool(MCPTool):
     """Get a high-level project summary for onboarding."""
 
@@ -350,6 +426,8 @@ class ToolRegistry:
             ReadContextTool(session, project_id, agent_id),
             WriteContextTool(session, project_id, agent_id),
             GetProjectSummaryTool(session, project_id, agent_id),
+            ListRecentContextTool(session, project_id, agent_id),
+            ListSourcesTool(session, project_id, agent_id),
         ]
         self._tool_map: dict[str, MCPTool] = {t.name: t for t in self._tools}
 
