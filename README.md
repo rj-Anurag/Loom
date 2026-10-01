@@ -90,11 +90,12 @@ key.
 `loom init` creates the project, owner membership, and a distinct local-agent
 credential for this machine. The credential is stored with private permissions
 in `~/.loom/projects.json`; Loom commands and the MCP server read it
-automatically. It also records the active server there, so MCP integrations do
-not need credential environment variables:
+automatically. The repository gets a commit-safe `.loom/project.json` containing
+only its server and project identity, so different repositories cannot silently
+use whichever project was selected most recently:
 
 ```bash
-loom init "My Project" --install all
+loom init "My Project" --install all --with-instructions
 ```
 
 On another machine, sign in and select an existing project:
@@ -250,20 +251,27 @@ not create project-local Markdown commands or instruction files.
 
 ## Codex
 
-Loom does not create or modify `AGENTS.md`. Its MCP process reads the active
-server and credentials from `~/.loom/projects.json`, so no repository secret is
-required. Register it once with:
+Install or verify the global Codex MCP registration from the connected
+repository:
 
 ```bash
-codex mcp add loom -- loom mcp
+loom install codex
 ```
 
-`LOOM_API_URL`, `LOOM_PROJECT_ID`, and `LOOM_API_KEY` remain supported only
-as compatibility overrides for CI or tools that cannot read the user-level
-config.
+Add the automatic read-before-work and write-after-verification protocol only
+when you want Loom to manage a marked section of `AGENTS.md`:
 
-Start Codex in the project and ask it to use Loom context for the task. Codex
-can use the registered MCP tools without a generated project instruction file.
+```bash
+loom install codex --with-instructions
+```
+
+The MCP process selects the nearest `.loom/project.json`, reads its matching
+credential from `~/.loom/projects.json`, and records writes as `codex_cli` with
+a process-level session ID. `LOOM_API_URL`, `LOOM_PROJECT_ID`, and
+`LOOM_API_KEY` remain compatibility overrides for controlled CI environments.
+
+If a different MCP server already uses the name `loom`, the installer leaves it
+unchanged and prints the explicit removal and reinstall commands.
 
 ## End-to-end test flow
 
@@ -272,7 +280,7 @@ Use this sequence to verify the complete product rather than isolated screens:
 1. Start PostgreSQL/Redis, apply migrations, and start Uvicorn with
    `uvicorn loom.api.main:app --host 0.0.0.0 --port 8000`.
 2. Configure Google OAuth as described below, then run `loom login`.
-3. Run `loom init "E2E Test" --install all`, then verify the CLI is connected:
+3. Run `loom init "E2E Test" --install all --with-instructions`, then verify the CLI is connected:
 
    ```bash
    loom config

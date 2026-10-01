@@ -18,7 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.models import Agent, Project
+from loom.models import Agent, ContextUnit, Project
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -106,6 +106,17 @@ async def test_write_context_with_all_fields(
         "parent_ids": [parent_id],
         "parent_relations": ["derived_from"],
         "version": 2,
+        "source_type": "codex_cli",
+        "source_session_id": "session-123",
+        "metadata": {
+            "task_name": "Implement bcrypt",
+            "files_touched": ["loom/auth.py"],
+            "tests": [{"command": "pytest -q", "status": "passed"}],
+            "errors": [],
+            "blockers": [],
+            "next_steps": ["Deploy"],
+            "confidence": 0.9,
+        },
     }
     resp = await client.post(
         f"/v1/projects/{test_project.id}/context",
@@ -126,6 +137,53 @@ async def test_write_context_with_all_fields(
     edge = result.one_or_none()
     assert edge is not None
     assert edge.relation == "derived_from"
+    unit = await db_session.get(ContextUnit, uuid.UUID(child_id))
+    assert unit is not None
+    assert unit.source_type == "codex_cli"
+    assert unit.source_session_id == "session-123"
+    assert unit.context_metadata["task_name"] == "Implement bcrypt"
+
+
+@pytest.mark.asyncio
+async def test_legacy_write_gets_agent_source_default(
+    client: AsyncClient,
+    test_project: Project,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json={
+            "client_uuid": str(uuid.uuid4()),
+            "type": "decision",
+            "content": "Keep legacy clients compatible",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["source_type"] == "mcp_agent"
+    assert response.json()["metadata"] == {}
+
+
+@pytest.mark.asyncio
+async def test_local_agent_cannot_claim_browser_source(
+    client: AsyncClient,
+    test_project: Project,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        f"/v1/projects/{test_project.id}/context",
+        json={
+            "client_uuid": str(uuid.uuid4()),
+            "type": "message",
+            "content": "Forged browser context",
+            "source_type": "browser_chat",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "SOURCE_TYPE_DENIED"
 
 
 # ── Idempotency ───────────────────────────────────────────────────────────────

@@ -52,9 +52,9 @@ class WriteContextRequest(BaseModel):
         min_length=1,
         max_length=100000,
     )
-    version: int = Field(
-        ...,
-        description="Version in the parent lineage (parent.version + 1).",
+    version: int | None = Field(
+        None,
+        description="Version in the parent lineage. Computed when omitted.",
         ge=1,
     )
     trust_tier: str | None = Field(
@@ -78,6 +78,19 @@ class WriteContextRequest(BaseModel):
         description="URL the content was pushed from (used by browser extension).",
         max_length=2048,
     )
+    source_type: str | None = Field(
+        None,
+        description="Originating application. Defaults from the authenticated agent kind.",
+    )
+    source_session_id: str | None = Field(
+        None,
+        description="Originating agent or chat session identifier.",
+        max_length=255,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured task-result metadata.",
+    )
 
 
 class ContextUnitResponse(BaseModel):
@@ -87,6 +100,9 @@ class ContextUnitResponse(BaseModel):
     client_uuid: str
     created_at: str
     version: int
+    source_type: str
+    source_session_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReadContextQuery(BaseModel):
@@ -117,8 +133,12 @@ class ReadContextUnitModel(BaseModel):
     trust_tier: str
     content: str
     source_url: str | None = None
+    source_type: str = "mcp_agent"
+    source_session_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     agent_id: str
+    agent_name: str | None = None
     version: int = 1
     parent_ids: list[str] = []
     relevance_score: float = 0.0
@@ -271,6 +291,9 @@ async def write_context_endpoint(
             parent_relations=body.parent_relations,
             branch_id=body.branch_id,
             source_url=str(body.source_url) if body.source_url else None,
+            source_type=body.source_type,
+            source_session_id=body.source_session_id,
+            metadata=body.metadata,
             redis=redis,
         )
     except VersionConflict as vc:
@@ -316,6 +339,9 @@ async def write_context_endpoint(
             "BRANCH_PROJECT_MISMATCH": 403,
             "BRANCH_NOT_OPEN": 409,
             "IDEMPOTENCY_KEY_REUSED": 409,
+            "INVALID_SOURCE_TYPE": 400,
+            "SOURCE_TYPE_DENIED": 403,
+            "INVALID_SOURCE_SESSION_ID": 400,
         }
         status = status_map.get(error_code, 400)
         raise HTTPException(status_code=status, detail=error_code)
@@ -333,6 +359,8 @@ async def write_context_endpoint(
                 "content_preview": body.content[:200],
                 "agent_id": str(auth.agent_id),
                 "version": unit.version,
+                "source_type": unit.source_type,
+                "source_session_id": unit.source_session_id,
             },
             timestamp=datetime.now(UTC).isoformat(),
         ).model_dump()
@@ -344,6 +372,9 @@ async def write_context_endpoint(
             "client_uuid": str(unit.client_uuid),
             "created_at": unit.created_at.isoformat() if unit.created_at else "",
             "version": unit.version,
+            "source_type": unit.source_type,
+            "source_session_id": unit.source_session_id,
+            "metadata": unit.context_metadata,
         },
         status_code=status_code,
     )

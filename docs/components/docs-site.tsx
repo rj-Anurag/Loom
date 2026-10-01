@@ -363,9 +363,10 @@ export function DocsSite() {
           </Section>
 
           <Section id="codex" eyebrow="Integration" title="Codex">
-            <p>Loom does not create or modify <Pill>AGENTS.md</Pill>. Register the MCP server once, then start Codex from a repository already connected with <Pill>loom init</Pill>.</p>
-            <CodeBlock code={'codex mcp add loom -- loom mcp'} />
-            <p>The MCP process reads the selected API URL, project ID, and credential from <Pill>~/.loom/projects.json</Pill>. Environment variables remain available only as compatibility overrides for CI or clients that cannot read that file.</p>
+            <p>Run the installer from a repository already connected with <Pill>loom init</Pill>. Loom verifies or creates the global Codex MCP registration without embedding credentials.</p>
+            <CodeBlock code={'loom install codex\nloom install codex --with-instructions'} />
+            <p>The optional flag installs an idempotent managed block in <Pill>AGENTS.md</Pill> so Codex reads project memory before work and writes durable verified results afterward. Everything outside Loom&apos;s markers is preserved.</p>
+            <p>The MCP process selects the nearest <Pill>.loom/project.json</Pill>, reads the matching credential from <Pill>~/.loom/projects.json</Pill>, and records Codex source and session provenance.</p>
           </Section>
 
           <Section id="other-mcp" eyebrow="Integration" title="Other MCP clients">
@@ -378,13 +379,13 @@ export function DocsSite() {
             <div className="table-wrap"><table><thead><tr><th>Command</th><th>Purpose and important options</th></tr></thead><tbody>
               <tr><td><Pill>loom login</Pill></td><td>Google PKCE sign-in. Development fallback: <Pill>--email</Pill>. Optional <Pill>--project-id</Pill>, <Pill>--agent-name</Pill>, and <Pill>--install</Pill>.</td></tr>
               <tr><td><Pill>loom logout</Pill></td><td>Revoke the saved account session for the active server.</td></tr>
-              <tr><td><Pill>loom init [name]</Pill></td><td>Create a project or connect one with <Pill>--project-id</Pill>. Supports <Pill>--install all|claude|codex|none</Pill> and operator-only <Pill>--bootstrap</Pill>.</td></tr>
+              <tr><td><Pill>loom init [name]</Pill></td><td>Create a project or connect one with <Pill>--project-id</Pill>. Writes <Pill>.loom/project.json</Pill>; supports <Pill>--install all|claude|codex|none</Pill>, <Pill>--with-instructions</Pill>, and operator-only <Pill>--bootstrap</Pill>.</td></tr>
               <tr><td><Pill>loom projects</Pill></td><td>List projects visible to the signed-in account. Add <Pill>--json</Pill> for machine-readable output.</td></tr>
               <tr><td><Pill>loom switch &lt;project&gt;</Pill></td><td>Select an existing project and provision a machine-specific agent credential.</td></tr>
               <tr><td><Pill>loom config</Pill></td><td>Show the active server, masked credential, project ID, and credential-store location.</td></tr>
               <tr><td><Pill>loom context &lt;query&gt;</Pill></td><td>Retrieve context. Options: <Pill>--budget</Pill>, <Pill>--scope onboarding|task|full</Pill>, <Pill>--json</Pill>.</td></tr>
               <tr><td><Pill>loom mcp</Pill></td><td>Start the stdio MCP server for coding-agent clients.</td></tr>
-              <tr><td><Pill>loom install &lt;target&gt;</Pill></td><td>Install native project integration for <Pill>all</Pill>, <Pill>claude</Pill>, or <Pill>codex</Pill>; use <Pill>--path</Pill> for another repository.</td></tr>
+              <tr><td><Pill>loom install &lt;target&gt;</Pill></td><td>Install native project integration for <Pill>all</Pill>, <Pill>claude</Pill>, or <Pill>codex</Pill>; use <Pill>--path</Pill> for another repository and <Pill>--with-instructions</Pill> for the managed Codex protocol.</td></tr>
               <tr><td><Pill>loom extension install</Pill></td><td>Stage a credential-free unpacked extension. Supports <Pill>--api-url</Pill>, <Pill>--google-client-id</Pill>, <Pill>--path</Pill>, and <Pill>--force</Pill>.</td></tr>
               <tr><td><Pill>loom extension status</Pill></td><td>Validate the manifest, OAuth setup, host permission, and credential hygiene. Add <Pill>--check-api</Pill>.</td></tr>
               <tr><td><Pill>loom extension path</Pill></td><td>Print the unpacked extension directory.</td></tr>
@@ -396,7 +397,7 @@ export function DocsSite() {
           <Section id="mcp-tools" eyebrow="Reference" title="MCP tools">
             <div className="space-y-4">
               <div className="reference-card"><div><Pill>read_context</Pill><span className="tag">read</span></div><p>Search relevant project context by natural-language <Pill>query</Pill>. Optional <Pill>budget</Pill> defaults to 4096 (maximum 32000); <Pill>scope</Pill> defaults to <Pill>task</Pill>.</p></div>
-              <div className="reference-card"><div><Pill>write_context</Pill><span className="tag">write</span></div><p>Persist a durable context unit. Parameters: <Pill>content</Pill>, <Pill>type</Pill> (default <Pill>task_result</Pill>), and <Pill>version</Pill> (default 1). Deterministic IDs make repeated writes safe.</p></div>
+              <div className="reference-card"><div><Pill>write_context</Pill><span className="tag">write</span></div><p>Persist a durable context unit. Task results include task name, files, tests, errors, blockers, next steps, confidence, and optional parent citations. Source and process-session provenance are injected automatically.</p></div>
               <div className="reference-card"><div><Pill>get_project_summary</Pill><span className="tag">read</span></div><p>Return project identity, creation time, context count, linked-chat count, and agent count.</p></div>
             </div>
             <h3>Recommended agent protocol</h3>

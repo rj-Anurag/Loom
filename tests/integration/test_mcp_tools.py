@@ -287,6 +287,7 @@ async def test_write_context_tool_with_parents(
         {
             "content": "Implemented Redis caching layer",
             "type": "task_result",
+            "task_name": "Implement Redis caching",
             "parent_ids": [parent["id"]],
             "parent_relations": ["derived_from"],
         },

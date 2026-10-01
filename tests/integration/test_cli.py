@@ -222,7 +222,12 @@ class TestCLIContext:
 class TestCLIInit:
     """`loom init` creates a project and returns credentials."""
 
-    def test_init_creates_project(self, sync_client: TestClient, tmp_path) -> None:
+    def test_init_creates_project(
+        self,
+        sync_client: TestClient,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
         """Init command calls extension/setup and prints config."""
         from loom.cli.main import build_parser, cmd_init
 
@@ -230,6 +235,7 @@ class TestCLIInit:
         old_config_home = os.environ.get("LOOM_CONFIG_HOME")
         os.environ["LOOM_API_URL"] = "http://test"
         os.environ["LOOM_CONFIG_HOME"] = str(tmp_path / "loom-config")
+        monkeypatch.chdir(tmp_path)
 
         saved = _mock_httpx(sync_client)
         parser = build_parser()
@@ -278,6 +284,7 @@ class TestCLIInit:
             "LOOM_USER_TOKEN",
         ]
         original = {key: os.environ.get(key) for key in tracked}
+        monkeypatch.chdir(tmp_path)
         os.environ["LOOM_API_URL"] = "http://test"
         os.environ["LOOM_CONFIG_HOME"] = str(tmp_path / "account")
         os.environ.pop("LOOM_BOOTSTRAP_TOKEN", None)
@@ -351,6 +358,7 @@ class TestCLIInit:
         ).json()
         tracked = ["LOOM_API_URL", "LOOM_CONFIG_HOME", "LOOM_USER_TOKEN"]
         original = {key: os.environ.get(key) for key in tracked}
+        monkeypatch.chdir(tmp_path)
         os.environ["LOOM_API_URL"] = "http://test"
         os.environ["LOOM_CONFIG_HOME"] = str(tmp_path / "loom-config")
         os.environ.pop("LOOM_USER_TOKEN", None)

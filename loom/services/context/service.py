@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import logging
 import math
 import uuid
@@ -35,6 +36,7 @@ from loom.models import (
     Project,
     TrustTier,
 )
+from loom.services.context.provenance import resolve_source_type, validate_context_metadata
 from loom.services.retrieval.search import hybrid_search
 
 logger = logging.getLogger(__name__)
@@ -74,12 +76,15 @@ async def write_context(
     client_uuid: uuid.UUID,
     type_: str,
     content: str,
-    version: int,
+    version: int | None,
     trust_tier: str | None = None,
     parent_ids: list[uuid.UUID] | None = None,
     parent_relations: list[str] | None = None,
     branch_id: uuid.UUID | None = None,
     source_url: str | None = None,
+    source_type: str | None = None,
+    source_session_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
     redis: redis_async.Redis | None = None,
 ) -> tuple[ContextUnit, bool]:
     """Write context while releasing advisory parent locks on every exit."""
@@ -109,6 +114,9 @@ async def write_context(
             parent_relations=parent_relations,
             branch_id=branch_id,
             source_url=source_url,
+            source_type=source_type,
+            source_session_id=source_session_id,
+            metadata=metadata,
         )
     finally:
         if acquired_parent_ids and redis is not None:
@@ -126,12 +134,15 @@ async def _write_context_impl(
     client_uuid: uuid.UUID,
     type_: str,
     content: str,
-    version: int,
+    version: int | None,
     trust_tier: str | None = None,
     parent_ids: list[uuid.UUID] | None = None,
     parent_relations: list[str] | None = None,
     branch_id: uuid.UUID | None = None,
     source_url: str | None = None,
+    source_type: str | None = None,
+    source_session_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> tuple[ContextUnit, bool]:
     """Write a new context unit in a single transaction.
 
@@ -149,8 +160,8 @@ async def _write_context_impl(
         One of ContextUnitType enum values.
     content : str
         Non-empty text content.
-    version : int
-        Version number in the parent lineage.
+    version : int | None
+        Version number in the parent lineage. Computed when omitted.
     trust_tier : str | None
         One of TrustTier enum values (defaults to ``"agent"``).
     parent_ids : list[str] | None
@@ -185,6 +196,15 @@ async def _write_context_impl(
     if agent is None or agent.project_id != project_id:
         raise ValueError("AGENT_MISMATCH")
 
+    resolved_source_type = resolve_source_type(agent.kind, source_type)
+    resolved_metadata = validate_context_metadata(metadata)
+    if source_session_id is not None and (
+        not isinstance(source_session_id, str)
+        or not source_session_id.strip()
+        or len(source_session_id) > 255
+    ):
+        raise ValueError("INVALID_SOURCE_SESSION_ID")
+
     # ── 3. Validate type enum ────────────────────────────────────────────
     try:
         unit_type = ContextUnitType(type_)
@@ -205,7 +225,13 @@ async def _write_context_impl(
     if existing is not None:
         if existing.project_id != project_id or existing.agent_id != agent_id:
             raise ValueError("IDEMPOTENCY_KEY_REUSED")
-        if existing.content != content or existing.type.value != type_:
+        if (
+            existing.content != content
+            or existing.type.value != type_
+            or existing.source_type != resolved_source_type
+            or existing.source_session_id != source_session_id
+            or existing.context_metadata != resolved_metadata
+        ):
             raise ValueError("IDEMPOTENCY_KEY_REUSED")
         return existing, False  # idempotent replay — not newly created
 
@@ -231,6 +257,8 @@ async def _write_context_impl(
 
         max_parent_version = max(parent_versions)
         expected_version = max_parent_version + 1
+        if version is None:
+            version = expected_version
         if version != expected_version:
             # ── Check for overlap with existing sibling children ────────
             siblings = (
@@ -290,6 +318,8 @@ async def _write_context_impl(
             # Non-overlapping → auto-merge: adjust version to bypass check
             version = expected_version
             _pending_auto_merge = True
+    elif version is None:
+        version = 1
 
     # ── 7. Validate trust_tier is allowed for this agent kind ─────────────
     if trust_tier is not None:
@@ -315,6 +345,8 @@ async def _write_context_impl(
         if branch.status not in {"open", "merging"}:
             raise ValueError("BRANCH_NOT_OPEN")
 
+    assert version is not None
+
     # ── 8. Create ContextUnit ────────────────────────────────────────────
     unit = ContextUnit(
         project_id=project_id,
@@ -326,6 +358,9 @@ async def _write_context_impl(
         version=version,
         branch_id=branch_uuid,
         source_url=source_url,
+        source_type=resolved_source_type,
+        source_session_id=source_session_id,
+        context_metadata=resolved_metadata,
     )
     session.add(unit)
     await session.flush()  # materialise the PK so we can use it in edges
@@ -384,6 +419,9 @@ async def _write_context_impl(
             "version": version,
             "branch_id": str(branch_uuid) if branch_uuid else None,
             "source_url": source_url,
+            "source_type": resolved_source_type,
+            "source_session_id": source_session_id,
+            "metadata": resolved_metadata,
         },
     )
     session.add(event)
@@ -448,9 +486,11 @@ async def rebuild_projections(
             text(
                 "INSERT INTO context_units "
                 "(id, project_id, agent_id, client_uuid, type, trust_tier, "
-                "content, version, branch_id, source_url, created_at) "
+                "content, version, branch_id, source_url, source_type, "
+                "source_session_id, metadata, created_at) "
                 "VALUES (:id, :pid, :aid, :cuuid, :type, :tier, "
-                ":content, :version, :branch_id, :source_url, :created)"
+                ":content, :version, :branch_id, :source_url, :source_type, "
+                ":source_session_id, CAST(:metadata AS jsonb), :created)"
             ),
             {
                 "id": unit_id,
@@ -463,6 +503,9 @@ async def rebuild_projections(
                 "version": p["version"],
                 "branch_id": p.get("branch_id"),
                 "source_url": p.get("source_url"),
+                "source_type": p.get("source_type", "mcp_agent"),
+                "source_session_id": p.get("source_session_id"),
+                "metadata": json.dumps(p.get("metadata", {})),
                 "created": event.created_at,
             },
         )
@@ -618,16 +661,20 @@ async def list_context_history(
             )
         )
 
+    statement = statement.add_columns(Agent.name.label("agent_name")).join(
+        Agent,
+        Agent.id == ContextUnit.agent_id,
+    )
     result = await session.execute(
         statement.order_by(ContextUnit.created_at.desc(), ContextUnit.id.desc()).limit(
             page_limit + 1
         )
     )
-    rows = list(result.scalars().all())
+    rows = list(result.all())
     has_more = len(rows) > page_limit
     units = rows[:page_limit]
     next_cursor = (
-        _encode_history_cursor(units[-1].created_at, units[-1].id)
+        _encode_history_cursor(units[-1][0].created_at, units[-1][0].id)
         if has_more and units
         else None
     )
@@ -640,11 +687,15 @@ async def list_context_history(
                 "trust_tier": unit.trust_tier.value,
                 "content": unit.content,
                 "source_url": unit.source_url,
+                "source_type": unit.source_type,
+                "source_session_id": unit.source_session_id,
+                "metadata": unit.context_metadata,
                 "created_at": unit.created_at.isoformat(),
                 "agent_id": str(unit.agent_id),
+                "agent_name": agent_name,
                 "version": unit.version,
             }
-            for unit in units
+            for unit, agent_name in units
         ],
         "next_cursor": next_cursor,
         "has_more": has_more,
@@ -725,8 +776,14 @@ async def read_context(
             parent_map: dict[str, list[str]] = defaultdict(list)
             for edge in edge_rows:
                 parent_map[str(edge.child_id)].append(str(edge.parent_id))
+            agent_ids = {uuid.UUID(unit["agent_id"]) for unit in hybrid_result["units"]}
+            agent_rows = await session.execute(
+                select(Agent.id, Agent.name).where(Agent.id.in_(agent_ids))
+            )
+            agent_names = {str(row.id): row.name for row in agent_rows}
             for unit in hybrid_result["units"]:
                 unit["parent_ids"] = parent_map.get(unit["id"], [])
+                unit["agent_name"] = agent_names.get(unit["agent_id"])
 
             hybrid_result["budget_used"] = hybrid_result["total_tokens"]
             return hybrid_result
@@ -741,9 +798,11 @@ async def read_context(
         params["scope_type"] = scope_type_filter
         chronological_sql = text("""
             SELECT
-                u.id, u.type, u.trust_tier, u.content, u.source_url, u.created_at, u.agent_id,
+                u.id, u.type, u.trust_tier, u.content, u.source_url, u.source_type,
+                u.source_session_id, u.metadata, u.created_at, u.agent_id, a.name AS agent_name,
                 u.version, 0.0 AS rank
             FROM context_units u
+            JOIN agents a ON a.id = u.agent_id
             WHERE u.project_id = :project_id AND u.type = :scope_type
             ORDER BY u.created_at DESC
             LIMIT 200
@@ -751,9 +810,11 @@ async def read_context(
     else:
         chronological_sql = text("""
             SELECT
-                u.id, u.type, u.trust_tier, u.content, u.source_url, u.created_at, u.agent_id,
+                u.id, u.type, u.trust_tier, u.content, u.source_url, u.source_type,
+                u.source_session_id, u.metadata, u.created_at, u.agent_id, a.name AS agent_name,
                 u.version, 0.0 AS rank
             FROM context_units u
+            JOIN agents a ON a.id = u.agent_id
             WHERE u.project_id = :project_id
             ORDER BY u.created_at DESC
             LIMIT 200
@@ -785,8 +846,12 @@ async def read_context(
             "trust_tier": row["trust_tier"],
             "content": row["content"],
             "source_url": row.get("source_url"),
+            "source_type": row["source_type"],
+            "source_session_id": row.get("source_session_id"),
+            "metadata": row["metadata"],
             "created_at": row["created_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
+            "agent_name": row["agent_name"],
             "version": int(row["version"]),
             "relevance_score": round(score, 4),
         })

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from loom.db import Base
@@ -59,6 +59,14 @@ class ContextUnit(Base):
     # providers. Local embeddings are padded to this dimension at the edge.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, default="mcp_agent")
+    source_session_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context_metadata: Mapped[dict[str, object]] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=False,
+        default=dict,
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     branch_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True

@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from loom.services.context.provenance import metadata_from_tool_arguments
 from loom.services.context.service import read_context, write_context
 
 _CLIENT_UUID_NAMESPACE = uuid.NAMESPACE_DNS
@@ -188,6 +189,30 @@ class WriteContextTool(MCPTool):
                 },
                 "description": "Relation labels for each parent (parallel array to parent_ids)",
             },
+            "task_name": {
+                "type": "string",
+                "description": "Task name; required for task_result writes",
+            },
+            "files_touched": {"type": "array", "items": {"type": "string"}},
+            "tests": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["passed", "failed", "not_run"],
+                        },
+                        "summary": {"type": "string"},
+                    },
+                    "required": ["command", "status"],
+                },
+            },
+            "errors": {"type": "array", "items": {"type": "string"}},
+            "blockers": {"type": "array", "items": {"type": "string"}},
+            "next_steps": {"type": "array", "items": {"type": "string"}},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         },
         "required": ["content", "type"],
     }
@@ -200,6 +225,12 @@ class WriteContextTool(MCPTool):
             return {"error": "Missing required field: content"}
         if not type_:
             return {"error": "Missing required field: type"}
+        if type_ == "task_result" and not str(args.get("task_name", "")).strip():
+            return {"error": "Missing required field: task_name"}
+        try:
+            metadata = metadata_from_tool_arguments(args)
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         # Deterministic client_uuid for built-in idempotency
         client_uuid = uuid.uuid5(_CLIENT_UUID_NAMESPACE, f"{type_}:{content}")
@@ -242,6 +273,7 @@ class WriteContextTool(MCPTool):
                     else None
                 ),
                 parent_relations=parent_relations,
+                metadata=metadata,
             )
         except ValueError as exc:
             return {"error": str(exc)}

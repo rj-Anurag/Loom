@@ -10,8 +10,9 @@ import os
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 
-from loom.models import Agent, Project
+from loom.models import Agent, ContextUnit, Project
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -134,9 +135,13 @@ class TestMCPTools:
         old_key = os.environ.get("LOOM_API_KEY")
         old_pid = os.environ.get("LOOM_PROJECT_ID")
         old_url = os.environ.get("LOOM_API_URL")
+        old_source = os.environ.get("LOOM_SOURCE_TYPE")
+        old_session = os.environ.get("LOOM_SESSION_ID")
         os.environ["LOOM_API_KEY"] = str(test_agent.id)
         os.environ["LOOM_PROJECT_ID"] = str(test_project.id)
         os.environ["LOOM_API_URL"] = "http://test"
+        os.environ["LOOM_SOURCE_TYPE"] = "codex_cli"
+        os.environ["LOOM_SESSION_ID"] = "codex-test-session"
 
         class MockAsyncClient(httpx.AsyncClient):
             def __init__(self, **kwargs):
@@ -151,10 +156,16 @@ class TestMCPTools:
             # Write
             write_result = await write_context(
                 content="MCP roundtrip test content",
-                type="decision",
-                version=1,
+                type="task_result",
+                task_name="MCP roundtrip",
+                files_touched=["loom/mcp/server.py"],
+                tests=[{"command": "pytest -q", "status": "passed"}],
+                blockers=[],
+                next_steps=["Read from a later session"],
             )
             assert "created" in write_result or "idempotent" in write_result
+            assert "source=codex_cli" in write_result
+            assert "session=codex-test-session" in write_result
 
             # Read
             read_result = await read_context(
@@ -177,6 +188,14 @@ class TestMCPTools:
                 del os.environ["LOOM_API_URL"]
             else:
                 os.environ["LOOM_API_URL"] = old_url
+            if old_source is None:
+                os.environ.pop("LOOM_SOURCE_TYPE", None)
+            else:
+                os.environ["LOOM_SOURCE_TYPE"] = old_source
+            if old_session is None:
+                os.environ.pop("LOOM_SESSION_ID", None)
+            else:
+                os.environ["LOOM_SESSION_ID"] = old_session
 
     @pytest.mark.asyncio
     async def test_get_project_summary(
@@ -225,6 +244,45 @@ class TestMCPTools:
                 del os.environ["LOOM_API_URL"]
             else:
                 os.environ["LOOM_API_URL"] = old_url
+
+    @pytest.mark.asyncio
+    async def test_write_idempotency_is_scoped_to_mcp_session(
+        self,
+        test_project: Project,
+        test_agent: Agent,
+        db_session,
+        monkeypatch,
+    ) -> None:
+        import httpx
+
+        from loom.mcp.server import write_context
+
+        monkeypatch.setenv("LOOM_API_KEY", str(test_agent.id))
+        monkeypatch.setenv("LOOM_PROJECT_ID", str(test_project.id))
+        monkeypatch.setenv("LOOM_API_URL", "http://test")
+        monkeypatch.setenv("LOOM_SOURCE_TYPE", "codex_cli")
+        monkeypatch.setenv("LOOM_SESSION_ID", "session-one")
+
+        class MockAsyncClient(httpx.AsyncClient):
+            def __init__(self, **kwargs):
+                from loom.api.main import app
+
+                super().__init__(transport=ASGITransport(app=app), base_url="http://test")
+
+        monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+        content = f"Session idempotency {test_project.id}"
+        first = await write_context(content=content, type="decision")
+        replay = await write_context(content=content, type="decision")
+        monkeypatch.setenv("LOOM_SESSION_ID", "session-two")
+        second_session = await write_context(content=content, type="decision")
+
+        assert "created" in first
+        assert "idempotent replay" in replay
+        assert "created" in second_session
+        count = await db_session.scalar(
+            select(func.count()).select_from(ContextUnit).where(ContextUnit.content == content)
+        )
+        assert count == 2
 
     @pytest.mark.asyncio
     async def test_missing_config_raises_error(self, monkeypatch, tmp_path) -> None:

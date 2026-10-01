@@ -113,6 +113,9 @@ async def vector_search(
         ContextUnit.trust_tier,
         ContextUnit.content,
         ContextUnit.source_url,
+        ContextUnit.source_type,
+        ContextUnit.source_session_id,
+        ContextUnit.context_metadata,
         ContextUnit.created_at,
         ContextUnit.agent_id,
         ContextUnit.version,
@@ -140,6 +143,9 @@ async def vector_search(
             "trust_tier": row["trust_tier"],
             "content": row["content"],
             "source_url": row.get("source_url"),
+            "source_type": row["source_type"],
+            "source_session_id": row.get("source_session_id"),
+            "metadata": row["context_metadata"],
             "created_at": row["created_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
             "version": int(row["version"]),
@@ -181,6 +187,7 @@ async def keyword_search(
         params["scope_type"] = scope_type_filter
         sql = text("""
             SELECT u.id, u.type, u.trust_tier, u.content, u.source_url,
+                   u.source_type, u.source_session_id, u.metadata,
                    u.created_at, u.agent_id, u.version,
                    ts_rank(to_tsvector('english', u.content),
                            plainto_tsquery('english', :query)) AS keyword_score
@@ -194,6 +201,7 @@ async def keyword_search(
     else:
         sql = text("""
             SELECT u.id, u.type, u.trust_tier, u.content, u.source_url,
+                   u.source_type, u.source_session_id, u.metadata,
                    u.created_at, u.agent_id, u.version,
                    ts_rank(to_tsvector('english', u.content),
                            plainto_tsquery('english', :query)) AS keyword_score
@@ -215,6 +223,9 @@ async def keyword_search(
             "trust_tier": row["trust_tier"],
             "content": row["content"],
             "source_url": row.get("source_url"),
+            "source_type": row["source_type"],
+            "source_session_id": row.get("source_session_id"),
+            "metadata": row["metadata"],
             "created_at": row["created_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
             "version": int(row["version"]),
