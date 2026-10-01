@@ -283,3 +283,19 @@ def test_install_parser_accepts_branded_harness_casing() -> None:
             argv.append("project-id")
         argv.extend(["--install", "OpenCode"])
         assert parser.parse_args(argv).install == "opencode"
+
+
+def test_legacy_instruction_flag_is_accepted_without_markdown_writes(
+    tmp_path, monkeypatch
+) -> None:
+    parser = build_parser()
+    monkeypatch.setattr("loom.cli.main._install_codex", lambda: None)
+    args = parser.parse_args(
+        ["install", "OpenCode", "--with-instructions", "--path", str(tmp_path)]
+    )
+
+    cmd_install(args)
+
+    assert args.with_instructions is True
+    assert (tmp_path / "opencode.json").exists()
+    assert list(tmp_path.rglob("*.md")) == []

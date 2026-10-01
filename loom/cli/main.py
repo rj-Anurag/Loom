@@ -872,6 +872,15 @@ def _install_target(value: str) -> str:
     return value.lower()
 
 
+def _accept_legacy_instruction_flag(parser: argparse.ArgumentParser) -> None:
+    """Keep old setup commands working without restoring Markdown writes."""
+    parser.add_argument(
+        "--with-instructions",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="loom",
@@ -913,6 +922,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Install native harness integration files (default: all)",
     )
+    _accept_legacy_instruction_flag(p_init)
+
     # loom login/logout
     p_login = sub.add_parser("login", help="Sign in with Google")
     p_login.add_argument("--email", help="Development fallback email login")
@@ -924,6 +935,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["all", "claude", "codex", "opencode", "none"],
         default="all",
     )
+    _accept_legacy_instruction_flag(p_login)
     sub.add_parser("logout", help="Revoke the saved Loom account session")
 
     # loom projects
@@ -939,6 +951,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["all", "claude", "codex", "opencode", "none"],
         default="all",
     )
+    _accept_legacy_instruction_flag(p_switch)
 
     # loom config
     sub.add_parser("config", help="Show current configuration")
@@ -958,6 +971,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Target project path (default: current directory)",
     )
+    _accept_legacy_instruction_flag(p_install)
+
     # loom extension
     p_extension = sub.add_parser(
         "extension",
@@ -1037,6 +1052,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    if getattr(args, "with_instructions", False):
+        print(
+            "Note: --with-instructions is deprecated and ignored; "
+            "Loom does not create or modify Markdown files."
+        )
 
     if args.command == "mcp":
         mcp_main()
