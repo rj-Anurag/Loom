@@ -76,7 +76,7 @@ const navGroups: NavGroup[] = [
     label: "Reference",
     items: [
       { label: "CLI reference", id: "cli-reference", keywords: "commands flags options" },
-      { label: "MCP tools", id: "mcp-tools", keywords: "read_context write_context get_project_summary" },
+      { label: "MCP tools", id: "mcp-tools", keywords: "read_context write_context get_project_summary list_recent_context list_sources" },
       { label: "REST API", id: "rest-api", keywords: "endpoints bearer openapi" },
       { label: "Configuration", id: "configuration", keywords: "environment variables settings" },
     ],
@@ -268,7 +268,7 @@ export function DocsSite() {
 
         <main className="min-w-0 px-5 pb-24 pt-12 sm:px-8 lg:px-0 lg:pt-16">
           <Section id="introduction" eyebrow="Introduction" title="One project. Every agent. Shared context.">
-            <p className="lead">Loom is a project-scoped context layer for coding agents. It captures useful history from browser AI conversations, stores it in a shared context graph, and makes that context available to Claude Code, Codex, and any MCP-capable client.</p>
+            <p className="lead">Loom is a project-scoped context layer for coding agents. It captures useful history from browser AI conversations, stores it in a shared context graph, and makes that context available to Codex, OpenCode, Claude Code, and other MCP-capable clients.</p>
             <div className="my-9 grid gap-4 sm:grid-cols-3">
               <div className="feature-card"><Network /><h3>One context graph</h3><p>Browser chats and coding agents connect to the same real software project.</p></div>
               <div className="feature-card"><Database /><h3>Durable memory</h3><p>Decisions, messages, summaries, artifacts, and results survive individual sessions.</p></div>
@@ -314,12 +314,12 @@ export function DocsSite() {
               <tr><td><Pill>summary</Pill></td><td>Compressed project context suited to onboarding.</td></tr>
             </tbody></table></div>
             <h3>Trust tiers and lineage</h3>
-            <p>Browser content is recorded as external-tool context; user and agent decisions retain distinct trust tiers. Context units can point to parents with relations such as <Pill>derived_from</Pill>, creating auditable lineage. Writes are idempotent and also recorded in an append-only event log.</p>
+            <p>Browser content is recorded as external-tool context; user and agent decisions retain distinct trust tiers. Every unit retains source type, source URL or process session, authenticated agent, server timestamp, and structured task-result metadata. Context units can point to parents with relations such as <Pill>derived_from</Pill>, creating auditable lineage. Writes are idempotent and also recorded in an append-only event log.</p>
           </Section>
 
           <Section id="context-flow" eyebrow="Architecture" title="How context flows">
             <div className="flow-diagram" role="img" aria-label="Browser and coding agents send context through the Loom API into PostgreSQL and Redis, then retrieve it through the CLI, MCP, or dashboard">
-              <div className="flow-source"><span>Browser AI chats</span><span>Claude Code</span><span>Codex / MCP</span></div>
+              <div className="flow-source"><span>Browser AI chats</span><span>Codex / OpenCode</span><span>Claude Code / MCP</span></div>
               <ArrowRight />
               <div className="flow-node primary"><Network /> Loom API</div>
               <ArrowRight />
@@ -360,7 +360,7 @@ export function DocsSite() {
           <Section id="claude-code" eyebrow="Integration" title="Claude Code">
             <CodeBlock code={'loom install Claude'} />
             <p>The project <Pill>.mcp.json</Pill> identifies writes as <Pill>claude_code</Pill>. Claude may ask you to approve the project MCP server the first time it opens. Loom does not create or modify Markdown instruction files.</p>
-            <p>Start Claude Code normally from the project. It can read relevant project memory before work and write a structured, verified result for the next agent.</p>
+            <p>Start Claude Code normally from the project when Claude access is available. It can read relevant project memory before work and write a structured, verified result for the next agent; Claude is optional and is not required for Codex, OpenCode, or CLI inspection.</p>
           </Section>
 
           <Section id="opencode" eyebrow="Integration" title="OpenCode">

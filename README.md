@@ -2,7 +2,8 @@
 
 Loom is a project-scoped context layer for coding agents. It captures useful
 history from browser AI conversations, stores it in a shared context graph, and
-makes that context available to Claude Code, Codex, and any MCP-capable client.
+makes that context available to Codex, OpenCode, Claude Code, and other
+MCP-capable clients.
 
 The core rule is simple: one real software project has one Loom project ID.
 Every browser chat and coding agent working on that software project connects
@@ -14,7 +15,7 @@ to that same ID with its own project-scoped API key.
 - PostgreSQL + pgvector context/event storage
 - Redis embedding queues, presence, and coordination locks
 - MCP tools and a reusable `loom` prompt
-- CLI for initialization, reads, writes, and harness installation
+- CLI for initialization, retrieval, inspection, and harness installation
 - Chrome MV3 extension for Claude, ChatGPT, DeepSeek, and Perplexity
 - Project dashboard with context, active-agent, and conflict views
 - Google self-service accounts with terminal-owned project creation
@@ -142,7 +143,8 @@ loom init "Loom" --install all
 ```
 
 This creates or selects a real project, stores a distinct local-agent
-credential privately, and installs the Claude/Codex project integration files.
+credential privately, and installs the Codex, Claude Code, and OpenCode MCP
+integrations. Harness installation never creates or modifies Markdown files.
 The normal flow does not display the key or write credentials into the
 repository. `.env` is reserved for server runtime configuration.
 
@@ -552,10 +554,10 @@ those platform-specific resources before calling any deployment production.
 ```text
 Browser AI chat ── Chrome extension ──┐
                                       ├─ FastAPI ─ PostgreSQL/pgvector
-Claude Code ───── MCP + /loom ────────┤      │
-Codex ─────────────── MCP ────────────┘      └─ Redis workers/presence
-                                                    │
-                                             Project dashboard
+Claude Code ───────── MCP ────────────┤      │
+OpenCode ──────────── MCP ────────────┤      └─ Redis workers/presence
+Codex ─────────────── MCP ────────────┘                  │
+                                                Project dashboard
 ```
 
 Context writes are idempotent, project-authorized, and recorded in an

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Added commit-safe repository binding through `.loom/project.json`, with
+  environment overrides, nearest-repository selection, matching private
+  credentials from `~/.loom/projects.json`, and explicit configuration-source
+  reporting.
+- Added migration `019_add_context_provenance` for source type, process/chat
+  session ID, and structured task-result metadata; API, event replay, CLI, and
+  MCP reads now preserve authenticated agent and parent provenance.
+- Added idempotent Codex, Claude Code, and OpenCode MCP installers with
+  case-insensitive target names, source-type injection, conflict-safe config
+  merging, and no Markdown instruction-file generation.
+- Added read-only project-memory inspection through `loom status`, `loom links`,
+  and filtered `loom history`, plus MCP `list_recent_context` and `list_sources`
+  and the project-scoped `/context/sources` API.
 - Added user-level `pipx` installers for macOS, Linux, and Windows that install
   the exact cloned checkout by default, plus CLI version reporting and a full
   clone-to-Load-unpacked installation guide.
@@ -87,8 +100,9 @@
 - Aligned local embeddings with the shared 1536-dimensional pgvector schema.
 - Removed the committed extension credential and refreshed the dashboard with a
   Vercel/shadcn-inspired dark visual system.
-- Added native Claude Code MCP plus `/loom` installation, Codex MCP/`AGENTS.md`
-  setup, and a single `loom init` project/key onboarding flow.
+- Replaced the older Claude `/loom` and Codex `AGENTS.md` setup with native MCP
+  registration for Claude Code, Codex, and OpenCode; setup leaves all Markdown
+  instruction files untouched.
 - Added semantic capture adapters for Claude, ChatGPT, DeepSeek, and Perplexity,
   including role-preserving idempotency and an offline retry queue.
 - Protected first-run credential bootstrap with an operator token in production
