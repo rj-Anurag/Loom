@@ -21,13 +21,56 @@ export interface Chat {
   linked_at?: string;
 }
 
+export interface TaskResultTest {
+  command?: string;
+  status?: "passed" | "failed" | "not_run" | string;
+  summary?: string;
+}
+
+export interface ContextMetadata {
+  task_name?: string;
+  files_touched?: string[];
+  tests?: TaskResultTest[];
+  errors?: string[];
+  blockers?: string[];
+  next_steps?: string[];
+  confidence?: number;
+  [key: string]: unknown;
+}
+
 export interface ContextUnit {
   id?: string;
   content?: string;
   type?: string;
   trust_tier?: string;
   source_url?: string;
+  source_type?: string;
+  source_session_id?: string;
+  agent_id?: string;
+  agent_name?: string;
+  metadata?: ContextMetadata;
+  version?: number;
+  parent_ids?: string[];
   created_at?: string;
+}
+
+export type MemorySourceKind = "browser" | "session" | "unscoped";
+
+export interface MemorySource {
+  id: string;
+  kind: MemorySourceKind;
+  title: string;
+  subtitle: string;
+  source_type: string;
+  source_session_id?: string;
+  source_url?: string;
+  agent_id?: string;
+  agent_name?: string;
+  platform?: string;
+  linked_at?: string;
+  unit_count: number;
+  first_seen_at?: string;
+  last_seen_at?: string;
 }
 
 export interface AuthPayload {

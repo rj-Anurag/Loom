@@ -209,7 +209,10 @@ before the extension was installed, so a manual refresh is not normally
 required. Failed writes are held in a local retry queue and retried by the
 extension background worker. The popup shows whether anything is still queued.
 The dashboard reads the complete paginated history instead of the token-limited
-agent retrieval view.
+agent retrieval view. Its read-only source explorer groups linked browser chats,
+Codex sessions, OpenCode sessions, and legacy unscoped memory without changing
+the stored context. Linked chats remain visible before their first message is
+captured.
 
 To reconfigure an existing install for another Loom server, repeat the install
 with `--force`. Loom validates the server URL, replaces the existing extension
@@ -305,6 +308,20 @@ MCP clients can inspect the same information with `list_recent_context` and
 `list_sources`. Recent units include full IDs and parent citations for durable
 handoffs.
 
+### Dashboard source explorer
+
+Open the hosted dashboard and select a project to inspect all memory sources in
+one timeline. Browser conversations are grouped by URL; coding-harness activity
+is grouped by source, observed session ID, and agent. "Observed session" means
+stored historical activity, not a currently running process.
+
+The dashboard can filter the complete project history by source, text, context
+type, agent, and date. Each unit retains its full ID, source, session, agent,
+timestamp, source URL, and parent IDs. Structured task results show the task
+name, files touched, test outcomes, errors, blockers, next steps, and confidence
+without requiring raw JSON. The explorer is intentionally read-only: it does
+not unlink, delete, resync, or manually write context.
+
 ## End-to-end test flow
 
 Use this sequence to verify the complete product rather than isolated screens:
@@ -329,13 +346,16 @@ Use this sequence to verify the complete product rather than isolated screens:
    loom context "LOOM_E2E_2026 retry policy" --scope full --json
    ```
 
-8. Open the dashboard from the popup. Confirm the linked-chat count, context
-   count, human/assistant roles, source URL, and new message.
+8. Open the dashboard from the popup. Confirm the linked chat appears under
+   browser conversations and that its timeline shows the source URL, full unit
+   ID, provenance, and new message.
 9. Start OpenCode and ask it to continue the retry-policy work. Confirm it
    reads the browser context and writes a structured result with OpenCode source
    and session provenance.
 10. Start Codex and retrieve the OpenCode handoff, then inspect it with
-    `loom history --source opencode` and `loom links`.
+    `loom history --source opencode` and `loom links`. In the dashboard, select
+    the OpenCode observed session and confirm its structured task result, tests,
+    parent IDs, and next steps are readable.
 11. When Claude Code access is available, optionally repeat the handoff through
     Claude and confirm its source and session remain independently traceable.
 

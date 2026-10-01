@@ -8,27 +8,20 @@ import Card from "@mui/material/Card";
 import CircularProgress from "@mui/material/CircularProgress";
 import Divider from "@mui/material/Divider";
 import Drawer from "@mui/material/Drawer";
-import InputAdornment from "@mui/material/InputAdornment";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
-import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 import Script from "next/script";
-import {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { LoomMark } from "@/components/loom-mark";
+import { SourceExplorer, SourceNavigation } from "@/components/source-explorer";
 import { apiRequest, formatDate, friendlyError, initials } from "@/lib/api";
+import { ALL_SOURCES_ID, buildMemorySources } from "@/lib/sources";
 import type {
   AuthPayload,
   Chat,
@@ -64,26 +57,6 @@ declare global {
 const mono = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
 let initializedGoogleClientId = "";
 let googleCredentialHandler: ((credential: string) => void) | null = null;
-
-function platformName(chat: Chat): string {
-  if (chat.platform) return chat.platform.replace(/^www\./, "");
-  try {
-    return new URL(chat.chat_url).hostname.replace(/^www\./, "");
-  } catch {
-    return "Conversation";
-  }
-}
-
-function messageDetails(unit: ContextUnit) {
-  const content = unit.content ?? "";
-  const human = /^(User|Human):/i.test(content) || unit.trust_tier === "user";
-  const assistant = /^(AI|Assistant):/i.test(content);
-  return {
-    role: human ? "You" : assistant ? "Assistant" : unit.type || "Context",
-    color: human ? "#60a5fa" : assistant ? "#a78bfa" : "#a3a3a3",
-    content: content.replace(/^(User|Human|AI|Assistant):\s*/i, ""),
-  };
-}
 
 function GoogleButton({
   error,
@@ -361,11 +334,8 @@ function AccountAppContent({
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
-  const [chatUrl, setChatUrl] = useState("");
   const [units, setUnits] = useState<ContextUnit[]>([]);
-  const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
-  const [ascending, setAscending] = useState(false);
+  const [selectedSourceId, setSelectedSourceId] = useState(ALL_SOURCES_ID);
   const [loadingProject, setLoadingProject] = useState(false);
   const [projectError, setProjectError] = useState("");
   const [authError, setAuthError] = useState("");
@@ -424,10 +394,9 @@ function AccountAppContent({
     async (selected: Project) => {
       const version = ++loadVersion.current;
       setProject(selected);
-      setChatUrl("");
+      setSelectedSourceId(ALL_SOURCES_ID);
       setChats([]);
       setUnits([]);
-      setQuery("");
       setProjectError("");
       setLoadingProject(true);
       try {
@@ -558,19 +527,10 @@ function AccountAppContent({
     };
   }, [applySession]);
 
-  const selectedChat = chats.find((chat) => chat.chat_url === chatUrl);
-  const visibleUnits = useMemo(() => {
-    const normalized = deferredQuery.trim().toLocaleLowerCase();
-    const filtered = units.filter((unit) => {
-      const inChat = !chatUrl || unit.source_url === chatUrl;
-      const matches =
-        !normalized ||
-        (unit.content ?? "").toLocaleLowerCase().includes(normalized) ||
-        (unit.type ?? "").toLocaleLowerCase().includes(normalized);
-      return inChat && matches;
-    });
-    return ascending ? filtered.toReversed() : filtered;
-  }, [ascending, chatUrl, deferredQuery, units]);
+  const sources = useMemo(
+    () => buildMemorySources(chats, units),
+    [chats, units],
+  );
 
   if (booting && !revealSignIn) {
     return (
@@ -596,7 +556,7 @@ function AccountAppContent({
   const sidebar = (
     <Box
       component="aside"
-      aria-label="Projects and chats"
+      aria-label="Projects and memory sources"
       sx={{
         bgcolor: "#0d0d10",
         height: "100%",
@@ -684,98 +644,15 @@ function AccountAppContent({
         ))
       )}
       <Divider sx={{ my: 2.5 }} />
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="end"
-        sx={{ mb: 1.5 }}
-      >
-        <Box>
-          <Typography
-            sx={{
-              color: "primary.light",
-              fontFamily: mono,
-              fontSize: 9,
-              textTransform: "uppercase",
-            }}
-          >
-            Selected project
-          </Typography>
-          <Typography component="h2" sx={{ fontSize: 18, fontWeight: 620 }}>
-            Chats
-          </Typography>
-        </Box>
-        <Typography
-          sx={{ color: "text.secondary", fontFamily: mono, fontSize: 11 }}
-        >
-          {chats.length}
-        </Typography>
-      </Stack>
-      {project && (
-        <Button
-          fullWidth
-          aria-pressed={!chatUrl}
-          onClick={() => {
-            setChatUrl("");
-            closeDrawer();
-          }}
-          sx={{
-            bgcolor: !chatUrl ? "rgba(139,92,246,.13)" : "transparent",
-            color: "text.primary",
-            justifyContent: "flex-start",
-            mb: 0.5,
-            px: 1.25,
-            py: 1,
-          }}
-        >
-          <Box sx={{ color: "primary.light", mr: 1.5 }}>⌘</Box>
-          <Box sx={{ textAlign: "left" }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 650 }}>
-              All project context
-            </Typography>
-            <Typography
-              sx={{ color: "text.secondary", fontFamily: mono, fontSize: 9 }}
-            >
-              Every connected source
-            </Typography>
-          </Box>
-        </Button>
-      )}
-      {chats.map((chat) => (
-        <Button
-          key={chat.chat_url}
-          fullWidth
-          aria-pressed={chatUrl === chat.chat_url}
-          onClick={() => {
-            setChatUrl(chat.chat_url);
-            closeDrawer();
-          }}
-          sx={{
-            bgcolor:
-              chatUrl === chat.chat_url
-                ? "rgba(139,92,246,.13)"
-                : "transparent",
-            color: "text.primary",
-            justifyContent: "flex-start",
-            mb: 0.5,
-            px: 1.25,
-            py: 1,
-          }}
-        >
-          <Box sx={{ color: "primary.light", mr: 1.5 }}>↗</Box>
-          <Box sx={{ minWidth: 0, textAlign: "left" }}>
-            <Typography noWrap sx={{ fontSize: 13, fontWeight: 650 }}>
-              {chat.title || "Untitled conversation"}
-            </Typography>
-            <Typography
-              noWrap
-              sx={{ color: "text.secondary", fontFamily: mono, fontSize: 9 }}
-            >
-              {platformName(chat)} · {formatDate(chat.linked_at, true)}
-            </Typography>
-          </Box>
-        </Button>
-      ))}
+      <SourceNavigation
+        project={project}
+        sources={sources}
+        selectedSourceId={selectedSourceId}
+        onSelect={(sourceId) => {
+          setSelectedSourceId(sourceId);
+          closeDrawer();
+        }}
+      />
     </Box>
   );
 
@@ -864,6 +741,7 @@ function AccountAppContent({
                 setProject(null);
                 setChats([]);
                 setUnits([]);
+                setSelectedSourceId(ALL_SOURCES_ID);
               }
             }}
           >
@@ -885,186 +763,15 @@ function AccountAppContent({
             {sidebar}
           </Drawer>
         )}
-        <Box component="main" sx={{ minWidth: 0, p: { xs: 2, sm: 4, lg: 6 } }}>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            justifyContent="space-between"
-            alignItems={{ sm: "flex-start" }}
-            spacing={2}
-          >
-            <Box>
-              <Typography
-                sx={{
-                  color: "primary.light",
-                  fontFamily: mono,
-                  fontSize: 10,
-                  textTransform: "uppercase",
-                }}
-              >
-                {selectedChat
-                  ? `${project?.name} / Chat`
-                  : `Workspace / ${project?.name ?? "Select a project"}`}
-              </Typography>
-              <Typography
-                component="h1"
-                variant="h1"
-                sx={{ fontSize: { xs: 42, md: 64 }, mt: 1 }}
-              >
-                {selectedChat?.title || project?.name || "Project context"}
-              </Typography>
-              <Typography color="text.secondary" sx={{ mt: 1 }}>
-                {selectedChat
-                  ? `Context captured from ${platformName(selectedChat)}.`
-                  : "Shared memory from every conversation and agent connected to this project."}
-              </Typography>
-            </Box>
-            {selectedChat && (
-              <Button
-                component="a"
-                href={selectedChat.chat_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                variant="outlined"
-              >
-                Open conversation ↗
-              </Button>
-            )}
-          </Stack>
-          <Box
-            sx={{
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: 2,
-              display: "grid",
-              gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(3,1fr)" },
-              mt: 4,
-              overflow: "hidden",
-            }}
-          >
-            {[
-              ["Context units", project?.context_unit_count ?? units.length],
-              ["Linked chats", project?.linked_chat_count ?? chats.length],
-              ["Created", formatDate(project?.created_at, true)],
-            ].map(([label, value]) => (
-              <Box
-                key={String(label)}
-                sx={{ borderRight: "1px solid", borderColor: "divider", p: 2 }}
-              >
-                <Typography
-                  sx={{
-                    color: "text.secondary",
-                    fontFamily: mono,
-                    fontSize: 9,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {label}
-                </Typography>
-                <Typography sx={{ fontSize: 22, fontWeight: 620, mt: 0.5 }}>
-                  {value}
-                </Typography>
-              </Box>
-            ))}
-          </Box>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1.5}
-            sx={{ my: 3 }}
-          >
-            <TextField
-              fullWidth
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search this context"
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">⌕</InputAdornment>
-                  ),
-                },
-              }}
-            />
-            <Button
-              variant="outlined"
-              onClick={() => setAscending((value) => !value)}
-              sx={{ whiteSpace: "nowrap" }}
-            >
-              {ascending ? "Oldest first" : "Newest first"}
-            </Button>
-          </Stack>
-          {loadingProject ? (
-            <Stack alignItems="center" sx={{ py: 7 }}>
-              <CircularProgress size={28} />
-            </Stack>
-          ) : projectError ? (
-            <Alert severity="error">{projectError}</Alert>
-          ) : visibleUnits.length === 0 ? (
-            <EmptyState
-              title={
-                chatUrl || query ? "No matching context" : "No context yet"
-              }
-            >
-              {chatUrl || query
-                ? "Try another chat or search term."
-                : "Connected agents and conversations will add shared memory here."}
-            </EmptyState>
-          ) : (
-            <Stack spacing={1.25}>
-              {visibleUnits.map((unit, index) => {
-                const details = messageDetails(unit);
-                return (
-                  <Card
-                    component="article"
-                    key={unit.id ?? `${unit.created_at}-${index}`}
-                    sx={{
-                      borderLeft: `3px solid ${details.color}`,
-                      containIntrinsicSize: "0 180px",
-                      contentVisibility: "auto",
-                      p: 2.25,
-                    }}
-                  >
-                    <Stack
-                      direction={{ xs: "column", sm: "row" }}
-                      justifyContent="space-between"
-                      spacing={0.5}
-                    >
-                      <Typography
-                        sx={{
-                          color: details.color,
-                          fontFamily: mono,
-                          fontSize: 10,
-                          fontWeight: 750,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {details.role}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: "text.secondary",
-                          fontFamily: mono,
-                          fontSize: 9,
-                        }}
-                      >
-                        {formatDate(unit.created_at)}
-                      </Typography>
-                    </Stack>
-                    <Typography
-                      sx={{
-                        lineHeight: 1.75,
-                        mt: 1.25,
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {details.content}
-                    </Typography>
-                  </Card>
-                );
-              })}
-            </Stack>
-          )}
+        <Box component="main" sx={{ minWidth: 0, p: { xs: 2, sm: 4, lg: 5 } }}>
+          <SourceExplorer
+            project={project}
+            sources={sources}
+            selectedSourceId={selectedSourceId}
+            units={units}
+            loading={loadingProject}
+            error={projectError}
+          />
         </Box>
       </Box>
     </Box>

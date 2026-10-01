@@ -64,3 +64,5 @@ Thumbs.db
 *.bak
 server.log
 tests/load/last-report.json
+.vercel
+.env*

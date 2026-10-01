@@ -21,6 +21,9 @@ def test_public_pages_use_the_exaggerated_minimalism_design_system() -> None:
     assert "prefers-reduced-motion" in theme
     assert "focus-visible" in theme
 
+    next_config = (frontend / "next.config.ts").read_text()
+    assert "agentRules: false" in next_config
+
 
 def test_extension_uses_one_packaged_visual_system() -> None:
     source_html = (ROOT / "extension/popup.html").read_text()
