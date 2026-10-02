@@ -4,25 +4,17 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CircularProgress from "@mui/material/CircularProgress";
-import IconButton from "@mui/material/IconButton";
-import InputAdornment from "@mui/material/InputAdornment";
-import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
-import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import {
-  ArrowDownUp,
   Bot,
   ExternalLink,
   FileText,
   Globe2,
   Layers3,
-  Search,
   TerminalSquare,
-  X,
 } from "lucide-react";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { formatDate } from "@/lib/api";
@@ -30,7 +22,6 @@ import {
   ALL_SOURCES_ID,
   sourceTypeLabel,
   unitMatchesSource,
-  unitSearchText,
 } from "@/lib/sources";
 import type {
   ContextMetadata,
@@ -41,11 +32,6 @@ import type {
 } from "@/lib/types";
 
 const mono = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-const DATE_WINDOWS: Record<string, number> = {
-  "24h": 24 * 60 * 60 * 1000,
-  "7d": 7 * 24 * 60 * 60 * 1000,
-  "30d": 30 * 24 * 60 * 60 * 1000,
-};
 
 function sourceIcon(source: MemorySource) {
   if (source.kind === "browser") return <Globe2 aria-hidden size={16} />;
@@ -680,70 +666,13 @@ export function SourceExplorer({
   loading: boolean;
   error: string;
 }) {
-  const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase());
-  const [unitType, setUnitType] = useState("all");
-  const [agent, setAgent] = useState("all");
-  const [dateWindow, setDateWindow] = useState("all");
-  const [ascending, setAscending] = useState(false);
-  const [filterClock] = useState(() => Date.now());
   const selectedSource = sources.find(
     (source) => source.id === selectedSourceId,
   );
 
-  const unitTypes = useMemo(
-    () =>
-      [
-        ...new Set(
-          units
-            .map((unit) => unit.type)
-            .filter((value): value is string => Boolean(value)),
-        ),
-      ].toSorted(),
-    [units],
-  );
-  const agents = useMemo(() => {
-    const unique = new Map<string, string>();
-    for (const unit of units) {
-      const key = unit.agent_id || unit.agent_name;
-      if (key)
-        unique.set(key, unit.agent_name || unit.agent_id || "Unknown agent");
-    }
-    return [...unique.entries()].toSorted((left, right) =>
-      left[1].localeCompare(right[1]),
-    );
-  }, [units]);
-
-  const visibleUnits = useMemo(() => {
-    const cutoff = DATE_WINDOWS[dateWindow]
-      ? filterClock - DATE_WINDOWS[dateWindow]
-      : null;
-    const filtered = units.filter((unit) => {
-      if (!unitMatchesSource(unit, selectedSource)) return false;
-      if (unitType !== "all" && unit.type !== unitType) return false;
-      if (agent !== "all" && (unit.agent_id || unit.agent_name) !== agent)
-        return false;
-      if (
-        cutoff &&
-        (!unit.created_at || new Date(unit.created_at).getTime() < cutoff)
-      )
-        return false;
-      return !deferredQuery || unitSearchText(unit).includes(deferredQuery);
-    });
-    return ascending ? filtered.toReversed() : filtered;
-  }, [
-    agent,
-    ascending,
-    dateWindow,
-    deferredQuery,
-    filterClock,
-    selectedSource,
-    unitType,
-    units,
-  ]);
-
-  const filtered = Boolean(
-    query || unitType !== "all" || agent !== "all" || dateWindow !== "all",
+  const visibleUnits = useMemo(
+    () => units.filter((unit) => unitMatchesSource(unit, selectedSource)),
+    [selectedSource, units],
   );
   const observedSessions = sources.filter(
     (source) => source.kind === "session",
@@ -783,13 +712,6 @@ export function SourceExplorer({
         ["Memory sources", sources.length],
         ["Observed sessions", observedSessions],
       ];
-
-  const clearFilters = () => {
-    setQuery("");
-    setUnitType("all");
-    setAgent("all");
-    setDateWindow("all");
-  };
 
   return (
     <>
@@ -898,156 +820,64 @@ export function SourceExplorer({
         ))}
       </Box>
 
-      <Box
-        aria-label="Memory filters"
-        sx={{
-          display: "grid",
-          gap: 1.25,
-          gridTemplateColumns: {
-            xs: "1fr",
-            md: "minmax(240px,1fr) repeat(3,minmax(130px,.35fr)) auto",
-          },
-          my: 3,
-        }}
-      >
-        <TextField
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search project memory"
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search aria-hidden size={17} />
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-        <TextField
-          select
-          label="Type"
-          value={unitType}
-          onChange={(event) => setUnitType(event.target.value)}
-        >
-          <MenuItem value="all">All types</MenuItem>
-          {unitTypes.map((type) => (
-            <MenuItem key={type} value={type}>
-              {sourceTypeLabel(type)}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          label="Agent"
-          value={agent}
-          onChange={(event) => setAgent(event.target.value)}
-        >
-          <MenuItem value="all">All agents</MenuItem>
-          {agents.map(([key, name]) => (
-            <MenuItem key={key} value={key}>
-              {name}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          label="Date"
-          value={dateWindow}
-          onChange={(event) => setDateWindow(event.target.value)}
-        >
-          <MenuItem value="all">Any time</MenuItem>
-          <MenuItem value="24h">Last 24 hours</MenuItem>
-          <MenuItem value="7d">Last 7 days</MenuItem>
-          <MenuItem value="30d">Last 30 days</MenuItem>
-        </TextField>
-        <Stack direction="row" spacing={0.5} alignItems="center">
-          {filtered ? (
-            <Tooltip title="Clear filters">
-              <IconButton
-                aria-label="Clear memory filters"
-                onClick={clearFilters}
-              >
-                <X size={18} />
-              </IconButton>
-            </Tooltip>
-          ) : null}
-          <Tooltip
-            title={ascending ? "Show newest first" : "Show oldest first"}
+      <Box sx={{ mt: 3 }}>
+        {loading ? (
+          <Stack alignItems="center" sx={{ py: 7 }}>
+            <CircularProgress size={28} />
+          </Stack>
+        ) : error ? (
+          <Box
+            role="alert"
+            sx={{
+              border: "1px solid rgba(239,106,117,.45)",
+              borderRadius: 1.5,
+              color: "#f39aa2",
+              p: 2,
+            }}
           >
-            <IconButton
-              aria-label={ascending ? "Show newest first" : "Show oldest first"}
-              onClick={() => setAscending((value) => !value)}
+            {error}
+          </Box>
+        ) : visibleUnits.length === 0 ? (
+          <EmptyState title="No captured memory yet">
+            {selectedSource
+              ? "This source is linked, but it has not captured a context unit yet."
+              : "This project has not captured a context unit yet."}
+          </EmptyState>
+        ) : (
+          <Stack spacing={1.25}>
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+              sx={{ px: 0.25 }}
             >
-              <ArrowDownUp size={18} />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      </Box>
-
-      {loading ? (
-        <Stack alignItems="center" sx={{ py: 7 }}>
-          <CircularProgress size={28} />
-        </Stack>
-      ) : error ? (
-        <Box
-          role="alert"
-          sx={{
-            border: "1px solid rgba(239,106,117,.45)",
-            borderRadius: 1.5,
-            color: "#f39aa2",
-            p: 2,
-          }}
-        >
-          {error}
-        </Box>
-      ) : visibleUnits.length === 0 ? (
-        <EmptyState
-          title={
-            selectedSource?.unit_count === 0 && !filtered
-              ? "No captured memory yet"
-              : "No matching memory"
-          }
-        >
-          {selectedSource?.unit_count === 0 && !filtered
-            ? "This source is linked, but it has not captured a context unit yet."
-            : "Choose another source or clear one of the filters."}
-        </EmptyState>
-      ) : (
-        <Stack spacing={1.25}>
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="center"
-            sx={{ px: 0.25 }}
-          >
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <FileText aria-hidden size={15} />
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <FileText aria-hidden size={15} />
+                <Typography
+                  sx={{
+                    fontFamily: mono,
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Memory timeline
+                </Typography>
+              </Stack>
               <Typography
-                sx={{
-                  fontFamily: mono,
-                  fontSize: 10,
-                  textTransform: "uppercase",
-                }}
+                sx={{ color: "text.secondary", fontFamily: mono, fontSize: 10 }}
               >
-                Memory timeline
+                {visibleUnits.length} shown
               </Typography>
             </Stack>
-            <Typography
-              sx={{ color: "text.secondary", fontFamily: mono, fontSize: 10 }}
-            >
-              {visibleUnits.length} shown
-            </Typography>
+            {visibleUnits.map((unit, index) => (
+              <ContextUnitCard
+                key={unit.id ?? `${unit.created_at}-${index}`}
+                unit={unit}
+              />
+            ))}
           </Stack>
-          {visibleUnits.map((unit, index) => (
-            <ContextUnitCard
-              key={unit.id ?? `${unit.created_at}-${index}`}
-              unit={unit}
-            />
-          ))}
-        </Stack>
-      )}
+        )}
+      </Box>
     </>
   );
 }
