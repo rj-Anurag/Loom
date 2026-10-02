@@ -14,6 +14,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
+import { Menu as MenuIcon } from "lucide-react";
 import Script from "next/script";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -683,11 +684,10 @@ function AccountAppContent({
               onClick={() => setDrawerOpen(true)}
               sx={{ minWidth: 44, p: 0.5 }}
             >
-              <LoomMark compact />
+              <MenuIcon size={24} />
             </Button>
-          ) : (
-            <LoomMark />
-          )}
+          ) : null}
+          <LoomMark compact={!desktop} />
           {desktop && (
             <Typography color="text.secondary">/ Workspace</Typography>
           )}

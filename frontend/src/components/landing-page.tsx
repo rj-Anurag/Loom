@@ -539,13 +539,7 @@ export function LandingPage() {
             zIndex: 10,
           }}
         >
-          <a
-            aria-label="Loom home"
-            href="#top"
-            style={{ color: "inherit", textDecoration: "none" }}
-          >
-            <LoomMark />
-          </a>
+          <LoomMark />
           <Stack
             alignItems="center"
             direction="row"

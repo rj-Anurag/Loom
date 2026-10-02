@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
@@ -397,7 +398,13 @@ export function DocsSite() {
             >
               <SheetHeader className="border-b border-border px-5 py-5 text-left">
                 <SheetTitle className="flex items-center gap-3">
-                  <LoomLogo /> Loom Docs
+                  <Link
+                    href="/"
+                    aria-label="Loom docs home"
+                    className="flex items-center gap-3"
+                  >
+                    <LoomLogo /> Loom Docs
+                  </Link>
                 </SheetTitle>
                 <SheetDescription>
                   Developer documentation and reference
@@ -409,9 +416,8 @@ export function DocsSite() {
             </SheetContent>
           </Sheet>
 
-          <button
-            type="button"
-            onClick={() => goTo("introduction")}
+          <Link
+            href="/"
             className="flex items-center gap-3"
             aria-label="Loom docs home"
           >
@@ -422,7 +428,7 @@ export function DocsSite() {
                 Docs
               </span>
             </span>
-          </button>
+          </Link>
           <button
             onClick={() => setSearchOpen(true)}
             className="ml-auto hidden h-9 w-[min(38vw,420px)] items-center gap-3 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground shadow-sm transition hover:border-ring/60 md:flex"
