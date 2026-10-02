@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -365,6 +365,8 @@ function ApiRow({
 
 export function DocsSite() {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState("introduction");
+  const contentsRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -376,6 +378,63 @@ export function DocsSite() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    let frame = 0;
+
+    const updateActiveSection = () => {
+      let current = allItems[0].id;
+      for (const item of allItems) {
+        const section = document.getElementById(item.id);
+        if (section && section.getBoundingClientRect().top <= 160) {
+          current = item.id;
+        } else {
+          break;
+        }
+      }
+
+      if (
+        window.innerHeight + window.scrollY >=
+        document.documentElement.scrollHeight - 4
+      ) {
+        current = allItems[allItems.length - 1].id;
+      }
+      setActiveSection(current);
+    };
+
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updateActiveSection();
+      });
+    };
+
+    scheduleUpdate();
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
+    const contents = contentsRef.current;
+    const activeButton = contents?.querySelector<HTMLButtonElement>(
+      `[data-section="${activeSection}"]`,
+    );
+    if (!contents || !activeButton) return;
+
+    const contentsBounds = contents.getBoundingClientRect();
+    const buttonBounds = activeButton.getBoundingClientRect();
+    if (buttonBounds.bottom > contentsBounds.bottom) {
+      contents.scrollTop += buttonBounds.bottom - contentsBounds.bottom + 12;
+    } else if (buttonBounds.top < contentsBounds.top + 48) {
+      contents.scrollTop += buttonBounds.top - contentsBounds.top - 48;
+    }
+  }, [activeSection]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -1672,18 +1731,34 @@ export function DocsSite() {
           </footer>
         </main>
 
-        <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] py-16 xl:block">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <aside
+          ref={contentsRef}
+          aria-label="On this page"
+          className="sticky top-16 hidden h-[calc(100vh-4rem)] overflow-y-auto py-9 xl:block"
+        >
+          <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             In these docs
           </p>
-          {allItems.slice(0, 8).map((item, index) => (
-            <button
-              key={item.id}
-              onClick={() => goTo(item.id)}
-              className={`block w-full border-l py-1.5 pl-4 text-left text-sm transition hover:text-foreground ${index === 0 ? "border-primary text-foreground" : "border-border text-muted-foreground"}`}
-            >
-              {item.label}
-            </button>
+          {navGroups.map((group) => (
+            <div key={group.label} className="mb-5">
+              <p className="mb-1 pl-4 text-xs font-medium text-muted-foreground">
+                {group.label}
+              </p>
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-section={item.id}
+                  aria-current={
+                    activeSection === item.id ? "location" : undefined
+                  }
+                  onClick={() => goTo(item.id)}
+                  className={`block w-full border-l py-1.5 pl-4 text-left text-sm transition hover:text-foreground ${activeSection === item.id ? "border-primary font-semibold text-foreground" : "border-border text-muted-foreground"}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           ))}
         </aside>
       </div>
