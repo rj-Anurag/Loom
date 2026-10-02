@@ -20,6 +20,7 @@ import { EmptyState } from "@/components/empty-state";
 import { formatDate } from "@/lib/api";
 import {
   ALL_SOURCES_ID,
+  orderTerminalMessages,
   sourceTypeLabel,
   unitMatchesSource,
 } from "@/lib/sources";
@@ -251,8 +252,9 @@ export function SourceNavigation({
 
 function messageDetails(unit: ContextUnit) {
   const content = unit.content ?? "";
-  const human = /^(User|Human):/i.test(content) || unit.trust_tier === "user";
-  const assistant = /^(AI|Assistant):/i.test(content);
+  const terminalRole = unit.metadata?.conversation_role;
+  const human = terminalRole === "user" || /^(User|Human):/i.test(content) || unit.trust_tier === "user";
+  const assistant = terminalRole === "assistant" || /^(AI|Assistant):/i.test(content);
   return {
     role: human
       ? "You"
@@ -260,7 +262,7 @@ function messageDetails(unit: ContextUnit) {
         ? "Assistant"
         : sourceTypeLabel(unit.type || "context"),
     color: human ? "#60a5fa" : assistant ? "#a78bfa" : "#a3a3a3",
-    content: content.replace(/^(User|Human|AI|Assistant):\s*/i, ""),
+    content: terminalRole ? content : content.replace(/^(User|Human|AI|Assistant):\s*/i, ""),
   };
 }
 
@@ -454,6 +456,7 @@ function TaskResultDetails({ metadata }: { metadata: ContextMetadata }) {
 function ContextUnitCard({ unit }: { unit: ContextUnit }) {
   const details = messageDetails(unit);
   const parents = unit.parent_ids ?? [];
+  const conversation = unit.metadata?.conversation_role === "user" || unit.metadata?.conversation_role === "assistant";
   return (
     <Card
       component="article"
@@ -461,7 +464,7 @@ function ContextUnitCard({ unit }: { unit: ContextUnit }) {
         borderLeft: `3px solid ${details.color}`,
         containIntrinsicSize: "0 220px",
         contentVisibility: "auto",
-        p: 2.25,
+        p: conversation ? 1.75 : 2.25,
       }}
     >
       <Stack
@@ -502,7 +505,7 @@ function ContextUnitCard({ unit }: { unit: ContextUnit }) {
             flexShrink: 0,
           }}
         >
-          {formatDate(unit.created_at)}
+          {formatDate(unit.occurred_at || unit.created_at)}
         </Typography>
       </Stack>
       <Typography
@@ -519,8 +522,14 @@ function ContextUnitCard({ unit }: { unit: ContextUnit }) {
         <TaskResultDetails metadata={unit.metadata} />
       ) : null}
       <Box
+        component={conversation ? "details" : "div"}
         sx={{ borderTop: "1px solid", borderColor: "divider", mt: 2, pt: 1.5 }}
       >
+        {conversation ? (
+          <Typography component="summary" sx={{ color: "text.secondary", cursor: "pointer", fontFamily: mono, fontSize: 9 }}>
+            Provenance · {unit.metadata?.capture_method || "live"}
+          </Typography>
+        ) : null}
         <Box
           sx={{
             display: "grid",
@@ -671,7 +680,14 @@ export function SourceExplorer({
   );
 
   const visibleUnits = useMemo(
-    () => units.filter((unit) => unitMatchesSource(unit, selectedSource)),
+    () => {
+      const filtered = units.filter((unit) => unitMatchesSource(unit, selectedSource));
+      if (selectedSource?.kind === "session" &&
+          ["codex_cli", "claude_code", "opencode"].includes(selectedSource.source_type)) {
+        return orderTerminalMessages(filtered);
+      }
+      return filtered;
+    },
     [selectedSource, units],
   );
   const observedSessions = sources.filter(

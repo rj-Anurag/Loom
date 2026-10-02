@@ -117,6 +117,7 @@ async def vector_search(
         ContextUnit.source_session_id,
         ContextUnit.context_metadata,
         ContextUnit.created_at,
+        ContextUnit.occurred_at,
         ContextUnit.agent_id,
         ContextUnit.version,
         (1 - ContextUnit.embedding.cosine_distance(query_embedding)).label(
@@ -147,6 +148,7 @@ async def vector_search(
             "source_session_id": row.get("source_session_id"),
             "metadata": row["context_metadata"],
             "created_at": row["created_at"].isoformat(),
+            "occurred_at": row["occurred_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
             "version": int(row["version"]),
             "vector_score": float(row["vector_score"]),
@@ -188,7 +190,7 @@ async def keyword_search(
         sql = text("""
             SELECT u.id, u.type, u.trust_tier, u.content, u.source_url,
                    u.source_type, u.source_session_id, u.metadata,
-                   u.created_at, u.agent_id, u.version,
+                   u.created_at, u.occurred_at, u.agent_id, u.version,
                    ts_rank(to_tsvector('english', u.content),
                            plainto_tsquery('english', :query)) AS keyword_score
             FROM context_units u
@@ -202,7 +204,7 @@ async def keyword_search(
         sql = text("""
             SELECT u.id, u.type, u.trust_tier, u.content, u.source_url,
                    u.source_type, u.source_session_id, u.metadata,
-                   u.created_at, u.agent_id, u.version,
+                   u.created_at, u.occurred_at, u.agent_id, u.version,
                    ts_rank(to_tsvector('english', u.content),
                            plainto_tsquery('english', :query)) AS keyword_score
             FROM context_units u
@@ -227,6 +229,7 @@ async def keyword_search(
             "source_session_id": row.get("source_session_id"),
             "metadata": row["metadata"],
             "created_at": row["created_at"].isoformat(),
+            "occurred_at": row["occurred_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
             "version": int(row["version"]),
             "keyword_score": float(row["keyword_score"]),

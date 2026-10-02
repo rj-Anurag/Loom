@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 import redis.asyncio as redis_async
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,6 +100,7 @@ class ContextUnitResponse(BaseModel):
     id: str
     client_uuid: str
     created_at: str
+    occurred_at: str | None = None
     version: int
     source_type: str
     source_session_id: str | None = None
@@ -138,6 +139,7 @@ class ReadContextUnitModel(BaseModel):
     source_session_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
+    occurred_at: str | None = None
     agent_id: str
     agent_name: str | None = None
     version: int = 1
@@ -185,10 +187,141 @@ class ContextSourceModel(BaseModel):
     unit_count: int
     first_seen_at: str
     last_seen_at: str
+    first_occurred_at: str | None = None
+    last_occurred_at: str | None = None
 
 
 class ContextSourcesResponse(BaseModel):
     sources: list[ContextSourceModel]
+
+
+class ConversationMessageRequest(BaseModel):
+    client_uuid: uuid.UUID
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=100000)
+    occurred_at: datetime
+    turn_id: str | None = Field(None, max_length=255)
+    message_id: str | None = Field(None, max_length=255)
+    sequence: int = Field(ge=0)
+    session_title: str | None = Field(None, max_length=500)
+    parent_client_uuid: uuid.UUID | None = None
+
+
+class ConversationBatchRequest(BaseModel):
+    source_type: Literal["codex_cli", "claude_code", "opencode"]
+    source_session_id: str = Field(min_length=1, max_length=255)
+    capture_method: Literal["live", "import"] = "live"
+    messages: list[ConversationMessageRequest] = Field(min_length=1, max_length=100)
+
+
+@router.post("/{project_id}/conversations/messages")
+async def ingest_conversation_messages(
+    project_id: uuid.UUID,
+    body: ConversationBatchRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, list[dict[str, str | bool]]]:
+    """Accept bounded terminal turns from an authenticated project agent."""
+    if len(await request.body()) > 1_000_000:
+        raise HTTPException(413, "CONVERSATION_BATCH_TOO_LARGE")
+    if auth.project_id != project_id:
+        raise HTTPException(403, "AGENT_MISMATCH")
+    from sqlalchemy import select
+
+    from loom.models import Agent, ContextUnit
+
+    agent = await session.get(Agent, auth.agent_id)
+    if agent is None or agent.kind != "local":
+        raise HTTPException(403, "LOCAL_AGENT_REQUIRED")
+    foreign_session = (
+        await session.execute(
+            select(ContextUnit.id)
+            .where(
+                ContextUnit.source_type == body.source_type,
+                ContextUnit.source_session_id == body.source_session_id,
+                ContextUnit.project_id != project_id,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if foreign_session is not None:
+        raise HTTPException(403, "CROSS_PROJECT_SESSION")
+    results: list[dict[str, str | bool]] = []
+    new_units: list[tuple[str, str]] = []
+    known: dict[uuid.UUID, tuple[uuid.UUID, str]] = {}
+    for message in body.messages:
+        if message.occurred_at.tzinfo is None or not message.content.strip():
+            raise HTTPException(400, "INVALID_CONVERSATION_MESSAGE")
+        known_parent = known.get(message.parent_client_uuid) if message.parent_client_uuid else None
+        parent_id = known_parent[0] if known_parent else None
+        if known_parent and known_parent[1] != "user":
+            raise HTTPException(400, "INVALID_CONVERSATION_PARENT")
+        if message.parent_client_uuid and parent_id is None:
+            parent = (
+                await session.execute(
+                    select(ContextUnit).where(
+                        ContextUnit.client_uuid == message.parent_client_uuid,
+                        ContextUnit.project_id == project_id,
+                        ContextUnit.source_type == body.source_type,
+                        ContextUnit.source_session_id == body.source_session_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if parent is None or parent.context_metadata.get("conversation_role") != "user":
+                raise HTTPException(400, "INVALID_CONVERSATION_PARENT")
+            parent_id = parent.id
+        if message.role == "user" and parent_id is not None:
+            raise HTTPException(400, "INVALID_CONVERSATION_PARENT")
+        metadata = {
+            "conversation_role": message.role,
+            "turn_id": message.turn_id,
+            "message_id": message.message_id,
+            "message_sequence": message.sequence,
+            "session_title": message.session_title,
+            "capture_method": body.capture_method,
+        }
+        try:
+            unit, is_new = await write_context(
+                session,
+                project_id,
+                auth.agent_id,
+                client_uuid=message.client_uuid,
+                type_="message",
+                content=message.content,
+                version=None,
+                source_type=body.source_type,
+                source_session_id=body.source_session_id,
+                metadata=metadata,
+                parent_ids=[parent_id] if parent_id else None,
+                occurred_at=message.occurred_at,
+                conversation_role=message.role,
+                commit=False,
+            )
+        except ValueError as exc:
+            await session.rollback()
+            code = str(exc)
+            raise HTTPException(409 if code == "IDEMPOTENCY_KEY_REUSED" else 400, code) from exc
+        if is_new:
+            new_units.append((str(unit.id), unit.content))
+        known[message.client_uuid] = (unit.id, message.role)
+        results.append(
+            {"id": str(unit.id), "client_uuid": str(unit.client_uuid), "created": is_new}
+        )
+    await session.commit()
+    if new_units:
+        from loom.services.retrieval.queue import enqueue_embedding_job
+
+        for unit_id, content in new_units:
+            try:
+                await enqueue_embedding_job(unit_id, content)
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "Failed to enqueue embedding job for conversation unit %s", unit_id
+                )
+    return {"messages": results}
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -431,6 +564,7 @@ async def write_context_endpoint(
             "id": str(unit.id),
             "client_uuid": str(unit.client_uuid),
             "created_at": unit.created_at.isoformat() if unit.created_at else "",
+            "occurred_at": unit.occurred_at.isoformat() if unit.occurred_at else None,
             "version": unit.version,
             "source_type": unit.source_type,
             "source_session_id": unit.source_session_id,

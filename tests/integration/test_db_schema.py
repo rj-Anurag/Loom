@@ -92,9 +92,21 @@ async def test_context_units_has_all_columns(db_session: AsyncSession) -> None:
         "version",
         "branch_id",
         "created_at",
+        "occurred_at",
     }
     missing = required - columns
     assert not missing, f"Missing columns in context_units: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_conversation_occurrence_index_exists(db_session: AsyncSession) -> None:
+    result = await db_session.execute(
+        text(
+            "SELECT 1 FROM pg_indexes WHERE tablename = 'context_units' "
+            "AND indexname = 'idx_context_units_conversation_occurrence'"
+        )
+    )
+    assert result.scalar_one_or_none() == 1
 
 
 @pytest.mark.asyncio
@@ -164,6 +176,7 @@ async def test_create_context_unit(db_session: AsyncSession) -> None:
     assert unit.version == 1
     assert unit.content == "Use bcrypt for password hashing"
     assert unit.created_at is not None
+    assert unit.occurred_at is not None
 
 
 @pytest.mark.asyncio

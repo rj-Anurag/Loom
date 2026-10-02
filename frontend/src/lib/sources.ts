@@ -72,6 +72,16 @@ function platformName(chat: Chat): string {
   }
 }
 
+function terminalTitle(unit: ContextUnit, sourceType: string): string {
+  if (typeof unit.metadata?.session_title === "string" && unit.metadata.session_title.trim()) {
+    return unit.metadata.session_title;
+  }
+  if (unit.metadata?.conversation_role === "user" && unit.content?.trim()) {
+    return unit.content.trim().split("\n", 1)[0].slice(0, 80);
+  }
+  return `${sourceTypeLabel(sourceType)} session`;
+}
+
 export function buildMemorySources(
   chats: Chat[],
   units: ContextUnit[],
@@ -93,7 +103,10 @@ export function buildMemorySources(
     });
   }
 
-  for (const unit of units) {
+  for (const unit of units.toSorted((left, right) =>
+    (left.occurred_at || left.created_at || "").localeCompare(
+      right.occurred_at || right.created_at || "",
+    ))) {
     const browser =
       unit.source_type === "browser_chat" || Boolean(unit.source_url);
     const normalizedUrl = normalizeSourceUrl(unit.source_url);
@@ -105,10 +118,17 @@ export function buildMemorySources(
 
     if (existing) {
       existing.unit_count += 1;
-      existing.first_seen_at = earlier(existing.first_seen_at, unit.created_at);
-      existing.last_seen_at = later(existing.last_seen_at, unit.created_at);
+      existing.first_seen_at = earlier(existing.first_seen_at, unit.occurred_at || unit.created_at);
+      existing.last_seen_at = later(existing.last_seen_at, unit.occurred_at || unit.created_at);
       existing.agent_id ??= unit.agent_id;
       existing.agent_name ??= unit.agent_name;
+      if (existing.kind === "session") {
+        if (typeof unit.metadata?.session_title === "string" && unit.metadata.session_title.trim()) {
+          existing.title = unit.metadata.session_title;
+        } else if (unit.metadata?.conversation_role === "user" && existing.title.endsWith(" session")) {
+          existing.title = terminalTitle(unit, existing.source_type);
+        }
+      }
       continue;
     }
 
@@ -126,7 +146,7 @@ export function buildMemorySources(
       title: browser
         ? "Unlinked browser conversation"
         : unit.source_session_id
-          ? `${sourceTypeLabel(sourceType)} session`
+          ? terminalTitle(unit, sourceType)
           : `Unscoped ${sourceTypeLabel(sourceType)}`,
       subtitle: browser
         ? normalizedUrl || "Browser source"
@@ -137,8 +157,8 @@ export function buildMemorySources(
       agent_id: unit.agent_id,
       agent_name: unit.agent_name,
       unit_count: 1,
-      first_seen_at: unit.created_at,
-      last_seen_at: unit.created_at,
+      first_seen_at: unit.occurred_at || unit.created_at,
+      last_seen_at: unit.occurred_at || unit.created_at,
     });
   }
 
@@ -164,6 +184,13 @@ export function unitMatchesSource(
     (unit.source_session_id || undefined) === source.source_session_id &&
     (unit.agent_id || undefined) === source.agent_id
   );
+}
+
+export function orderTerminalMessages(units: ContextUnit[]): ContextUnit[] {
+  return units.toSorted((left, right) =>
+    (left.occurred_at || left.created_at || "").localeCompare(
+      right.occurred_at || right.created_at || "",
+    ) || (left.metadata?.message_sequence ?? 0) - (right.metadata?.message_sequence ?? 0));
 }
 
 export function unitSearchText(unit: ContextUnit): string {

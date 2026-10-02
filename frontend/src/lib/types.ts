@@ -35,6 +35,12 @@ export interface ContextMetadata {
   blockers?: string[];
   next_steps?: string[];
   confidence?: number;
+  conversation_role?: "user" | "assistant";
+  turn_id?: string;
+  message_id?: string;
+  message_sequence?: number;
+  session_title?: string;
+  capture_method?: "live" | "import";
   [key: string]: unknown;
 }
 
@@ -52,6 +58,7 @@ export interface ContextUnit {
   version?: number;
   parent_ids?: string[];
   created_at?: string;
+  occurred_at?: string;
 }
 
 export type MemorySourceKind = "browser" | "session" | "unscoped";

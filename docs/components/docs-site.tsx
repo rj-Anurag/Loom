@@ -855,6 +855,9 @@ export function DocsSite() {
               IDs. Structured task results render files, tests, errors,
               blockers, next steps, and confidence as readable sections instead
               of raw JSON.
+              Terminal sessions show user and assistant turns in occurrence
+              order, with session and agent provenance. Captured prompts are
+              searchable through the CLI and MCP retrieval tools.
             </p>
             <Callout title="Read-only and historical">
               The explorer never unlinks, deletes, resyncs, or manually writes
@@ -867,7 +870,8 @@ export function DocsSite() {
             <CodeBlock code={"loom install Claude"} />
             <p>
               The project <Pill>.mcp.json</Pill> identifies writes as{" "}
-              <Pill>claude_code</Pill>. Claude may ask you to approve the
+              <Pill>claude_code</Pill>, while <Pill>.claude/settings.json</Pill>
+              captures submitted prompts and final responses. Claude may ask you to approve the
               project MCP server the first time it opens. Loom does not create
               or modify Markdown instruction files.
             </p>
@@ -884,7 +888,8 @@ export function DocsSite() {
             <CodeBlock code={"loom install OpenCode"} />
             <p>
               Loom creates or merges <Pill>opencode.json</Pill>, registers the
-              local MCP server, and identifies writes as <Pill>opencode</Pill>.
+              local MCP server, installs <Pill>.opencode/plugins/loom.js</Pill>,
+              and identifies writes as <Pill>opencode</Pill>.
               Markdown files are left untouched.
             </p>
           </Section>
@@ -898,8 +903,9 @@ export function DocsSite() {
             <CodeBlock code={"loom install Codex"} />
             <p>
               <strong>Markdown instruction files untouched:</strong> the
-              installer configures MCP access only and never creates or modifies
-              project Markdown.
+              installer configures MCP access and conversation hooks in{" "}
+              <Pill>.codex/hooks.json</Pill>. Codex asks you to trust the hooks;
+              Loom never creates or modifies project Markdown.
             </p>
             <p>
               The MCP process selects the nearest{" "}
@@ -1051,6 +1057,18 @@ export function DocsSite() {
                       <Pill>claude</Pill>, <Pill>codex</Pill>, or{" "}
                       <Pill>opencode</Pill>; use <Pill>--path</Pill> for another
                       repository. Target names are case-insensitive.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <Pill>loom capture</Pill>
+                    </td>
+                    <td>
+                      Use <Pill>status</Pill>, <Pill>pause</Pill>,{" "}
+                      <Pill>resume</Pill>, or <Pill>flush</Pill> for the
+                      protected local queue. <Pill>import codex|claude|opencode|all</Pill>
+                      previews historical text; <Pill>--apply</Pill> sends it.
+                      Pause before entering sensitive content.
                     </td>
                   </tr>
                   <tr>

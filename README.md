@@ -264,7 +264,8 @@ Install OpenCode's project-local MCP registration from a connected repository:
 loom install OpenCode
 ```
 
-The installer creates or merges `opencode.json`, records writes as `opencode`,
+The installer creates or merges `opencode.json`, installs
+`.opencode/plugins/loom.js`, and records writes as `opencode`,
 and leaves unrelated configuration untouched. Existing `opencode.jsonc` files
 are never rewritten or shadowed; move that configuration to `opencode.json`
 before running the installer. Loom does not create or modify Markdown files.
@@ -278,7 +279,9 @@ repository:
 loom install codex
 ```
 
-The MCP process selects the nearest `.loom/project.json`, reads its matching
+The installer also merges conversation hooks into `.codex/hooks.json`. Codex
+asks you to review and trust project hooks before they run. The MCP process
+selects the nearest `.loom/project.json`, reads its matching
 credential from `~/.loom/projects.json`, and records writes as `codex_cli` with
 a process-level session ID. `LOOM_API_URL`, `LOOM_PROJECT_ID`, and
 `LOOM_API_KEY` remain compatibility overrides for controlled CI environments.
@@ -286,6 +289,35 @@ The installer does not create or modify Markdown files.
 
 If a different MCP server already uses the name `loom`, the installer leaves it
 unchanged and prints the explicit removal and reinstall commands.
+
+## Terminal conversation capture
+
+`loom install codex|claude|opencode|all` installs repository-local capture
+alongside MCP access. A valid `.loom/project.json` binding is required. Loom
+captures submitted user text and final assistant text from root sessions;
+commands, tool results, reasoning, attachments, and subagent messages are not
+uploaded. Claude Code uses `.claude/settings.json` hooks. Unrelated harness
+configuration is preserved.
+Capture requires Codex 0.160.0+, Claude Code 2.1.206+, or OpenCode 1.18.34+.
+
+Capture writes to a user-only SQLite queue at `~/.loom/capture.db` before
+uploading. If the API is offline, later events retry automatically. Pause
+capture before entering sensitive text; pausing does not delete stored messages.
+
+```bash
+loom capture status
+loom capture pause
+loom capture resume
+loom capture flush
+loom capture import codex             # preview only
+loom capture import opencode --apply  # explicit historical import
+loom capture import all --session <native-session-id> --apply
+```
+
+Historical import filters sessions to the bound repository and sends only
+textual user and final assistant messages. Codex and Claude transcript parsing
+is best effort because those formats may change. `loom capture status` prints
+queue counts and delivery errors without message text or credentials.
 
 ## Inspect project memory
 
@@ -321,6 +353,9 @@ timestamp, source URL, and parent IDs. Structured task results show the task
 name, files touched, test outcomes, errors, blockers, next steps, and confidence
 without requiring raw JSON. The explorer is intentionally read-only: it does
 not unlink, delete, resync, or manually write context.
+Terminal sessions show user and assistant turns in occurrence order with their
+harness, title, session, agent, and parent links. Captured prompts are also
+available to `loom context` and MCP `read_context`.
 
 ## End-to-end test flow
 

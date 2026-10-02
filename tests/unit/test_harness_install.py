@@ -4,11 +4,28 @@ from __future__ import annotations
 
 import json
 import subprocess
+import uuid
 from argparse import Namespace
 
 import pytest
 
 from loom.cli.main import build_parser, cmd_install
+
+
+@pytest.fixture(autouse=True)
+def bound_repository(tmp_path) -> None:
+    descriptor = tmp_path / ".loom/project.json"
+    descriptor.parent.mkdir()
+    descriptor.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "api_url": "https://loom.test",
+                "project_id": str(uuid.uuid4()),
+                "project_name": "Test",
+            }
+        )
+    )
 
 
 def _args(target: str, path: str) -> Namespace:

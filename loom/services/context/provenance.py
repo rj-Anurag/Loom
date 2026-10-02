@@ -37,7 +37,21 @@ _MAX_METADATA_BYTES = 65_536
 _MAX_LIST_ITEMS = 200
 _MAX_TEXT_LENGTH = 4_096
 METADATA_FIELDS = frozenset(
-    {"task_name", "files_touched", "tests", "errors", "blockers", "next_steps", "confidence"}
+    {
+        "task_name",
+        "files_touched",
+        "tests",
+        "errors",
+        "blockers",
+        "next_steps",
+        "confidence",
+        "conversation_role",
+        "turn_id",
+        "message_id",
+        "message_sequence",
+        "session_title",
+        "capture_method",
+    }
 )
 
 
@@ -63,6 +77,23 @@ def validate_context_metadata(value: dict[str, Any] | None) -> dict[str, Any]:
         raise ValueError("METADATA_TOO_LARGE")
     if unknown := set(metadata) - METADATA_FIELDS:
         raise ValueError("INVALID_METADATA_FIELDS:" + ",".join(sorted(unknown)))
+
+    for field in ("turn_id", "message_id", "session_title"):
+        value = metadata.get(field)
+        if value is not None and (not isinstance(value, str) or len(value) > 500):
+            raise ValueError("INVALID_CONVERSATION_METADATA")
+    if "conversation_role" in metadata and metadata["conversation_role"] not in {
+        "user",
+        "assistant",
+    }:
+        raise ValueError("INVALID_CONVERSATION_METADATA")
+    if "capture_method" in metadata and metadata["capture_method"] not in {"live", "import"}:
+        raise ValueError("INVALID_CONVERSATION_METADATA")
+    sequence = metadata.get("message_sequence")
+    if sequence is not None and (
+        not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0
+    ):
+        raise ValueError("INVALID_CONVERSATION_METADATA")
 
     task_name = metadata.get("task_name")
     if task_name is not None and (

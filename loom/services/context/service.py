@@ -87,6 +87,9 @@ async def write_context(
     source_session_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     redis: redis_async.Redis | None = None,
+    occurred_at: datetime | None = None,
+    conversation_role: str | None = None,
+    commit: bool = True,
 ) -> tuple[ContextUnit, bool]:
     """Write context while releasing advisory parent locks on every exit."""
 
@@ -118,6 +121,9 @@ async def write_context(
             source_type=source_type,
             source_session_id=source_session_id,
             metadata=metadata,
+            occurred_at=occurred_at,
+            conversation_role=conversation_role,
+            commit=commit,
         )
     finally:
         if acquired_parent_ids and redis is not None:
@@ -144,6 +150,9 @@ async def _write_context_impl(
     source_type: str | None = None,
     source_session_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    occurred_at: datetime | None = None,
+    conversation_role: str | None = None,
+    commit: bool = True,
 ) -> tuple[ContextUnit, bool]:
     """Write a new context unit in a single transaction.
 
@@ -199,6 +208,13 @@ async def _write_context_impl(
 
     resolved_source_type = resolve_source_type(agent.kind, source_type)
     resolved_metadata = validate_context_metadata(metadata)
+    if conversation_role is None and "conversation_role" in resolved_metadata:
+        raise ValueError("CONVERSATION_METADATA_DENIED")
+    if (
+        conversation_role is not None
+        and resolved_metadata.get("conversation_role") != conversation_role
+    ):
+        raise ValueError("INVALID_CONVERSATION_ROLE")
     if source_session_id is not None and (
         not isinstance(source_session_id, str)
         or not source_session_id.strip()
@@ -226,12 +242,29 @@ async def _write_context_impl(
     if existing is not None:
         if existing.project_id != project_id or existing.agent_id != agent_id:
             raise ValueError("IDEMPOTENCY_KEY_REUSED")
+        if conversation_role is not None:
+            existing_parents = set(
+                (
+                    await session.execute(
+                        select(ContextEdge.parent_id).where(ContextEdge.child_id == existing.id)
+                    )
+                ).scalars()
+            )
+            expected_tier = TrustTier.user if conversation_role == "user" else TrustTier.agent
+            if existing_parents != set(parent_ids or []) or existing.trust_tier != expected_tier:
+                raise ValueError("IDEMPOTENCY_KEY_REUSED")
+        same_metadata = existing.context_metadata == resolved_metadata
+        if conversation_role is not None:
+            same_metadata = all(
+                existing.context_metadata.get(field) == resolved_metadata.get(field)
+                for field in ("conversation_role", "turn_id", "message_id", "capture_method")
+            )
         if (
             existing.content != content
             or existing.type.value != type_
             or existing.source_type != resolved_source_type
             or existing.source_session_id != source_session_id
-            or existing.context_metadata != resolved_metadata
+            or not same_metadata
         ):
             raise ValueError("IDEMPOTENCY_KEY_REUSED")
         return existing, False  # idempotent replay — not newly created
@@ -323,13 +356,17 @@ async def _write_context_impl(
         version = 1
 
     # ── 7. Validate trust_tier is allowed for this agent kind ─────────────
-    if trust_tier is not None:
+    if trust_tier is not None and conversation_role is None:
         _allowed = _ALLOWED_TRUST_TIERS.get(agent.kind, {"agent", "external_tool"})
         if trust_tier not in _allowed:
             raise ValueError("TRUST_TIER_DENIED")
 
     # ── 8. Determine trust_tier ──────────────────────────────────────────
-    if trust_tier:
+    if conversation_role is not None:
+        if conversation_role not in {"user", "assistant"} or type_ != "message":
+            raise ValueError("INVALID_CONVERSATION_ROLE")
+        tier = TrustTier.user if conversation_role == "user" else TrustTier.agent
+    elif trust_tier:
         try:
             tier = TrustTier(trust_tier)
         except ValueError:
@@ -362,6 +399,7 @@ async def _write_context_impl(
         source_type=resolved_source_type,
         source_session_id=source_session_id,
         context_metadata=resolved_metadata,
+        occurred_at=occurred_at or datetime.now(UTC),
     )
     session.add(unit)
     await session.flush()  # materialise the PK so we can use it in edges
@@ -423,9 +461,14 @@ async def _write_context_impl(
             "source_type": resolved_source_type,
             "source_session_id": source_session_id,
             "metadata": resolved_metadata,
+            "occurred_at": unit.occurred_at.isoformat(),
         },
     )
     session.add(event)
+
+    if not commit:
+        await session.flush()
+        return unit, True
 
     await session.commit()
     await session.refresh(unit)
@@ -488,10 +531,10 @@ async def rebuild_projections(
                 "INSERT INTO context_units "
                 "(id, project_id, agent_id, client_uuid, type, trust_tier, "
                 "content, version, branch_id, source_url, source_type, "
-                "source_session_id, metadata, created_at) "
+                "source_session_id, metadata, created_at, occurred_at) "
                 "VALUES (:id, :pid, :aid, :cuuid, :type, :tier, "
                 ":content, :version, :branch_id, :source_url, :source_type, "
-                ":source_session_id, CAST(:metadata AS jsonb), :created)"
+                ":source_session_id, CAST(:metadata AS jsonb), :created, :occurred)"
             ),
             {
                 "id": unit_id,
@@ -508,6 +551,11 @@ async def rebuild_projections(
                 "source_session_id": p.get("source_session_id"),
                 "metadata": json.dumps(p.get("metadata", {})),
                 "created": event.created_at,
+                "occurred": (
+                    datetime.fromisoformat(p["occurred_at"])
+                    if p.get("occurred_at")
+                    else event.created_at
+                ),
             },
         )
 
@@ -730,6 +778,7 @@ async def list_context_history(
                 "source_session_id": unit.source_session_id,
                 "metadata": unit.context_metadata,
                 "created_at": unit.created_at.isoformat(),
+                "occurred_at": unit.occurred_at.isoformat(),
                 "agent_id": str(unit.agent_id),
                 "agent_name": agent_name,
                 "version": unit.version,
@@ -758,8 +807,8 @@ async def list_context_sources(
             ContextUnit.agent_id,
             Agent.name.label("agent_name"),
             func.count(ContextUnit.id).label("unit_count"),
-            func.min(ContextUnit.created_at).label("first_seen_at"),
-            func.max(ContextUnit.created_at).label("last_seen_at"),
+            func.min(ContextUnit.occurred_at).label("first_seen_at"),
+            func.max(ContextUnit.occurred_at).label("last_seen_at"),
         )
         .join(Agent, Agent.id == ContextUnit.agent_id)
         .where(ContextUnit.project_id == project_id)
@@ -789,6 +838,8 @@ async def list_context_sources(
                 "unit_count": int(row.unit_count),
                 "first_seen_at": row.first_seen_at.isoformat(),
                 "last_seen_at": row.last_seen_at.isoformat(),
+                "first_occurred_at": row.first_seen_at.isoformat(),
+                "last_occurred_at": row.last_seen_at.isoformat(),
             }
             continue
         existing["unit_count"] += int(row.unit_count)
@@ -798,6 +849,8 @@ async def list_context_sources(
         existing["last_seen_at"] = max(
             existing["last_seen_at"], row.last_seen_at.isoformat()
         )
+        existing["first_occurred_at"] = existing["first_seen_at"]
+        existing["last_occurred_at"] = existing["last_seen_at"]
 
     sources = sorted(
         grouped.values(),
@@ -904,7 +957,8 @@ async def read_context(
         chronological_sql = text("""
             SELECT
                 u.id, u.type, u.trust_tier, u.content, u.source_url, u.source_type,
-                u.source_session_id, u.metadata, u.created_at, u.agent_id, a.name AS agent_name,
+                u.source_session_id, u.metadata, u.created_at, u.occurred_at,
+                u.agent_id, a.name AS agent_name,
                 u.version, 0.0 AS rank
             FROM context_units u
             JOIN agents a ON a.id = u.agent_id
@@ -916,7 +970,8 @@ async def read_context(
         chronological_sql = text("""
             SELECT
                 u.id, u.type, u.trust_tier, u.content, u.source_url, u.source_type,
-                u.source_session_id, u.metadata, u.created_at, u.agent_id, a.name AS agent_name,
+                u.source_session_id, u.metadata, u.created_at, u.occurred_at,
+                u.agent_id, a.name AS agent_name,
                 u.version, 0.0 AS rank
             FROM context_units u
             JOIN agents a ON a.id = u.agent_id
@@ -955,6 +1010,7 @@ async def read_context(
             "source_session_id": row.get("source_session_id"),
             "metadata": row["metadata"],
             "created_at": row["created_at"].isoformat(),
+            "occurred_at": row["occurred_at"].isoformat(),
             "agent_id": str(row["agent_id"]),
             "agent_name": row["agent_name"],
             "version": int(row["version"]),

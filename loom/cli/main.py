@@ -23,6 +23,7 @@ import getpass
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -35,7 +36,12 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from loom import __version__
+from loom.cli import capture
 from loom.cli.account import clear_account, load_account, load_account_api_url, save_account
+from loom.cli.capture_import import apply as apply_capture_import
+from loom.cli.capture_import import preview as preview_capture_import
+from loom.cli.capture_install import CaptureInstallError
+from loom.cli.capture_install import prepare as prepare_capture
 from loom.cli.extension import (
     ExtensionDistributionError,
     bundled_api_url,
@@ -403,6 +409,8 @@ def cmd_install(args: argparse.Namespace) -> None:
 
     created: list[Path] = []
     try:
+        targets = {"codex", "claude", "opencode"} if args.target == "all" else {args.target}
+        capture_files = prepare_capture(root, targets)
         if args.target in {"claude", "all"}:
             _claude_registration(root)
         if args.target in {"opencode", "all"}:
@@ -413,8 +421,11 @@ def cmd_install(args: argparse.Namespace) -> None:
             created.extend(_install_claude(root))
         if args.target in {"opencode", "all"}:
             created.extend(_install_opencode(root))
-        print("Loom MCP tools are available.")
-    except (HarnessInstallError, ValueError) as exc:
+        for path, content in capture_files:
+            _write_text_atomic(path, content)
+            created.append(path)
+        print("Loom MCP tools and conversation capture are available.")
+    except (HarnessInstallError, CaptureInstallError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
@@ -424,6 +435,46 @@ def cmd_install(args: argparse.Namespace) -> None:
     print("✅ Loom integration installed:")
     for path in created:
         print(f"  {path}")
+
+
+def cmd_capture(args: argparse.Namespace) -> None:
+    """Operate the repository-bound terminal capture queue."""
+    if args.capture_command == "event":
+        try:
+            event = json.load(sys.stdin)
+            if isinstance(event, dict):
+                capture.capture_hook(args.harness, event)
+        except (OSError, ValueError, ProjectConfigError, sqlite3.Error) as exc:
+            # No hook stdout: Codex and Claude can treat it as extra agent context.
+            print(f"Loom capture skipped: {type(exc).__name__}", file=sys.stderr)
+        return
+    try:
+        binding, _ = capture.repository_config()
+    except ProjectConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    project_id = binding["project_id"]
+    if args.capture_command == "pause":
+        capture.set_paused(project_id, True)
+    elif args.capture_command == "resume":
+        capture.set_paused(project_id, False)
+        capture.flush_all()
+    elif args.capture_command == "flush":
+        uploaded, pending = capture.flush_all()
+        print(f"Uploaded {uploaded}; pending {pending}")
+    elif args.capture_command == "status":
+        state = capture.status(project_id)
+        print(json.dumps(state, indent=2))
+    elif args.capture_command == "import":
+        _, root = capture.repository_config()
+        candidates = preview_capture_import(args.harness, binding, root, args.session)
+        sessions = len({(source, session_id) for source, session_id, _ in candidates})
+        print(f"Found {len(candidates)} text messages across {sessions} sessions.")
+        if args.apply:
+            queued = apply_capture_import(candidates, binding)
+            print(f"Queued {queued} messages for delivery.")
+        else:
+            print("Preview only. Pass --apply to import.")
 
 
 def cmd_extension(args: argparse.Namespace) -> None:
@@ -1204,6 +1255,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _accept_legacy_instruction_flag(p_install)
 
+    p_capture = sub.add_parser("capture", help="Manage terminal conversation capture")
+    capture_sub = p_capture.add_subparsers(dest="capture_command", required=True)
+    for action in ("status", "pause", "resume", "flush"):
+        capture_sub.add_parser(action)
+    p_capture_event = capture_sub.add_parser("event", help=argparse.SUPPRESS)
+    p_capture_event.add_argument("harness", choices=list(capture.SOURCES))
+    p_capture_import = capture_sub.add_parser("import", help="Preview or import past sessions")
+    p_capture_import.add_argument("harness", choices=[*capture.SOURCES, "all"])
+    p_capture_import.add_argument("--session", help="Import one native session ID")
+    p_capture_import.add_argument("--apply", action="store_true", help="Queue previewed messages")
+
     # loom extension
     p_extension = sub.add_parser(
         "extension",
@@ -1306,6 +1368,7 @@ def main() -> None:
         "links": cmd_links,
         "history": cmd_history,
         "install": cmd_install,
+        "capture": cmd_capture,
         "extension": cmd_extension,
     }
 
