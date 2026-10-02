@@ -1685,13 +1685,6 @@ export function DocsSite() {
               {item.label}
             </button>
           ))}
-          <div className="mt-10 rounded-xl border border-border bg-card p-4">
-            <p className="text-sm font-medium">Phase 1 complete</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Core context, browser capture, MCP, CLI, and coordination
-              foundations.
-            </p>
-          </div>
         </aside>
       </div>
     </div>

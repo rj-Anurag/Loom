@@ -676,7 +676,7 @@ export function LandingPage() {
             </Button>
             <Button
               component="a"
-              href={docsUrl + "/#quickstart"}
+              href={docsUrl + "/docs#quickstart"}
               size="large"
               variant="outlined"
             >
@@ -893,7 +893,7 @@ export function LandingPage() {
               </Typography>
               <Button
                 component="a"
-                href={docsUrl + "/#security"}
+                href={docsUrl + "/docs#security"}
                 sx={{ mt: 3 }}
                 variant="outlined"
               >
@@ -973,7 +973,7 @@ export function LandingPage() {
           >
             <Button
               component="a"
-              href={docsUrl + "/#installation"}
+              href={docsUrl + "/docs#installation"}
               size="large"
               variant="contained"
             >

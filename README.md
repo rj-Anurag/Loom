@@ -20,7 +20,7 @@ to that same ID with its own project-scoped API key.
 - Project dashboard with context, active-agent, and conflict views
 - Google self-service accounts with terminal-owned project creation
 
-See the [Loom architecture guide](https://loom-docs.vercel.app/#context-flow)
+See the [Loom architecture guide](https://loom-docs.vercel.app/docs#context-flow)
 for the detailed architecture.
 
 ## Install Loom as a user
@@ -68,7 +68,7 @@ Load unpacked**. The installer-generated directory is used instead of loading
 the checked-in `extension/` directory directly because it injects the server's
 Chrome OAuth client ID and narrows host permissions to the selected API.
 
-See the [Loom installation guide](https://loom-docs.vercel.app/#installation)
+See the [Loom installation guide](https://loom-docs.vercel.app/docs#installation)
 for upgrades, uninstalling, platform prerequisites, self-hosted servers, and
 troubleshooting. This installs the client tools only; hosted users do not need
 Docker, PostgreSQL, Redis, or a local API server.
