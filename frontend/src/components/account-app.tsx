@@ -19,9 +19,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { LoomMark } from "@/components/loom-mark";
+import { SetupSharing } from "@/components/setup-sharing";
 import { SourceExplorer, SourceNavigation } from "@/components/source-explorer";
 import { apiRequest, formatDate, friendlyError, initials } from "@/lib/api";
 import { ALL_SOURCES_ID, buildMemorySources } from "@/lib/sources";
+import { isSetupSharingSelected } from "@/lib/setup-sharing";
 import type {
   AuthPayload,
   Chat,
@@ -764,14 +766,18 @@ function AccountAppContent({
           </Drawer>
         )}
         <Box component="main" sx={{ minWidth: 0, p: { xs: 2, sm: 4, lg: 5 } }}>
-          <SourceExplorer
-            project={project}
-            sources={sources}
-            selectedSourceId={selectedSourceId}
-            units={units}
-            loading={loadingProject}
-            error={projectError}
-          />
+          {project && isSetupSharingSelected(selectedSourceId) ? (
+            <SetupSharing project={project} />
+          ) : (
+            <SourceExplorer
+              project={project}
+              sources={sources}
+              selectedSourceId={selectedSourceId}
+              units={units}
+              loading={loadingProject}
+              error={projectError}
+            />
+          )}
         </Box>
       </Box>
     </Box>

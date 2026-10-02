@@ -12,6 +12,7 @@ import {
   FileText,
   Globe2,
   Layers3,
+  Settings2,
   TerminalSquare,
 } from "lucide-react";
 import { useMemo } from "react";
@@ -24,6 +25,7 @@ import {
   sourceTypeLabel,
   unitMatchesSource,
 } from "@/lib/sources";
+import { SETUP_SHARING_ID } from "@/lib/setup-sharing";
 import type {
   ContextMetadata,
   ContextUnit,
@@ -219,6 +221,36 @@ export function SourceNavigation({
                 sx={{ color: "text.secondary", fontFamily: mono, fontSize: 9 }}
               >
                 Every connected source
+              </Typography>
+            </Box>
+          </Button>
+          <Button
+            fullWidth
+            aria-pressed={selectedSourceId === SETUP_SHARING_ID}
+            onClick={() => onSelect(SETUP_SHARING_ID)}
+            sx={{
+              bgcolor:
+                selectedSourceId === SETUP_SHARING_ID
+                  ? "rgba(139,92,246,.13)"
+                  : "transparent",
+              color: "text.primary",
+              justifyContent: "flex-start",
+              minHeight: 56,
+              px: 1.25,
+              py: 1,
+            }}
+          >
+            <Box sx={{ color: "primary.light", display: "flex", mr: 1.25 }}>
+              <Settings2 aria-hidden size={16} />
+            </Box>
+            <Box sx={{ minWidth: 0, textAlign: "left" }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 650 }}>
+                Setup &amp; sharing
+              </Typography>
+              <Typography
+                sx={{ color: "text.secondary", fontFamily: mono, fontSize: 9 }}
+              >
+                Local files and Git
               </Typography>
             </Box>
           </Button>
