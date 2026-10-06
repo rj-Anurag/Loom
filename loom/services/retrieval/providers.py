@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 import random
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from loom.config import settings
 
@@ -213,7 +213,7 @@ class GroqLLMProvider:
 
     MAX_INPUT_CHARS = 30000
     MAX_OUTPUT_TOKENS = 2048
-    REASONING_EFFORT: str | None = "low"
+    REASONING_EFFORT: Literal["low"] | None = "low"
     BASE_URL = "https://api.groq.com/openai/v1"
     MISSING_KEY_ERROR = "GROQ_API_KEY_NOT_CONFIGURED"
 
@@ -238,7 +238,6 @@ class GroqLLMProvider:
             api_key=self._api_key,
             base_url=self.BASE_URL,
         )
-        model_options = {"reasoning_effort": self.REASONING_EFFORT} if self.REASONING_EFFORT else {}
         resp = await client.chat.completions.create(
             model=self.model,
             messages=[
@@ -255,7 +254,7 @@ class GroqLLMProvider:
             ],
             temperature=0.3,
             max_tokens=self.MAX_OUTPUT_TOKENS,
-            **model_options,
+            reasoning_effort=self.REASONING_EFFORT or openai.omit,
         )
         return resp.choices[0].message.content or ""
 

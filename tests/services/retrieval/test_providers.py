@@ -156,7 +156,7 @@ class TestLLMProviderProtocol:
         )
         assert captured["base_url"] == "https://api.x.ai/v1"
         assert captured["model"] == "grok-4.3"
-        assert "reasoning_effort" not in captured
+        assert captured["reasoning_effort"] is openai.omit
 
     async def test_groq_requires_its_own_api_key(self) -> None:
         from loom.services.retrieval.providers import GroqLLMProvider
