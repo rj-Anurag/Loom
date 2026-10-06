@@ -40,7 +40,9 @@ from loom.services.accounts.service import (
     create_user_project,
     list_user_projects,
 )
+from loom.services.context.project_summary import get_project_summary
 from loom.services.context.service import list_context_history
+from loom.services.context.sources import remove_source
 from loom.services.extension.service import EXTENSION_CHAT_LINK_NAME
 from loom.services.links.service import link_chat, list_chat_links
 from loom.services.projects.service import create_project, get_project, list_projects
@@ -87,6 +89,13 @@ class LinkChatResponse(BaseModel):
     platform: str
     linked_at: str
     api_key: str = ""
+
+
+class RemoveSourceRequest(BaseModel):
+    source_type: str = Field(..., min_length=1, max_length=32)
+    source_url: str | None = Field(None, max_length=2048)
+    source_session_id: str | None = Field(None, min_length=1, max_length=255)
+    agent_id: uuid.UUID | None = None
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -204,6 +213,7 @@ async def link_chat_endpoint(
         status_map: dict[str, int] = {
             "PROJECT_NOT_FOUND": 404,
             "CHAT_ALREADY_LINKED": 409,
+            "SOURCE_REMOVED": 409,
         }
         status = status_map.get(error_code, 400)
         raise HTTPException(status_code=status, detail=error_code)
@@ -225,6 +235,39 @@ async def list_project_chats_endpoint(
     """List linked chats for an authorized project member or agent."""
 
     return await list_chat_links(session, project_id)
+
+
+@router.post("/{project_id}/sources/remove")
+async def remove_project_source_endpoint(
+    project_id: uuid.UUID,
+    body: RemoveSourceRequest,
+    auth: ProjectAuthorization = Depends(require_project_member),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, int]:
+    """Remove a browser conversation or agent source from a member's project memory."""
+    try:
+        count = await remove_source(
+            session,
+            project_id,
+            source_type=body.source_type,
+            source_url=body.source_url,
+            source_session_id=body.source_session_id,
+            agent_id=body.agent_id,
+        )
+    except ValueError as exc:
+        status = 404 if str(exc) in {"SOURCE_NOT_FOUND", "PROJECT_NOT_FOUND"} else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    return {"removed_units": count}
+
+
+@router.get("/{project_id}/summary")
+async def get_project_summary_endpoint(
+    project_id: uuid.UUID,
+    auth: PrincipalContext = Depends(require_project_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Return the current project-wide overview and original source references."""
+    return await get_project_summary(session, project_id)
 
 
 @router.get(

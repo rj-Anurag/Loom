@@ -56,7 +56,15 @@ def _merged_hooks(path: Path, harness: str) -> tuple[dict[str, Any], bool]:
             conflicts = [
                 entry
                 for entry in entries
-                if any(command in str(hook.get("command", "")) for hook in entry["hooks"])
+                if any(
+                    command in str(hook.get("command", ""))
+                    or (
+                        command.startswith("loom capture event ")
+                        and str(hook.get("command", "")).startswith("loom capture event ")
+                        and str(hook.get("command", "")) != command
+                    )
+                    for hook in entry["hooks"]
+                )
                 and entry != expected
             ]
             if conflicts or len(matching) > 1:

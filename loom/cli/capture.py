@@ -65,6 +65,10 @@ def _connect() -> sqlite3.Connection:
     connection.execute("""CREATE TABLE IF NOT EXISTS delivered (
         client_uuid TEXT PRIMARY KEY
     )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS removed_sessions (
+        project_id TEXT NOT NULL, source_type TEXT NOT NULL, source_session_id TEXT NOT NULL,
+        PRIMARY KEY(project_id, source_type, source_session_id)
+    )""")
     return connection
 
 
@@ -89,6 +93,12 @@ def enqueue(
 ) -> bool:
     with _connect() as connection:
         if _is_paused(connection, binding["project_id"]):
+            return False
+        if connection.execute(
+            "SELECT 1 FROM removed_sessions WHERE project_id = ? AND source_type = ? "
+            "AND source_session_id = ?",
+            (binding["project_id"], source, session_id),
+        ).fetchone():
             return False
         if connection.execute(
             "SELECT 1 FROM delivered WHERE client_uuid = ?", (message["client_uuid"],)
@@ -126,6 +136,19 @@ def flush(*, force: bool = False, limit: int = 100) -> tuple[int, int]:
         )
         rows = connection.execute(query, (limit,) if force else (now.isoformat(), limit)).fetchall()
         for client_uuid, project_id, api_url, payload, attempts in rows:
+            try:
+                message = json.loads(payload)
+                source_key = (project_id, message["source_type"], message["source_session_id"])
+            except (ValueError, TypeError, KeyError):
+                # Older queued payloads remain deliverable as opaque JSON.
+                source_key = None
+            if source_key and connection.execute(
+                "SELECT 1 FROM removed_sessions WHERE project_id = ? AND source_type = ? "
+                "AND source_session_id = ?",
+                source_key,
+            ).fetchone():
+                connection.execute("DELETE FROM delivery WHERE client_uuid = ?", (client_uuid,))
+                continue
             saved = load_saved_project(api_url, project_id)
             key = saved.get("api_key") or (
                 os.environ.get("LOOM_API_KEY")
@@ -147,6 +170,21 @@ def flush(*, force: bool = False, limit: int = 100) -> tuple[int, int]:
                     )
                     response.raise_for_status()
                 except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 400:
+                        try:
+                            removed = exc.response.json().get("detail") == "SOURCE_REMOVED"
+                        except ValueError:
+                            removed = False
+                        if removed and source_key:
+                            connection.execute(
+                                "INSERT OR IGNORE INTO removed_sessions "
+                                "(project_id, source_type, source_session_id) VALUES (?, ?, ?)",
+                                source_key,
+                            )
+                            connection.execute(
+                                "DELETE FROM delivery WHERE client_uuid = ?", (client_uuid,)
+                            )
+                            continue
                     error = f"HTTP {exc.response.status_code}"
                 except httpx.HTTPError as exc:
                     error = type(exc).__name__

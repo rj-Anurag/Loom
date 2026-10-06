@@ -71,11 +71,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     validate_security_config()
     try:
         sweep_task = asyncio.create_task(_periodic_offline_sweep())
+        summary_task = asyncio.create_task(_periodic_project_summary_refresh())
         yield
     finally:
         sweep_task.cancel()
+        summary_task.cancel()
         try:
-            await sweep_task
+            await asyncio.gather(sweep_task, summary_task)
         except asyncio.CancelledError:
             pass
         from loom.services.retrieval.queue import close_redis
@@ -144,6 +146,31 @@ async def _periodic_offline_sweep() -> None:
             logger.exception("Error in periodic offline sweep")
 
         await asyncio.sleep(30)
+
+
+async def _periodic_project_summary_refresh() -> None:
+    """Refresh changed project overviews after captures, including CLI follow-ups."""
+    from loom.db import async_session_factory
+    from loom.services.context.project_summary import get_project_summary
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            async with async_session_factory() as session:
+                project_ids = (await session.execute(
+                    text(
+                        "SELECT DISTINCT project_id FROM context_units "
+                        "UNION SELECT DISTINCT project_id FROM chat_links"
+                    )
+                )).scalars().all()
+            for project_id in project_ids:
+                try:
+                    async with async_session_factory() as session:
+                        await get_project_summary(session, project_id)
+                except Exception:
+                    logger.exception("Project summary refresh failed for %s", project_id)
+        except Exception:
+            logger.exception("Project summary refresh scan failed")
 
 
 app = FastAPI(

@@ -197,7 +197,7 @@ async def _write_context_impl(
         - ``PARENT_NOT_FOUND`` → 404
     """
     # ── 1. Validate project ──────────────────────────────────────────────
-    project = await session.get(Project, project_id)
+    project = await session.get(Project, project_id, with_for_update={"read": True})
     if project is None:
         raise ValueError("PROJECT_NOT_FOUND")
 
@@ -207,6 +207,12 @@ async def _write_context_impl(
         raise ValueError("AGENT_MISMATCH")
 
     resolved_source_type = resolve_source_type(agent.kind, source_type)
+    from loom.services.context.sources import source_is_removed
+
+    if await source_is_removed(
+        session, project_id, resolved_source_type, source_url, source_session_id, agent_id
+    ):
+        raise ValueError("SOURCE_REMOVED")
     resolved_metadata = validate_context_metadata(metadata)
     if conversation_role is None and "conversation_role" in resolved_metadata:
         raise ValueError("CONVERSATION_METADATA_DENIED")
@@ -284,6 +290,8 @@ async def _write_context_impl(
 
             parent = await session.get(ContextUnit, pid)
             if parent is None:
+                raise ValueError("PARENT_NOT_FOUND")
+            if parent.removed_at is not None:
                 raise ValueError("PARENT_NOT_FOUND")
             if parent.project_id != project_id:
                 raise ValueError("PARENT_PROJECT_MISMATCH")
@@ -501,6 +509,7 @@ async def rebuild_projections(
     Replays all ``write`` events in chronological order for the given project,
     reconstructing the context graph.  Idempotent — safe to run multiple times.
     """
+    await session.get(Project, project_id, with_for_update={"read": True})
     events = await session.execute(
         text(
             "SELECT event_type, payload, created_at FROM event_log "
@@ -558,6 +567,20 @@ async def rebuild_projections(
                 ),
             },
         )
+        from loom.services.context.sources import source_is_removed
+
+        if await source_is_removed(
+            session,
+            project_id,
+            p.get("source_type", "mcp_agent"),
+            p.get("source_url"),
+            p.get("source_session_id"),
+            agent_uuid,
+        ):
+            await session.execute(
+                text("UPDATE context_units SET removed_at = now() WHERE id = :id"),
+                {"id": unit_id},
+            )
 
         # Rebuild edges
         for index, parent_id_str in enumerate(p.get("parent_ids", [])):
@@ -588,6 +611,11 @@ async def rebuild_projections(
                     ),
                 },
             )
+
+
+    from loom.services.context.sources import remove_dependent_summaries
+
+    await remove_dependent_summaries(session, project_id)
 
 
 # ── Read Path ──────────────────────────────────────────────────────────────────
@@ -690,7 +718,10 @@ async def _validate_context_reader(
 def _normalize_source_url(value: str | None) -> str | None:
     if not value:
         return None
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return value.rstrip("/")
     path = parsed.path.rstrip("/") or "/"
     return urlunsplit(
         (parsed.scheme.lower(), parsed.netloc.lower(), path, parsed.query, "")
@@ -717,7 +748,9 @@ async def list_context_history(
     await _validate_context_reader(session, project_id, agent_id)
 
     page_limit = min(max(limit, 1), 200)
-    statement = select(ContextUnit).where(ContextUnit.project_id == project_id)
+    statement = select(ContextUnit).where(
+        ContextUnit.project_id == project_id, ContextUnit.removed_at.is_(None)
+    )
     if source_type:
         statement = statement.where(ContextUnit.source_type == source_type)
     if source_session_id:
@@ -811,7 +844,7 @@ async def list_context_sources(
             func.max(ContextUnit.occurred_at).label("last_seen_at"),
         )
         .join(Agent, Agent.id == ContextUnit.agent_id)
-        .where(ContextUnit.project_id == project_id)
+        .where(ContextUnit.project_id == project_id, ContextUnit.removed_at.is_(None))
         .group_by(
             ContextUnit.source_type,
             ContextUnit.source_session_id,
@@ -963,6 +996,7 @@ async def read_context(
             FROM context_units u
             JOIN agents a ON a.id = u.agent_id
             WHERE u.project_id = :project_id AND u.type = :scope_type
+              AND u.removed_at IS NULL
             ORDER BY u.created_at DESC
             LIMIT 200
         """)
@@ -975,7 +1009,7 @@ async def read_context(
                 u.version, 0.0 AS rank
             FROM context_units u
             JOIN agents a ON a.id = u.agent_id
-            WHERE u.project_id = :project_id
+            WHERE u.project_id = :project_id AND u.removed_at IS NULL
             ORDER BY u.created_at DESC
             LIMIT 200
         """)

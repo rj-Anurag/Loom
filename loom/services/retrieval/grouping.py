@@ -106,9 +106,13 @@ async def find_unsummarized_groups(
                 "SELECT u.id, u.content, u.type, u.trust_tier, u.agent_id, u.created_at "
                 "FROM context_units u "
                 "WHERE u.project_id = :project_id "
+                "  AND u.removed_at IS NULL "
                 "  AND u.id NOT IN ("
                 "    SELECT e.parent_id FROM context_edges e "
                 "    WHERE e.relation = 'supersedes'"
+                "      AND e.child_id IN ("
+                "        SELECT cu.id FROM context_units cu WHERE cu.removed_at IS NULL"
+                "      )"
                 "      AND e.parent_id IN ("
                 "        SELECT cu.id FROM context_units cu WHERE cu.project_id = :project_id"
                 "      )"
@@ -189,9 +193,13 @@ async def count_unsummarized(
             text(
                 "SELECT COUNT(*) FROM context_units u "
                 "WHERE u.project_id = :project_id "
+                "  AND u.removed_at IS NULL "
                 "  AND u.id NOT IN ("
                 "    SELECT e.parent_id FROM context_edges e "
                 "    WHERE e.relation = 'supersedes'"
+                "      AND e.child_id IN ("
+                "        SELECT cu.id FROM context_units cu WHERE cu.removed_at IS NULL"
+                "      )"
                 "  )"
             ),
             {"project_id": project_id},

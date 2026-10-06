@@ -125,6 +125,7 @@ async def vector_search(
         ),
     ).where(
         ContextUnit.project_id == project_id,
+        ContextUnit.removed_at.is_(None),
         ContextUnit.embedding.isnot(None),
     )
 
@@ -195,6 +196,7 @@ async def keyword_search(
                            plainto_tsquery('english', :query)) AS keyword_score
             FROM context_units u
             WHERE u.project_id = :project_id
+              AND u.removed_at IS NULL
               AND to_tsvector('english', u.content) @@ plainto_tsquery('english', :query)
               AND u.type = :scope_type
             ORDER BY keyword_score DESC
@@ -209,6 +211,7 @@ async def keyword_search(
                            plainto_tsquery('english', :query)) AS keyword_score
             FROM context_units u
             WHERE u.project_id = :project_id
+              AND u.removed_at IS NULL
               AND to_tsvector('english', u.content) @@ plainto_tsquery('english', :query)
             ORDER BY keyword_score DESC
             LIMIT :limit

@@ -11,6 +11,7 @@ They will fail initially (Red phase)::
 from __future__ import annotations
 
 import builtins
+from types import SimpleNamespace
 
 import pytest
 
@@ -104,34 +105,40 @@ class TestLLMProviderProtocol:
         finally:
             loom.config.settings.summarization_provider = original
 
-    async def test_groq_importable_without_groq_package(self) -> None:
-        """GroqLLMProvider class is importable even when groq package is not installed.
+    async def test_groq_uses_installed_openai_client_and_supported_model(self, monkeypatch) -> None:
+        """Summarization works through the installed OpenAI client without a Groq SDK."""
+        import openai
 
-        The ``import groq`` is done lazily inside ``summarize()``, so the class
-        definition itself does not require the package.  Calling ``summarize()``
-        with non-empty units triggers the lazy import and raises
-        ``ModuleNotFoundError``.
-        """
         from loom.services.retrieval.providers import GroqLLMProvider
 
-        # Should not raise ImportError at class level
-        provider = GroqLLMProvider(api_key="test-key")
+        captured = {}
 
-        # Calling summarize() with non-empty input should trigger the
-        # lazy ``import groq`` inside the method and raise ModuleNotFoundError
-        with pytest.raises(ModuleNotFoundError):
-            await provider.summarize(
-                [
-                    {
-                        "id": "u1",
-                        "content": "test",
-                        "type": "message",
-                        "trust_tier": "agent",
-                        "created_at": "2026-01-01",
-                        "agent_id": "a1",
-                    }
-                ]
-            )
+        async def complete(**kwargs):
+            captured.update(kwargs)
+            message = SimpleNamespace(content="[1] A fact")
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        def client(**kwargs):
+            captured.update(kwargs)
+            completions = SimpleNamespace(create=complete)
+            return SimpleNamespace(chat=SimpleNamespace(completions=completions))
+
+        monkeypatch.setattr(openai, "AsyncOpenAI", client)
+        provider = GroqLLMProvider(api_key="test-key")
+        result = await provider.summarize([{"content": "[1] A fact", "type": "message"}])
+        assert result == "[1] A fact"
+        assert captured["base_url"] == "https://api.groq.com/openai/v1"
+        assert captured["api_key"] == "test-key"
+        assert captured["model"] == "llama-3.3-70b-versatile"
+        assert captured["messages"][0]["role"] == "system"
+        assert captured["messages"][1]["role"] == "user"
+        assert "[1] A fact" in captured["messages"][1]["content"]
+
+    async def test_groq_requires_its_own_api_key(self) -> None:
+        from loom.services.retrieval.providers import GroqLLMProvider
+
+        with pytest.raises(ValueError, match="GROQ_API_KEY_NOT_CONFIGURED"):
+            await GroqLLMProvider(api_key=None).summarize([{"content": "A fact"}])
 
 
 class TestLLMProviderRuntimeCheckable:

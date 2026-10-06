@@ -49,10 +49,14 @@ async def get_project(
     if project is None:
         raise ValueError("PROJECT_NOT_FOUND")
     context_count = await session.scalar(
-        select(func.count(ContextUnit.id)).where(ContextUnit.project_id == project_id)
+        select(func.count(ContextUnit.id)).where(
+            ContextUnit.project_id == project_id, ContextUnit.removed_at.is_(None)
+        )
     )
     chat_count = await session.scalar(
-        select(func.count(ChatLink.id)).where(ChatLink.project_id == project_id)
+        select(func.count(ChatLink.id)).where(
+            ChatLink.project_id == project_id, ChatLink.removed_at.is_(None)
+        )
     )
     return {
         "id": str(project.id),

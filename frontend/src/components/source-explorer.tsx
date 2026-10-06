@@ -2,6 +2,7 @@
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
 import Card from "@mui/material/Card";
 import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
@@ -12,6 +13,8 @@ import {
   FileText,
   Globe2,
   Layers3,
+  Trash2,
+  ScrollText,
   Settings2,
   TerminalSquare,
 } from "lucide-react";
@@ -21,6 +24,7 @@ import { EmptyState } from "@/components/empty-state";
 import { formatDate } from "@/lib/api";
 import {
   ALL_SOURCES_ID,
+  PROJECT_SUMMARY_ID,
   orderTerminalMessages,
   sourceTypeLabel,
   unitMatchesSource,
@@ -48,54 +52,73 @@ function SourceButton({
   source,
   selected,
   onSelect,
+  onRemove,
+  removing,
 }: {
   source: MemorySource;
   selected: boolean;
   onSelect: () => void;
+  onRemove: () => void;
+  removing: boolean;
 }) {
   return (
-    <Button
-      fullWidth
-      aria-pressed={selected}
-      onClick={onSelect}
-      sx={{
-        alignItems: "flex-start",
-        bgcolor: selected ? "rgba(139,92,246,.13)" : "transparent",
-        color: "text.primary",
-        justifyContent: "flex-start",
-        mb: 0.5,
-        minHeight: 56,
-        px: 1.25,
-        py: 1,
-      }}
-    >
-      <Box sx={{ color: "primary.light", display: "flex", mr: 1.25, mt: 0.25 }}>
-        {sourceIcon(source)}
-      </Box>
-      <Box sx={{ minWidth: 0, textAlign: "left", width: "100%" }}>
-        <Stack direction="row" justifyContent="space-between" spacing={1}>
-          <Typography noWrap sx={{ fontSize: 13, fontWeight: 650 }}>
-            {source.title}
-          </Typography>
-          <Typography
-            sx={{ color: "text.secondary", fontFamily: mono, fontSize: 9 }}
-          >
-            {source.unit_count}
-          </Typography>
-        </Stack>
-        <Typography
-          noWrap
-          sx={{
-            color: "text.secondary",
-            fontFamily: mono,
-            fontSize: 9,
-            mt: 0.25,
-          }}
+    <Stack direction="row" alignItems="center" sx={{ mb: 0.5 }}>
+      <Button
+        fullWidth
+        aria-pressed={selected}
+        onClick={onSelect}
+        sx={{
+          alignItems: "flex-start",
+          bgcolor: selected ? "rgba(139,92,246,.13)" : "transparent",
+          color: "text.primary",
+          justifyContent: "flex-start",
+          minWidth: 0,
+          flex: 1,
+          minHeight: 56,
+          px: 1.25,
+          py: 1,
+        }}
+      >
+        <Box
+          sx={{ color: "primary.light", display: "flex", mr: 1.25, mt: 0.25 }}
         >
-          {source.subtitle}
-        </Typography>
-      </Box>
-    </Button>
+          {sourceIcon(source)}
+        </Box>
+        <Box sx={{ minWidth: 0, textAlign: "left", width: "100%" }}>
+          <Stack direction="row" justifyContent="space-between" spacing={1}>
+            <Typography noWrap sx={{ fontSize: 13, fontWeight: 650 }}>
+              {source.title}
+            </Typography>
+            <Typography
+              sx={{ color: "text.secondary", fontFamily: mono, fontSize: 9 }}
+            >
+              {source.unit_count}
+            </Typography>
+          </Stack>
+          <Typography
+            noWrap
+            sx={{
+              color: "text.secondary",
+              fontFamily: mono,
+              fontSize: 9,
+              mt: 0.25,
+            }}
+          >
+            {source.subtitle}
+          </Typography>
+        </Box>
+      </Button>
+      <IconButton
+        aria-label={`Delete ${source.title}`}
+        onClick={onRemove}
+        disabled={removing}
+        title={`Delete ${source.title} from this project`}
+        size="small"
+        sx={{ ml: 0.5 }}
+      >
+        <Trash2 size={15} aria-hidden />
+      </IconButton>
+    </Stack>
   );
 }
 
@@ -104,11 +127,15 @@ function SourceGroup({
   sources,
   selectedSourceId,
   onSelect,
+  onRemove,
+  removing,
 }: {
   label: string;
   sources: MemorySource[];
   selectedSourceId: string;
   onSelect: (sourceId: string) => void;
+  onRemove: (source: MemorySource) => void;
+  removing: boolean;
 }) {
   if (sources.length === 0) return null;
   return (
@@ -140,6 +167,8 @@ function SourceGroup({
           source={source}
           selected={selectedSourceId === source.id}
           onSelect={() => onSelect(source.id)}
+          onRemove={() => onRemove(source)}
+          removing={removing}
         />
       ))}
     </Box>
@@ -151,11 +180,15 @@ export function SourceNavigation({
   sources,
   selectedSourceId,
   onSelect,
+  onRemove,
+  removing,
 }: {
   project: Project | null;
   sources: MemorySource[];
   selectedSourceId: string;
   onSelect: (sourceId: string) => void;
+  onRemove: (source: MemorySource) => void;
+  removing: boolean;
 }) {
   const browserSources = sources.filter((source) => source.kind === "browser");
   const sessionSources = sources.filter((source) => source.kind === "session");
@@ -226,6 +259,36 @@ export function SourceNavigation({
           </Button>
           <Button
             fullWidth
+            aria-pressed={selectedSourceId === PROJECT_SUMMARY_ID}
+            onClick={() => onSelect(PROJECT_SUMMARY_ID)}
+            sx={{
+              bgcolor:
+                selectedSourceId === PROJECT_SUMMARY_ID
+                  ? "rgba(139,92,246,.13)"
+                  : "transparent",
+              color: "text.primary",
+              justifyContent: "flex-start",
+              minHeight: 56,
+              px: 1.25,
+              py: 1,
+            }}
+          >
+            <Box sx={{ color: "primary.light", display: "flex", mr: 1.25 }}>
+              <ScrollText aria-hidden size={16} />
+            </Box>
+            <Box sx={{ textAlign: "left" }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 650 }}>
+                Project summary
+              </Typography>
+              <Typography
+                sx={{ color: "text.secondary", fontFamily: mono, fontSize: 9 }}
+              >
+                Updated from project memory
+              </Typography>
+            </Box>
+          </Button>
+          <Button
+            fullWidth
             aria-pressed={selectedSourceId === SETUP_SHARING_ID}
             onClick={() => onSelect(SETUP_SHARING_ID)}
             sx={{
@@ -259,18 +322,24 @@ export function SourceNavigation({
             sources={browserSources}
             selectedSourceId={selectedSourceId}
             onSelect={onSelect}
+            onRemove={onRemove}
+            removing={removing}
           />
           <SourceGroup
             label="Observed sessions"
             sources={sessionSources}
             selectedSourceId={selectedSourceId}
             onSelect={onSelect}
+            onRemove={onRemove}
+            removing={removing}
           />
           <SourceGroup
             label="Unscoped sources"
             sources={unscopedSources}
             selectedSourceId={selectedSourceId}
             onSelect={onSelect}
+            onRemove={onRemove}
+            removing={removing}
           />
         </>
       ) : (
@@ -285,8 +354,12 @@ export function SourceNavigation({
 function messageDetails(unit: ContextUnit) {
   const content = unit.content ?? "";
   const terminalRole = unit.metadata?.conversation_role;
-  const human = terminalRole === "user" || /^(User|Human):/i.test(content) || unit.trust_tier === "user";
-  const assistant = terminalRole === "assistant" || /^(AI|Assistant):/i.test(content);
+  const human =
+    terminalRole === "user" ||
+    /^(User|Human):/i.test(content) ||
+    unit.trust_tier === "user";
+  const assistant =
+    terminalRole === "assistant" || /^(AI|Assistant):/i.test(content);
   return {
     role: human
       ? "You"
@@ -294,7 +367,9 @@ function messageDetails(unit: ContextUnit) {
         ? "Assistant"
         : sourceTypeLabel(unit.type || "context"),
     color: human ? "#60a5fa" : assistant ? "#a78bfa" : "#a3a3a3",
-    content: terminalRole ? content : content.replace(/^(User|Human|AI|Assistant):\s*/i, ""),
+    content: terminalRole
+      ? content
+      : content.replace(/^(User|Human|AI|Assistant):\s*/i, ""),
   };
 }
 
@@ -488,7 +563,9 @@ function TaskResultDetails({ metadata }: { metadata: ContextMetadata }) {
 function ContextUnitCard({ unit }: { unit: ContextUnit }) {
   const details = messageDetails(unit);
   const parents = unit.parent_ids ?? [];
-  const conversation = unit.metadata?.conversation_role === "user" || unit.metadata?.conversation_role === "assistant";
+  const conversation =
+    unit.metadata?.conversation_role === "user" ||
+    unit.metadata?.conversation_role === "assistant";
   return (
     <Card
       component="article"
@@ -558,7 +635,15 @@ function ContextUnitCard({ unit }: { unit: ContextUnit }) {
         sx={{ borderTop: "1px solid", borderColor: "divider", mt: 2, pt: 1.5 }}
       >
         {conversation ? (
-          <Typography component="summary" sx={{ color: "text.secondary", cursor: "pointer", fontFamily: mono, fontSize: 9 }}>
+          <Typography
+            component="summary"
+            sx={{
+              color: "text.secondary",
+              cursor: "pointer",
+              fontFamily: mono,
+              fontSize: 9,
+            }}
+          >
             Provenance · {unit.metadata?.capture_method || "live"}
           </Typography>
         ) : null}
@@ -711,17 +796,20 @@ export function SourceExplorer({
     (source) => source.id === selectedSourceId,
   );
 
-  const visibleUnits = useMemo(
-    () => {
-      const filtered = units.filter((unit) => unitMatchesSource(unit, selectedSource));
-      if (selectedSource?.kind === "session" &&
-          ["codex_cli", "claude_code", "opencode"].includes(selectedSource.source_type)) {
-        return orderTerminalMessages(filtered);
-      }
-      return filtered;
-    },
-    [selectedSource, units],
-  );
+  const visibleUnits = useMemo(() => {
+    const filtered = units.filter((unit) =>
+      unitMatchesSource(unit, selectedSource),
+    );
+    if (
+      selectedSource?.kind === "session" &&
+      ["codex_cli", "claude_code", "opencode"].includes(
+        selectedSource.source_type,
+      )
+    ) {
+      return orderTerminalMessages(filtered);
+    }
+    return filtered;
+  }, [selectedSource, units]);
   const observedSessions = sources.filter(
     (source) => source.kind === "session",
   ).length;

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.models import Agent, Project
+from loom.models import Agent, Project, ProjectMembership, User
+from loom.services.accounts.service import issue_user_session
+from loom.services.context.service import list_context_history, write_context
+from loom.services.context.sources import remove_source
 
 
 @pytest_asyncio.fixture
@@ -127,6 +131,279 @@ async def test_history_rejects_malformed_cursor(
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "INVALID_CURSOR"
+
+
+async def test_removed_browser_source_stays_out_of_history_bundle_and_summary(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    history_project: Project,
+    history_headers: dict[str, str],
+) -> None:
+    removed_url = "https://claude.ai/chat/remove-me"
+    await _write_message(
+        client, history_project, history_headers, "User: cobalt falcon secret",
+        source_url=removed_url,
+    )
+    await _write_message(
+        client,
+        history_project,
+        history_headers,
+        "User: amber otter remains",
+        source_url="https://claude.ai/chat/keep-me",
+    )
+
+    count = await remove_source(
+        db_session,
+        history_project.id,
+        source_type="browser_chat",
+        source_url=removed_url,
+    )
+    assert count == 1
+
+    history = await client.get(
+        f"/v1/projects/{history_project.id}/context/history", headers=history_headers
+    )
+    assert history.status_code == 200
+    assert [unit["content"] for unit in history.json()["units"]] == [
+        "User: amber otter remains"
+    ]
+
+    bundle = await client.post(
+        f"/v1/projects/{history_project.id}/context/bundle",
+        headers=history_headers,
+        json={"prompt": "cobalt falcon secret"},
+    )
+    assert bundle.status_code == 200
+    assert bundle.json()["evidence"] == []
+
+    summary = await client.get(
+        f"/v1/projects/{history_project.id}/summary", headers=history_headers
+    )
+    assert summary.status_code == 200
+    assert "cobalt falcon" not in summary.json()["summary"]
+    assert "amber otter" in summary.json()["summary"]
+
+    replay = await client.post(
+        f"/v1/projects/{history_project.id}/context",
+        headers=history_headers,
+        json={
+            "client_uuid": str(uuid.uuid4()),
+            "type": "message",
+            "content": "User: cobalt falcon secret returns",
+            "source_url": removed_url,
+            "version": 1,
+        },
+    )
+    assert replay.status_code == 400
+    assert replay.json()["detail"] == "SOURCE_REMOVED"
+
+
+async def test_project_summary_caches_updates_and_rebuilds_after_removal(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    history_project: Project,
+    history_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    from loom.services.context import project_summary
+
+    calls = []
+
+    class Provider:
+        async def summarize(self, inputs):
+            calls.append(inputs)
+            if len(calls) == 1:
+                return "Aurora is teal [1]."
+            if len(calls) == 2:
+                return "Aurora is teal [1]. Retry is seven [2]."
+            return "Retry is seven [1]."
+
+    monkeypatch.setattr(project_summary.settings, "summarization_provider", "groq")
+    monkeypatch.setattr(project_summary, "from_llm_config", Provider)
+    url = "https://claude.ai/chat/aurora"
+    await _write_message(
+        client, history_project, history_headers, "Aurora is teal", source_url=url,
+    )
+    endpoint = f"/v1/projects/{history_project.id}/summary"
+    first = await client.get(endpoint, headers=history_headers)
+    assert first.status_code == 200
+    assert first.json()["mode"] == "ai"
+    cached = await client.get(endpoint, headers=history_headers)
+    assert cached.json() == first.json()
+    assert len(calls) == 1
+
+    await _write_message(client, history_project, history_headers, "Retry is seven")
+    updated = await client.get(endpoint, headers=history_headers)
+    assert updated.json()["context_count"] == 2
+    assert len(calls) == 2
+    assert calls[1][0]["type"] == "summary"
+    assert "Aurora is teal" in calls[1][0]["content"]
+    assert "Retry is seven" in calls[1][1]["content"]
+    assert len(calls[1]) == 2
+
+    await remove_source(db_session, history_project.id, source_type="browser_chat", source_url=url)
+    rebuilt = await client.get(endpoint, headers=history_headers)
+    assert rebuilt.json()["context_count"] == 1
+    assert "Aurora" not in rebuilt.json()["summary"]
+    assert all(item["type"] != "summary" for item in calls[2])
+    assert rebuilt.json()["citations"][0]["excerpt"] == "Retry is seven"
+
+
+async def test_project_summary_provider_failure_returns_cited_highlights(
+    client: AsyncClient,
+    history_project: Project,
+    history_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    from loom.services.context import project_summary
+
+    class Provider:
+        async def summarize(self, inputs):
+            raise RuntimeError("Unavailable")
+
+    monkeypatch.setattr(project_summary.settings, "summarization_provider", "groq")
+    monkeypatch.setattr(project_summary, "from_llm_config", Provider)
+    await _write_message(client, history_project, history_headers, "Aurora is teal")
+    response = await client.get(
+        f"/v1/projects/{history_project.id}/summary", headers=history_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["mode"] == "fallback"
+    assert "[1]" in response.json()["summary"]
+    assert response.json()["citations"][0]["excerpt"] == "Aurora is teal"
+    assert "source_session_id" not in response.json()["citations"][0]
+
+
+async def test_removed_cli_session_does_not_hide_other_sessions(
+    db_session: AsyncSession,
+    history_project: Project,
+) -> None:
+    agent = Agent(project_id=history_project.id, kind="local")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    for session_id in ("removed-session", "kept-session"):
+        await write_context(
+            db_session,
+            history_project.id,
+            agent.id,
+            client_uuid=uuid.uuid4(),
+            type_="message",
+            content=f"User: {session_id}",
+            version=1,
+            source_type="codex_cli",
+            source_session_id=session_id,
+        )
+    count = await remove_source(
+        db_session,
+        history_project.id,
+        source_type="codex_cli",
+        source_session_id="removed-session",
+        agent_id=agent.id,
+    )
+    assert count == 1
+    history = await list_context_history(db_session, history_project.id, agent.id)
+    assert [unit["content"] for unit in history["units"]] == ["User: kept-session"]
+    with pytest.raises(ValueError, match="SOURCE_REMOVED"):
+        await write_context(
+            db_session,
+            history_project.id,
+            agent.id,
+            client_uuid=uuid.uuid4(),
+            type_="message",
+            content="User: removed-session returns",
+            version=1,
+            source_type="codex_cli",
+            source_session_id="removed-session",
+        )
+
+
+async def test_member_can_remove_linked_chat_without_cross_project_access(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    history_project: Project,
+    history_headers: dict[str, str],
+) -> None:
+    user = User(email=f"source-delete-{uuid.uuid4()}@example.test", display_name="Owner")
+    other = Project(name="Other owner's project")
+    db_session.add_all([user, other])
+    await db_session.flush()
+    db_session.add(ProjectMembership(
+        project_id=history_project.id, user_id=user.id, role="owner",
+    ))
+    await db_session.commit()
+    _, token = await issue_user_session(db_session, user_id=user.id, client_kind="web")
+    headers = {"Authorization": f"Bearer {token}"}
+    url = "https://claude.ai/chat/link-only"
+    linked = await client.post(
+        f"/v1/projects/{history_project.id}/link/chat", headers=history_headers,
+        json={"chat_url": url, "title": "Link only", "platform": "claude.ai"},
+    )
+    assert linked.status_code == 200
+    summary = await client.get(
+        f"/v1/projects/{history_project.id}/summary", headers=history_headers,
+    )
+    assert summary.status_code == 200
+    assert "Link only" in summary.json()["summary"]
+    assert summary.json()["citations"][0]["source_url"] == url
+
+    foreign = await client.post(
+        f"/v1/projects/{other.id}/sources/remove", headers=headers,
+        json={"source_type": "browser_chat", "source_url": url},
+    )
+    assert foreign.status_code == 404
+    removed = await client.post(
+        f"/v1/projects/{history_project.id}/sources/remove", headers=headers,
+        json={"source_type": "browser_chat", "source_url": url},
+    )
+    assert removed.status_code == 200
+    assert removed.json()["removed_units"] == 0
+    chats = await client.get(f"/v1/projects/{history_project.id}/chats", headers=headers)
+    assert chats.json() == []
+    after_removal = await client.get(
+        f"/v1/projects/{history_project.id}/summary", headers=history_headers,
+    )
+    assert after_removal.json()["mode"] == "empty"
+    assert after_removal.json()["citations"] == []
+    relinked = await client.post(
+        f"/v1/projects/{history_project.id}/link/chat", headers=history_headers,
+        json={"chat_url": url, "title": "Link only"},
+    )
+    assert relinked.status_code == 409
+    assert relinked.json()["detail"] == "SOURCE_REMOVED"
+
+
+async def test_removal_invalidates_only_summaries_derived_from_that_source(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    history_project: Project,
+    history_headers: dict[str, str],
+) -> None:
+    removed_url = "https://claude.ai/chat/derived-removed"
+    kept_url = "https://claude.ai/chat/derived-kept"
+    removed = await _write_message(
+        client, history_project, history_headers, "Aurora is teal", source_url=removed_url,
+    )
+    kept = await _write_message(
+        client, history_project, history_headers, "Retry is seven", source_url=kept_url,
+    )
+    await _write_message(
+        client, history_project, history_headers, "Summary: Aurora is teal",
+        source_url=removed_url, type_="summary", parent_ids=[removed["id"]],
+    )
+    await _write_message(
+        client, history_project, history_headers, "Summary: Retry is seven",
+        source_url=kept_url, type_="summary", parent_ids=[kept["id"]],
+    )
+    await remove_source(
+        db_session, history_project.id, source_type="browser_chat", source_url=removed_url,
+    )
+    history = await client.get(
+        f"/v1/projects/{history_project.id}/context/history", headers=history_headers,
+    )
+    assert [unit["content"] for unit in history.json()["units"]] == [
+        "Summary: Retry is seven", "Retry is seven",
+    ]
 
 
 async def test_history_filters_before_pagination_and_returns_parent_ids(

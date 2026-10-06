@@ -284,6 +284,12 @@
       chatUrl,
       messages: records.map(function (record) { return record.message; }),
     }).then(resp => {
+      if (resp?.removed) {
+        releaseRecords(records);
+        linkedProjectId = null;
+        stopObserver();
+        return 0;
+      }
       if (resp?.error) {
         releaseRecords(records);
         if (!resp.contextInvalidated) {

@@ -102,6 +102,33 @@ test("matches normalized browser URLs and exact harness provenance", () => {
   );
 });
 
+test("a CLI reference URL does not turn its session into a browser source", () => {
+  const unit = {
+    source_type: "codex_cli",
+    source_url: "https://example.test/reference",
+    source_session_id: "session-a",
+    agent_id: "agent-a",
+  };
+  const [source] = buildMemorySources([], [unit]);
+  assert.equal(source.kind, "session");
+  assert.equal(source.source_type, "codex_cli");
+  assert.equal(unitMatchesSource(unit, source), true);
+});
+
+test("browser context without a URL has a distinct removable source identity", () => {
+  const unit = { source_type: "browser_chat", agent_id: "agent-a" };
+  const [source] = buildMemorySources([], [unit]);
+  assert.equal(source.kind, "unscoped");
+  assert.equal(unitMatchesSource(unit, source), true);
+  assert.equal(
+    unitMatchesSource(
+      { ...unit, source_url: "https://example.test/chat" },
+      source,
+    ),
+    false,
+  );
+});
+
 test("search text includes structured task-result metadata", () => {
   const searchText = unitSearchText({
     type: "task_result",
@@ -120,12 +147,25 @@ test("search text includes structured task-result metadata", () => {
 
 test("terminal session uses its captured title and groups conversation turns", () => {
   const units = [
-    { source_type: "codex_cli", source_session_id: "native", agent_id: "agent",
-      content: "Please keep Unicode café", metadata: { conversation_role: "user" as const,
-        session_title: "Memory discussion" }, created_at: "2026-10-02T10:00:00Z" },
-    { source_type: "codex_cli", source_session_id: "native", agent_id: "agent",
-      content: "Understood", metadata: { conversation_role: "assistant" as const },
-      created_at: "2026-10-02T10:01:00Z" },
+    {
+      source_type: "codex_cli",
+      source_session_id: "native",
+      agent_id: "agent",
+      content: "Please keep Unicode café",
+      metadata: {
+        conversation_role: "user" as const,
+        session_title: "Memory discussion",
+      },
+      created_at: "2026-10-02T10:00:00Z",
+    },
+    {
+      source_type: "codex_cli",
+      source_session_id: "native",
+      agent_id: "agent",
+      content: "Understood",
+      metadata: { conversation_role: "assistant" as const },
+      created_at: "2026-10-02T10:01:00Z",
+    },
   ];
   const [source] = buildMemorySources([], units);
   assert.equal(source.title, "Memory discussion");
@@ -135,24 +175,59 @@ test("terminal session uses its captured title and groups conversation turns", (
 
 test("terminal turns sort by occurrence and sequence", () => {
   const ordered = orderTerminalMessages([
-    { id: "assistant", occurred_at: "2026-10-02T10:01:00Z", metadata: { message_sequence: 1 } },
-    { id: "user", occurred_at: "2026-10-02T10:00:00Z", metadata: { message_sequence: 0 } },
-    { id: "second", occurred_at: "2026-10-02T10:01:00Z", metadata: { message_sequence: 2 } },
+    {
+      id: "assistant",
+      occurred_at: "2026-10-02T10:01:00Z",
+      metadata: { message_sequence: 1 },
+    },
+    {
+      id: "user",
+      occurred_at: "2026-10-02T10:00:00Z",
+      metadata: { message_sequence: 0 },
+    },
+    {
+      id: "second",
+      occurred_at: "2026-10-02T10:01:00Z",
+      metadata: { message_sequence: 2 },
+    },
   ]);
-  assert.deepEqual(ordered.map((unit) => unit.id), ["user", "assistant", "second"]);
+  assert.deepEqual(
+    ordered.map((unit) => unit.id),
+    ["user", "assistant", "second"],
+  );
 });
 
 test("harness title takes precedence over the first prompt", () => {
-  const [source] = buildMemorySources([], [
-    { source_type: "opencode", source_session_id: "native", agent_id: "agent",
-      content: "Later question", metadata: { conversation_role: "user" },
-      occurred_at: "2026-10-02T10:02:00Z" },
-    { source_type: "opencode", source_session_id: "native", agent_id: "agent",
-      content: "First question", metadata: { conversation_role: "user" },
-      occurred_at: "2026-10-02T10:00:00Z" },
-    { source_type: "opencode", source_session_id: "native", agent_id: "agent",
-      metadata: { conversation_role: "assistant", session_title: "Native title" },
-      occurred_at: "2026-10-02T10:01:00Z" },
-  ]);
+  const [source] = buildMemorySources(
+    [],
+    [
+      {
+        source_type: "opencode",
+        source_session_id: "native",
+        agent_id: "agent",
+        content: "Later question",
+        metadata: { conversation_role: "user" },
+        occurred_at: "2026-10-02T10:02:00Z",
+      },
+      {
+        source_type: "opencode",
+        source_session_id: "native",
+        agent_id: "agent",
+        content: "First question",
+        metadata: { conversation_role: "user" },
+        occurred_at: "2026-10-02T10:00:00Z",
+      },
+      {
+        source_type: "opencode",
+        source_session_id: "native",
+        agent_id: "agent",
+        metadata: {
+          conversation_role: "assistant",
+          session_title: "Native title",
+        },
+        occurred_at: "2026-10-02T10:01:00Z",
+      },
+    ],
+  );
   assert.equal(source.title, "Native title");
 });

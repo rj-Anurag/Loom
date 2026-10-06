@@ -118,7 +118,7 @@ async def build_context_bundle(
     )
     rows = await session.execute(
         select(ContextUnit, rank.label("rank"))
-        .where(ContextUnit.project_id == project_id, rank > 0)
+        .where(ContextUnit.project_id == project_id, ContextUnit.removed_at.is_(None), rank > 0)
         .order_by(rank.desc(), ContextUnit.occurred_at.desc())
         .limit(80)
     )
@@ -139,6 +139,7 @@ async def build_context_bundle(
                     semantic_rows = await session.execute(
                         select(ContextUnit).where(
                             ContextUnit.project_id == project_id,
+                            ContextUnit.removed_at.is_(None),
                             ContextUnit.id.in_(semantic_ids),
                         )
                     )
@@ -182,6 +183,7 @@ async def build_context_bundle(
         ):
             statement = select(ContextUnit).where(
                 ContextUnit.project_id == project_id,
+                ContextUnit.removed_at.is_(None),
                 ContextUnit.source_type == seed.source_type,
                 source_filter,
                 comparison,
@@ -213,6 +215,7 @@ async def build_context_bundle(
             select(ContextUnit)
             .where(
                 ContextUnit.project_id == project_id,
+                ContextUnit.removed_at.is_(None),
                 ContextUnit.id.in_(linked_ids),
             )
             .limit(32)

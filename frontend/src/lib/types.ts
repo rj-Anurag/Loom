@@ -93,3 +93,11 @@ export interface HistoryPage {
   has_more?: boolean;
   next_cursor?: string;
 }
+
+export interface ProjectSummary {
+  summary: string;
+  citations: (ContextUnit & { number: number; id: string; excerpt: string })[];
+  context_count: number;
+  updated_at: string | null;
+  mode: "ai" | "extractive" | "fallback" | "empty" | "pending";
+}

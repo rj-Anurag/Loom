@@ -85,6 +85,60 @@ def test_queue_retries_and_remembers_delivery(tmp_path, monkeypatch) -> None:
     assert not capture.enqueue(binding, "codex_cli", "s", message)
 
 
+def test_removed_session_clears_pending_uploads_and_stops_future_capture(
+    tmp_path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("LOOM_CONFIG_HOME", str(tmp_path / "home"))
+    binding = _binding(tmp_path)
+    monkeypatch.setenv("LOOM_PROJECT_ID", binding["project_id"])
+    monkeypatch.setenv("LOOM_API_KEY", "test-key")
+    first = {"client_uuid": str(uuid.uuid4()), "role": "user", "content": "remove"}
+    second = {"client_uuid": str(uuid.uuid4()), "role": "assistant", "content": "later"}
+    kept = {"client_uuid": str(uuid.uuid4()), "role": "user", "content": "keep"}
+    assert capture.enqueue(binding, "codex_cli", "removed", first)
+    assert capture.enqueue(binding, "codex_cli", "removed", second)
+    assert capture.enqueue(binding, "codex_cli", "kept", kept)
+    calls = []
+
+    def response(url, **kwargs):
+        calls.append(kwargs["content"])
+        if b'"removed"' in kwargs["content"]:
+            return httpx.Response(
+                400, json={"detail": "SOURCE_REMOVED"}, request=httpx.Request("POST", url),
+            )
+        return httpx.Response(200, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(capture.httpx, "post", response)
+    assert capture.flush() == (1, 0)
+    assert len(calls) == 2  # The second removed message was discarded locally.
+    assert not capture.enqueue(
+        binding, "codex_cli", "removed",
+        {"client_uuid": str(uuid.uuid4()), "role": "user", "content": "future"},
+    )
+    assert capture.enqueue(
+        binding, "codex_cli", "kept",
+        {"client_uuid": str(uuid.uuid4()), "role": "user", "content": "future"},
+    )
+
+
+def test_legacy_queued_payload_without_source_key_still_uploads(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOOM_CONFIG_HOME", str(tmp_path / "home"))
+    binding = _binding(tmp_path)
+    monkeypatch.setenv("LOOM_PROJECT_ID", binding["project_id"])
+    monkeypatch.setenv("LOOM_API_KEY", "test-key")
+    with capture._connect() as connection:
+        connection.execute(
+            "INSERT INTO delivery (client_uuid, project_id, api_url, payload) VALUES (?, ?, ?, ?)",
+            (str(uuid.uuid4()), binding["project_id"], binding["api_url"], '{}'),
+        )
+
+    def online(url, **_kwargs):
+        return httpx.Response(200, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(capture.httpx, "post", online)
+    assert capture.flush() == (1, 0)
+
+
 def test_claude_repeated_prompts_have_distinct_ids(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LOOM_CONFIG_HOME", str(tmp_path / "home"))
     binding = _binding(tmp_path)

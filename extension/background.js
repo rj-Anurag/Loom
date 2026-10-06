@@ -344,6 +344,15 @@ const MESSAGE_HANDLERS = {
         await syncMessage(msg.chatUrl, message, linkInfo);
         synced++;
       } catch (err) {
+        if (err.message === 'SOURCE_REMOVED') {
+          await Storage.removeChatLink(msg.chatUrl);
+          const pending = await Storage.getPendingSync();
+          const removedUrl = LoomShared.normalizeChatUrl(msg.chatUrl);
+          await Storage.replacePendingSync(
+            pending.filter(item => LoomShared.normalizeChatUrl(item.chatUrl) !== removedUrl)
+          );
+          return { synced: synced, queued: queued, removed: true };
+        }
         await Storage.enqueuePendingSync(msg.chatUrl, message);
         queued++;
         console.info('[Loom] Sync queued for retry:', err.message);
@@ -427,12 +436,15 @@ async function flushPendingSync() {
   for (const item of queue) {
     const linkInfo = await Storage.getProjectForChat(item.chatUrl);
     if (!linkInfo) {
-      remaining.push(item);
       continue;
     }
     try {
       await syncMessage(item.chatUrl, item.message, linkInfo);
     } catch (err) {
+      if (err.message === 'SOURCE_REMOVED') {
+        await Storage.removeChatLink(item.chatUrl);
+        continue;
+      }
       item.attempts = (item.attempts || 0) + 1;
       item.lastError = err.message;
       remaining.push(item);

@@ -276,6 +276,7 @@ async def ingest_conversation_messages(
                     select(ContextUnit).where(
                         ContextUnit.client_uuid == message.parent_client_uuid,
                         ContextUnit.project_id == project_id,
+                        ContextUnit.removed_at.is_(None),
                         ContextUnit.source_type == body.source_type,
                         ContextUnit.source_session_id == body.source_session_id,
                     )

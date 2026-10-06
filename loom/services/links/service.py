@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from loom.models.chat_links import ChatLink
 from loom.models.projects import Project
+from loom.services.context.sources import source_is_removed
 
 
 async def link_chat(
@@ -28,9 +29,13 @@ async def link_chat(
     ``ChatLink`` record (no duplicate created).
     """
     # Verify the project exists
-    project = await session.get(Project, project_id)
+    project = await session.get(Project, project_id, with_for_update={"read": True})
     if project is None:
         raise ValueError("PROJECT_NOT_FOUND")
+    if await source_is_removed(
+        session, project.id, "browser_chat", chat_url, None, uuid.UUID(int=0)
+    ):
+        raise ValueError("SOURCE_REMOVED")
 
     # Check if already linked (idempotent)
     result = await session.execute(
@@ -82,7 +87,7 @@ async def list_chat_links(
 
     result = await session.execute(
         select(ChatLink)
-        .where(ChatLink.project_id == project_id)
+        .where(ChatLink.project_id == project_id, ChatLink.removed_at.is_(None))
         .order_by(ChatLink.linked_at.desc())
     )
     return [

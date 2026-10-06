@@ -23,7 +23,13 @@ import { LoomMark } from "@/components/loom-mark";
 import { SetupSharing } from "@/components/setup-sharing";
 import { SourceExplorer, SourceNavigation } from "@/components/source-explorer";
 import { apiRequest, formatDate, friendlyError, initials } from "@/lib/api";
-import { ALL_SOURCES_ID, buildMemorySources } from "@/lib/sources";
+import {
+  ALL_SOURCES_ID,
+  PROJECT_SUMMARY_ID,
+  buildMemorySources,
+  sourceTypeLabel,
+  unitMatchesSource,
+} from "@/lib/sources";
 import { isSetupSharingSelected } from "@/lib/setup-sharing";
 import type {
   AuthPayload,
@@ -31,6 +37,8 @@ import type {
   ContextUnit,
   HistoryPage,
   Project,
+  MemorySource,
+  ProjectSummary,
   User,
 } from "@/lib/types";
 
@@ -339,6 +347,10 @@ function AccountAppContent({
   const [chats, setChats] = useState<Chat[]>([]);
   const [units, setUnits] = useState<ContextUnit[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState(ALL_SOURCES_ID);
+  const [summary, setSummary] = useState<ProjectSummary | null>(null);
+  const [summaryError, setSummaryError] = useState("");
+  const [removingSource, setRemovingSource] = useState(false);
+  const [removalError, setRemovalError] = useState("");
   const [loadingProject, setLoadingProject] = useState(false);
   const [projectError, setProjectError] = useState("");
   const [authError, setAuthError] = useState("");
@@ -400,6 +412,9 @@ function AccountAppContent({
       setSelectedSourceId(ALL_SOURCES_ID);
       setChats([]);
       setUnits([]);
+      setSummary(null);
+      setSummaryError("");
+      setRemovalError("");
       setProjectError("");
       setLoadingProject(true);
       try {
@@ -535,6 +550,75 @@ function AccountAppContent({
     [chats, units],
   );
 
+  useEffect(() => {
+    if (!project || selectedSourceId !== PROJECT_SUMMARY_ID) return;
+    let active = true;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const result = await apiRequest<ProjectSummary>(
+          `/v1/projects/${project.id}/summary`,
+        );
+        if (active) {
+          setSummary(result);
+          setSummaryError("");
+        }
+      } catch (error) {
+        if (active)
+          setSummaryError(
+            friendlyError(
+              error instanceof Error ? error.message : "Request failed",
+            ),
+          );
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 30000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [project, selectedSourceId]);
+
+  const removeSource = async (source: MemorySource) => {
+    if (
+      !project ||
+      removingSource ||
+      !window.confirm(
+        `Remove ${source.title} from ${project.name || "this project"} memory and stop future capture for this source? An internal history record is retained.`,
+      )
+    )
+      return;
+    const version = loadVersion.current;
+    setRemovingSource(true);
+    setRemovalError("");
+    try {
+      await apiRequest(`/v1/projects/${project.id}/sources/remove`, {
+        method: "POST",
+        body: JSON.stringify({
+          source_type: source.source_type,
+          source_url: source.source_url,
+          source_session_id: source.source_session_id,
+          agent_id: source.agent_id,
+        }),
+      });
+      if (version === loadVersion.current) await selectProject(project);
+    } catch (error) {
+      if (version === loadVersion.current)
+        setRemovalError(
+          friendlyError(
+            error instanceof Error ? error.message : "Request failed",
+          ),
+        );
+    } finally {
+      setRemovingSource(false);
+    }
+  };
+
   if (booting && !revealSignIn) {
     return (
       <Stack
@@ -655,7 +739,14 @@ function AccountAppContent({
           setSelectedSourceId(sourceId);
           closeDrawer();
         }}
+        onRemove={(source) => void removeSource(source)}
+        removing={removingSource}
       />
+      {removalError && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {removalError}
+        </Alert>
+      )}
     </Box>
   );
 
@@ -766,7 +857,94 @@ function AccountAppContent({
           </Drawer>
         )}
         <Box component="main" sx={{ minWidth: 0, p: { xs: 2, sm: 4, lg: 5 } }}>
-          {project && isSetupSharingSelected(selectedSourceId) ? (
+          {project && selectedSourceId === PROJECT_SUMMARY_ID ? (
+            <Card sx={{ p: { xs: 3, md: 4 } }}>
+              <Typography component="h1" variant="h4">
+                Project summary
+              </Typography>
+              <Typography color="text.secondary" sx={{ mt: 1 }}>
+                Automatically updated as project memory changes. Expand a
+                numbered source to inspect its original context.
+              </Typography>
+              {summaryError && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {summaryError}
+                </Alert>
+              )}
+              {summary ? (
+                <>
+                  {summary.mode === "extractive" ||
+                  summary.mode === "fallback" ? (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                      {summary.mode === "extractive"
+                        ? "AI summarization is not configured. Showing extracted context highlights."
+                        : "AI summarization is temporarily unavailable. Showing context highlights while Loom retries."}
+                    </Alert>
+                  ) : null}
+                  <Typography
+                    sx={{
+                      mt: 3,
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {summary.summary}
+                  </Typography>
+                  <Typography
+                    color="text.secondary"
+                    sx={{ fontSize: 11, mt: 3 }}
+                  >
+                    {summary.updated_at
+                      ? `Updated ${formatDate(summary.updated_at)} · ${summary.context_count} context items`
+                      : "Summary update in progress"}
+                  </Typography>
+                  {summary.citations.length > 0 && (
+                    <Box sx={{ mt: 3 }}>
+                      <Typography sx={{ fontWeight: 650 }}>Sources</Typography>
+                      {summary.citations.map((citation) => (
+                        <Box
+                          component="details"
+                          key={citation.id}
+                          color="text.secondary"
+                          sx={{
+                            fontSize: 12,
+                            mt: 0.5,
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          <Box component="summary" sx={{ cursor: "pointer" }}>
+                            [{citation.number}]{" "}
+                            {sourceTypeLabel(citation.source_type)}
+                          </Box>
+                          <Typography
+                            sx={{ mt: 1, whiteSpace: "pre-wrap", fontSize: 13 }}
+                          >
+                            {citation.excerpt}
+                          </Typography>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              const source = sources.find((item) =>
+                                unitMatchesSource(citation, item),
+                              );
+                              setSelectedSourceId(source?.id || ALL_SOURCES_ID);
+                            }}
+                          >
+                            Open source
+                          </Button>
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
+                </>
+              ) : !summaryError ? (
+                <CircularProgress
+                  aria-label="Loading project summary"
+                  sx={{ mt: 3 }}
+                />
+              ) : null}
+            </Card>
+          ) : project && isSetupSharingSelected(selectedSourceId) ? (
             <SetupSharing project={project} />
           ) : (
             <SourceExplorer
