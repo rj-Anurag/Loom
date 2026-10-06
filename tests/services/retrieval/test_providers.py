@@ -147,6 +147,7 @@ class TestLLMProviderProtocol:
         )
         assert "## Overview" in captured["messages"][0]["content"]
         assert "Do not include a Sources section" in captured["messages"][0]["content"]
+        assert captured["messages"][1]["content"].endswith("Do not add a Sources section.")
 
         from loom.services.retrieval.providers import XAILLMProvider
 
@@ -193,6 +194,11 @@ class TestLLMProviderProtocol:
         assert captured["max_tokens"] == 4096
         assert captured["reasoning_effort"] == "low"
         assert "## Overview" in captured["messages"][0]["content"]
+
+        await provider.summarize(
+            [{"content": "[1] A fact", "type": "message", "output_format": "project_summary_retry"}]
+        )
+        assert "failed citation or section validation" in captured["messages"][1]["content"]
 
         with pytest.raises(ValueError, match="GEMINI_API_KEY_NOT_CONFIGURED"):
             await GeminiLLMProvider().summarize([{"content": "A fact"}])

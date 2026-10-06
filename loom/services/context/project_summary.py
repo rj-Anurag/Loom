@@ -108,22 +108,35 @@ async def _summarize_updates(
         current_batch = [*batch]
         if not inputs:
             current_batch[0] = {**current_batch[0], "output_format": "project_summary"}
-        generated = await asyncio.wait_for(
-            provider.summarize([*inputs, *current_batch]), timeout=timeout
-        )
-        generated = generated.strip()[:3500]
-        references = {int(number) for number in re.findall(r"\[(\d+)\]", generated)}
-        if not generated or not references or not references.issubset(allowed):
-            raise ValueError("Project summary must cite its original evidence")
-        bullets = re.findall(r"(?m)^- .+", generated)
-        if (
-            not re.search(r"(?m)^## Overview\s*$", generated)
-            or not bullets
-            or any(not re.search(r"\[\d+\]", bullet) for bullet in bullets)
-            or re.search(r"(?im)^## Sources\s*$", generated)
-        ):
-            raise ValueError("Project summary must have structured sections")
-        return generated
+        request = [*inputs, *current_batch]
+
+        def validate(generated: str) -> str:
+            generated = generated.strip()[:3500]
+            references = {int(number) for number in re.findall(r"\[(\d+)\]", generated)}
+            if not generated or not references or not references.issubset(allowed):
+                raise ValueError("Project summary must cite its original evidence")
+            bullets = re.findall(r"(?m)^- .+", generated)
+            if (
+                not re.search(r"(?m)^## Overview\s*$", generated)
+                or not bullets
+                or any(not re.search(r"\[\d+\]", bullet) for bullet in bullets)
+                or re.search(r"(?im)^## Sources\s*$", generated)
+            ):
+                raise ValueError("Project summary must have structured sections")
+            return generated
+
+        generated = await asyncio.wait_for(provider.summarize(request), timeout=timeout)
+        try:
+            return validate(generated)
+        except ValueError:
+            retry = [
+                {**item, "output_format": "project_summary_retry"}
+                if item.get("output_format") == "project_summary"
+                else item
+                for item in request
+            ]
+            generated = await asyncio.wait_for(provider.summarize(retry), timeout=timeout)
+            return validate(generated)
 
     for unit in units:
         for offset in range(0, len(unit.content), 3000):

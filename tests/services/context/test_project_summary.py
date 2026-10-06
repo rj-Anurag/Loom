@@ -61,6 +61,24 @@ async def test_gemini_summary_uses_its_larger_context_window():
     )
 
 
+async def test_summary_retries_uncited_response_once_with_format_feedback():
+    item = unit("Aurora is teal")
+    calls = []
+
+    class Provider:
+        async def summarize(self, inputs):
+            calls.append(inputs)
+            if len(calls) == 1:
+                return "## Overview\n- Aurora is teal."
+            return "## Overview\n- Aurora is teal [1]."
+
+    summary = await _summarize_updates(Provider(), [item], {str(item.id): 1})
+    assert summary == "## Overview\n- Aurora is teal [1]."
+    assert len(calls) == 2
+    assert calls[0][0]["output_format"] == "project_summary"
+    assert calls[1][0]["output_format"] == "project_summary_retry"
+
+
 @pytest.mark.parametrize(
     "generated",
     [

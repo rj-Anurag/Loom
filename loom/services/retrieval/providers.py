@@ -235,6 +235,23 @@ class GroqLLMProvider:
         if not self._api_key:
             raise ValueError(self.MISSING_KEY_ERROR)
         units_text = self._format_units(context_units)
+        project_summary = any(
+            u.get("output_format") in {"project_summary", "project_summary_retry"}
+            for u in context_units
+        )
+        retry = any(u.get("output_format") == "project_summary_retry" for u in context_units)
+        output_reminder = (
+            "\n\nWrite only the project overview. Start with ## Overview. "
+            "Every '- ' bullet must include a numbered citation such as [1] from the "
+            "source content above. Do not add a Sources section."
+            if project_summary
+            else ""
+        )
+        if retry:
+            output_reminder += (
+                " The previous answer failed citation or section validation. "
+                "Correct the format and cite the original evidence in every bullet."
+            )
 
         import openai
 
@@ -248,13 +265,13 @@ class GroqLLMProvider:
                 {
                     "role": "system",
                     "content": self._SUMMARY_PROMPT
-                    + (
-                        "\n\n" + self._PROJECT_SUMMARY_PROMPT
-                        if any(u.get("output_format") == "project_summary" for u in context_units)
-                        else ""
-                    ),
+                    + ("\n\n" + self._PROJECT_SUMMARY_PROMPT if project_summary else ""),
                 },
-                {"role": "user", "content": units_text[: self.MAX_INPUT_CHARS]},
+                {
+                    "role": "user",
+                    "content": units_text[: self.MAX_INPUT_CHARS - len(output_reminder)]
+                    + output_reminder,
+                },
             ],
             temperature=0.3,
             max_tokens=self.MAX_OUTPUT_TOKENS,
