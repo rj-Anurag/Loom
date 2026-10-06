@@ -122,7 +122,7 @@ async def build_context_bundle(
         .order_by(rank.desc(), ContextUnit.occurred_at.desc())
         .limit(80)
     )
-    matches = list(rows.all())
+    matches: list[tuple[ContextUnit, float]] = [(unit, float(score)) for unit, score in rows.all()]
     semantic_scores: dict[uuid.UUID, float] = {}
     if not matches and settings.embedding_provider != "stub":
         try:

@@ -129,12 +129,18 @@ def flush(*, force: bool = False, limit: int = 100) -> tuple[int, int]:
     uploaded = 0
     with _connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
-        query = (
-            "SELECT client_uuid, project_id, api_url, payload, attempts FROM delivery "
-            + ("" if force else "WHERE next_attempt <= ? ")
-            + "ORDER BY rowid LIMIT ?"
-        )
-        rows = connection.execute(query, (limit,) if force else (now.isoformat(), limit)).fetchall()
+        if force:
+            rows = connection.execute(
+                "SELECT client_uuid, project_id, api_url, payload, attempts FROM delivery "
+                "ORDER BY rowid LIMIT ?",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT client_uuid, project_id, api_url, payload, attempts FROM delivery "
+                "WHERE next_attempt <= ? ORDER BY rowid LIMIT ?",
+                (now.isoformat(), limit),
+            ).fetchall()
         for client_uuid, project_id, api_url, payload, attempts in rows:
             try:
                 message = json.loads(payload)
