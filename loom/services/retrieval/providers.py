@@ -284,10 +284,23 @@ class XAILLMProvider(GroqLLMProvider):
         super().__init__(model=model, api_key=api_key)
 
 
+class GeminiLLMProvider(GroqLLMProvider):
+    """Gemini summarization through Google's OpenAI-compatible endpoint."""
+
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    MISSING_KEY_ERROR = "GEMINI_API_KEY_NOT_CONFIGURED"
+    MAX_OUTPUT_TOKENS = 4096
+
+    def __init__(self, model: str = "gemini-2.5-flash", api_key: str | None = None) -> None:
+        super().__init__(model=model, api_key=api_key)
+
+
 def effective_llm_provider_name() -> str:
     """Resolve automatic selection without placing API keys in cache revisions."""
     provider_name = settings.summarization_provider.lower()
     if provider_name == "auto":
+        if settings.gemini_api_key:
+            return "gemini"
         if settings.xai_api_key:
             return "xai"
         if settings.groq_api_key:
@@ -302,7 +315,8 @@ def from_llm_config() -> LLMProvider:
     ``"stub"`` (default) → :class:`StubLLMProvider`
     ``"groq"``           → :class:`GroqLLMProvider`
     ``"xai"``            → :class:`XAILLMProvider`
-    ``"auto"``           → xAI or Groq when its key is configured, otherwise stub
+    ``"gemini"``         → :class:`GeminiLLMProvider`
+    ``"auto"``           → Gemini, xAI, or Groq when its key is configured, otherwise stub
 
     Raises
     ------
@@ -314,6 +328,8 @@ def from_llm_config() -> LLMProvider:
         return GroqLLMProvider(api_key=settings.groq_api_key or None)
     if provider_name == "xai":
         return XAILLMProvider(api_key=settings.xai_api_key or None)
+    if provider_name == "gemini":
+        return GeminiLLMProvider(api_key=settings.gemini_api_key or None)
     if provider_name == "stub":
         return StubLLMProvider()
     msg = f"Unrecognised summarization provider: {settings.summarization_provider!r}"
