@@ -78,6 +78,67 @@ def _fallback(units: Sequence[SummaryRecord], numbers: dict[str, int]) -> str:
     )
 
 
+def _format_ai_summary(generated: str, allowed: set[int]) -> str:
+    """Keep cited claims and render them in the dashboard's section format."""
+    headings = {
+        "overview": "Overview",
+        "summary": "Overview",
+        "decisions": "Decisions",
+        "current work": "Current work",
+        "next steps": "Next steps",
+        "sources": "Sources",
+    }
+    sections: dict[str, list[str]] = {name: [] for name in headings.values()}
+    section = "Overview"
+    pending = ""
+
+    for raw_line in generated.strip()[:3500].splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("```"):
+            continue
+        title = re.sub(r"^[#*\s]+|[*:\s]+$", "", line).lower()
+        if title in headings:
+            section = headings[title]
+            pending = ""
+            continue
+        if line.startswith("#"):
+            pending = ""
+            continue
+        if section == "Sources":
+            continue
+        is_bullet = bool(re.match(r"^(?:[-*•]|\d+[.)])\s+", line))
+        content = re.sub(r"^(?:[-*•]|\d+[.)])\s+", "", line)
+        if is_bullet:
+            pending = ""
+        if not re.search(r"\[\d+\]", content):
+            if is_bullet:
+                pending = content
+            elif pending:
+                pending = f"{pending} {content}"
+            continue
+        if pending:
+            content = f"{pending} {content}"
+            pending = ""
+        references = {int(number) for number in re.findall(r"\[(\d+)\]", content)}
+        if not references.issubset(allowed):
+            raise ValueError("Project summary must cite its original evidence")
+        content = content.replace("**", "").replace("`", "")
+        sections[section].append(content)
+
+    if not sections["Overview"]:
+        for name in ("Decisions", "Current work", "Next steps"):
+            if sections[name]:
+                sections["Overview"].append(sections[name].pop(0))
+                break
+    if not sections["Overview"]:
+        raise ValueError("Project summary must cite its original evidence")
+    return "\n".join(
+        f"## {name}\n" + "\n".join(f"- {item}" for item in sections[name][:4])
+        for name in ("Overview", "Decisions", "Current work", "Next steps")
+        if sections[name]
+    )
+
+
 async def _summarize_updates(
     provider: LLMProvider,
     units: Sequence[SummaryRecord],
@@ -111,19 +172,7 @@ async def _summarize_updates(
         request = [*inputs, *current_batch]
 
         def validate(generated: str) -> str:
-            generated = generated.strip()[:3500]
-            references = {int(number) for number in re.findall(r"\[(\d+)\]", generated)}
-            if not generated or not references or not references.issubset(allowed):
-                raise ValueError("Project summary must cite its original evidence")
-            bullets = re.findall(r"(?m)^- .+", generated)
-            if (
-                not re.search(r"(?m)^## Overview\s*$", generated)
-                or not bullets
-                or any(not re.search(r"\[\d+\]", bullet) for bullet in bullets)
-                or re.search(r"(?im)^## Sources\s*$", generated)
-            ):
-                raise ValueError("Project summary must have structured sections")
-            return generated
+            return _format_ai_summary(generated, allowed)
 
         generated = await asyncio.wait_for(provider.summarize(request), timeout=timeout)
         try:

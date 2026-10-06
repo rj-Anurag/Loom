@@ -6,7 +6,12 @@ from types import SimpleNamespace
 import pytest
 
 from loom.models import ContextUnitType
-from loom.services.context.project_summary import _fallback, _response, _summarize_updates
+from loom.services.context.project_summary import (
+    _fallback,
+    _format_ai_summary,
+    _response,
+    _summarize_updates,
+)
 
 
 def unit(content: str, type_: ContextUnitType = ContextUnitType.message):
@@ -79,15 +84,49 @@ async def test_summary_retries_uncited_response_once_with_format_feedback():
     assert calls[1][0]["output_format"] == "project_summary_retry"
 
 
+def test_ai_summary_formats_cited_prose_and_drops_uncited_lines_and_sources():
+    generated = (
+        "Here is the project update:\n"
+        "### Project overview\n"
+        "**Overview:**\n"
+        "Aurora is teal [1].\n"
+        "* Its retry limit is seven [2].\n"
+        "- An unsupported claim.\n"
+        "## Sources\n"
+        "- [1] A chat link\n"
+    )
+    assert _format_ai_summary(generated, {1, 2}) == (
+        "## Overview\n- Aurora is teal [1].\n- Its retry limit is seven [2]."
+    )
+
+
+def test_ai_summary_rejects_invented_or_missing_evidence():
+    with pytest.raises(ValueError, match="cite its original evidence"):
+        _format_ai_summary("## Overview\n- Invented claim [9]", {1})
+    with pytest.raises(ValueError, match="cite its original evidence"):
+        _format_ai_summary("## Overview\n- Unsupported claim", {1})
+
+
+async def test_cited_ai_prose_is_formatted_without_another_model_request():
+    item = unit("Aurora is teal")
+    calls = []
+
+    class Provider:
+        async def summarize(self, inputs):
+            calls.append(inputs)
+            return "Aurora is teal [1]."
+
+    summary = await _summarize_updates(Provider(), [item], {str(item.id): 1})
+    assert summary == "## Overview\n- Aurora is teal [1]."
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize(
     "generated",
     [
         "",
         "Uncited assertion",
         "## Overview\n- Invented source [999]",
-        "Cited but unstructured [1]",
-        "## Overview\n- Cited [1]\n- Uncited",
-        "## Overview\n- Cited [1]\n## Sources\n- Source [1]",
     ],
 )
 async def test_summary_rejects_missing_or_invented_citations(generated):
