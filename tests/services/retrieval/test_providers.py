@@ -129,7 +129,9 @@ class TestLLMProviderProtocol:
         assert result == "[1] A fact"
         assert captured["base_url"] == "https://api.groq.com/openai/v1"
         assert captured["api_key"] == "test-key"
-        assert captured["model"] == "llama-3.3-70b-versatile"
+        assert captured["model"] == "openai/gpt-oss-120b"
+        assert captured["reasoning_effort"] == "low"
+        assert captured["max_tokens"] == 2048
         assert captured["messages"][0]["role"] == "system"
         assert captured["messages"][1]["role"] == "user"
         assert "[1] A fact" in captured["messages"][1]["content"]
@@ -148,11 +150,13 @@ class TestLLMProviderProtocol:
 
         from loom.services.retrieval.providers import XAILLMProvider
 
+        captured.clear()
         await XAILLMProvider(api_key="xai-test").summarize(
             [{"content": "[1] A fact", "type": "message"}]
         )
         assert captured["base_url"] == "https://api.x.ai/v1"
         assert captured["model"] == "grok-4.3"
+        assert captured["reasoning_effort"] is openai.omit
 
     async def test_groq_requires_its_own_api_key(self) -> None:
         from loom.services.retrieval.providers import GroqLLMProvider
