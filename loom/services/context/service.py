@@ -748,8 +748,10 @@ async def list_context_history(
     await _validate_context_reader(session, project_id, agent_id)
 
     page_limit = min(max(limit, 1), 200)
-    statement = select(ContextUnit).where(
-        ContextUnit.project_id == project_id, ContextUnit.removed_at.is_(None)
+    statement = (
+        select(ContextUnit, Agent.name.label("agent_name"))
+        .join(Agent, Agent.id == ContextUnit.agent_id)
+        .where(ContextUnit.project_id == project_id, ContextUnit.removed_at.is_(None))
     )
     if source_type:
         statement = statement.where(ContextUnit.source_type == source_type)
@@ -771,10 +773,6 @@ async def list_context_history(
             )
         )
 
-    statement = statement.add_columns(Agent.name.label("agent_name")).join(
-        Agent,
-        Agent.id == ContextUnit.agent_id,
-    )
     result = await session.execute(
         statement.order_by(ContextUnit.created_at.desc(), ContextUnit.id.desc()).limit(
             page_limit + 1

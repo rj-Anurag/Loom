@@ -298,7 +298,7 @@ async def get_project_summary(session: AsyncSession, project_id: uuid.UUID) -> d
                 from_llm_config(),
                 updates,
                 numbers,
-                cached["content"] if incremental else "",
+                cached["content"] if incremental and cached else "",
             )
             mode = "ai"
         except Exception:

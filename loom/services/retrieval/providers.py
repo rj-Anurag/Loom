@@ -126,10 +126,12 @@ class LocalProvider:
                 'Install it with: pip install "loom[local-embeddings]"'
             ) from exc
 
-        if self._model is None:
-            LocalProvider._model = SentenceTransformer("all-MiniLM-L6-v2")
+        model: Any = self._model
+        if model is None:
+            model = SentenceTransformer("all-MiniLM-L6-v2")
+            LocalProvider._model = model
 
-        vector: list[float] = self._model.encode(text).tolist()  # type: ignore[union-attr]
+        vector: list[float] = model.encode(text).tolist()
         # The database vector column is 1536-dimensional. Zero-padding keeps
         # the local model usable without an incompatible schema migration.
         return vector + [0.0] * (self.DIMENSION - len(vector))
