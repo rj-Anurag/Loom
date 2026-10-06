@@ -9,6 +9,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from loom.config import settings
 from loom.models import Agent, Project, ProjectMembership, User
 from loom.services.accounts.service import issue_user_session
 from loom.services.context.service import list_context_history, write_context
@@ -141,7 +142,10 @@ async def test_removed_browser_source_stays_out_of_history_bundle_and_summary(
 ) -> None:
     removed_url = "https://claude.ai/chat/remove-me"
     await _write_message(
-        client, history_project, history_headers, "User: cobalt falcon secret",
+        client,
+        history_project,
+        history_headers,
+        "User: cobalt falcon secret",
         source_url=removed_url,
     )
     await _write_message(
@@ -164,9 +168,7 @@ async def test_removed_browser_source_stays_out_of_history_bundle_and_summary(
         f"/v1/projects/{history_project.id}/context/history", headers=history_headers
     )
     assert history.status_code == 200
-    assert [unit["content"] for unit in history.json()["units"]] == [
-        "User: amber otter remains"
-    ]
+    assert [unit["content"] for unit in history.json()["units"]] == ["User: amber otter remains"]
 
     bundle = await client.post(
         f"/v1/projects/{history_project.id}/context/bundle",
@@ -213,16 +215,20 @@ async def test_project_summary_caches_updates_and_rebuilds_after_removal(
         async def summarize(self, inputs):
             calls.append(inputs)
             if len(calls) == 1:
-                return "Aurora is teal [1]."
+                return "## Overview\n- Aurora is teal [1]."
             if len(calls) == 2:
-                return "Aurora is teal [1]. Retry is seven [2]."
-            return "Retry is seven [1]."
+                return "## Overview\n- Aurora is teal [1].\n- Retry is seven [2]."
+            return "## Overview\n- Retry is seven [1]."
 
-    monkeypatch.setattr(project_summary.settings, "summarization_provider", "groq")
+    monkeypatch.setattr(settings, "summarization_provider", "groq")
     monkeypatch.setattr(project_summary, "from_llm_config", Provider)
     url = "https://claude.ai/chat/aurora"
     await _write_message(
-        client, history_project, history_headers, "Aurora is teal", source_url=url,
+        client,
+        history_project,
+        history_headers,
+        "Aurora is teal",
+        source_url=url,
     )
     endpoint = f"/v1/projects/{history_project.id}/summary"
     first = await client.get(endpoint, headers=history_headers)
@@ -261,11 +267,12 @@ async def test_project_summary_provider_failure_returns_cited_highlights(
         async def summarize(self, inputs):
             raise RuntimeError("Unavailable")
 
-    monkeypatch.setattr(project_summary.settings, "summarization_provider", "groq")
+    monkeypatch.setattr(settings, "summarization_provider", "groq")
     monkeypatch.setattr(project_summary, "from_llm_config", Provider)
     await _write_message(client, history_project, history_headers, "Aurora is teal")
     response = await client.get(
-        f"/v1/projects/{history_project.id}/summary", headers=history_headers,
+        f"/v1/projects/{history_project.id}/summary",
+        headers=history_headers,
     )
     assert response.status_code == 200
     assert response.json()["mode"] == "fallback"
@@ -328,32 +335,40 @@ async def test_member_can_remove_linked_chat_without_cross_project_access(
     other = Project(name="Other owner's project")
     db_session.add_all([user, other])
     await db_session.flush()
-    db_session.add(ProjectMembership(
-        project_id=history_project.id, user_id=user.id, role="owner",
-    ))
+    db_session.add(
+        ProjectMembership(
+            project_id=history_project.id,
+            user_id=user.id,
+            role="owner",
+        )
+    )
     await db_session.commit()
     _, token = await issue_user_session(db_session, user_id=user.id, client_kind="web")
     headers = {"Authorization": f"Bearer {token}"}
     url = "https://claude.ai/chat/link-only"
     linked = await client.post(
-        f"/v1/projects/{history_project.id}/link/chat", headers=history_headers,
+        f"/v1/projects/{history_project.id}/link/chat",
+        headers=history_headers,
         json={"chat_url": url, "title": "Link only", "platform": "claude.ai"},
     )
     assert linked.status_code == 200
     summary = await client.get(
-        f"/v1/projects/{history_project.id}/summary", headers=history_headers,
+        f"/v1/projects/{history_project.id}/summary",
+        headers=history_headers,
     )
     assert summary.status_code == 200
     assert "Link only" in summary.json()["summary"]
     assert summary.json()["citations"][0]["source_url"] == url
 
     foreign = await client.post(
-        f"/v1/projects/{other.id}/sources/remove", headers=headers,
+        f"/v1/projects/{other.id}/sources/remove",
+        headers=headers,
         json={"source_type": "browser_chat", "source_url": url},
     )
     assert foreign.status_code == 404
     removed = await client.post(
-        f"/v1/projects/{history_project.id}/sources/remove", headers=headers,
+        f"/v1/projects/{history_project.id}/sources/remove",
+        headers=headers,
         json={"source_type": "browser_chat", "source_url": url},
     )
     assert removed.status_code == 200
@@ -361,12 +376,14 @@ async def test_member_can_remove_linked_chat_without_cross_project_access(
     chats = await client.get(f"/v1/projects/{history_project.id}/chats", headers=headers)
     assert chats.json() == []
     after_removal = await client.get(
-        f"/v1/projects/{history_project.id}/summary", headers=history_headers,
+        f"/v1/projects/{history_project.id}/summary",
+        headers=history_headers,
     )
     assert after_removal.json()["mode"] == "empty"
     assert after_removal.json()["citations"] == []
     relinked = await client.post(
-        f"/v1/projects/{history_project.id}/link/chat", headers=history_headers,
+        f"/v1/projects/{history_project.id}/link/chat",
+        headers=history_headers,
         json={"chat_url": url, "title": "Link only"},
     )
     assert relinked.status_code == 409
@@ -382,27 +399,50 @@ async def test_removal_invalidates_only_summaries_derived_from_that_source(
     removed_url = "https://claude.ai/chat/derived-removed"
     kept_url = "https://claude.ai/chat/derived-kept"
     removed = await _write_message(
-        client, history_project, history_headers, "Aurora is teal", source_url=removed_url,
+        client,
+        history_project,
+        history_headers,
+        "Aurora is teal",
+        source_url=removed_url,
     )
     kept = await _write_message(
-        client, history_project, history_headers, "Retry is seven", source_url=kept_url,
+        client,
+        history_project,
+        history_headers,
+        "Retry is seven",
+        source_url=kept_url,
     )
     await _write_message(
-        client, history_project, history_headers, "Summary: Aurora is teal",
-        source_url=removed_url, type_="summary", parent_ids=[removed["id"]],
+        client,
+        history_project,
+        history_headers,
+        "Summary: Aurora is teal",
+        source_url=removed_url,
+        type_="summary",
+        parent_ids=[removed["id"]],
     )
     await _write_message(
-        client, history_project, history_headers, "Summary: Retry is seven",
-        source_url=kept_url, type_="summary", parent_ids=[kept["id"]],
+        client,
+        history_project,
+        history_headers,
+        "Summary: Retry is seven",
+        source_url=kept_url,
+        type_="summary",
+        parent_ids=[kept["id"]],
     )
     await remove_source(
-        db_session, history_project.id, source_type="browser_chat", source_url=removed_url,
+        db_session,
+        history_project.id,
+        source_type="browser_chat",
+        source_url=removed_url,
     )
     history = await client.get(
-        f"/v1/projects/{history_project.id}/context/history", headers=history_headers,
+        f"/v1/projects/{history_project.id}/context/history",
+        headers=history_headers,
     )
     assert [unit["content"] for unit in history.json()["units"]] == [
-        "Summary: Retry is seven", "Retry is seven",
+        "Summary: Retry is seven",
+        "Retry is seven",
     ]
 
 

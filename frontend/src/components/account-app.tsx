@@ -11,6 +11,7 @@ import Drawer from "@mui/material/Drawer";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
@@ -23,11 +24,11 @@ import { LoomMark } from "@/components/loom-mark";
 import { SetupSharing } from "@/components/setup-sharing";
 import { SourceExplorer, SourceNavigation } from "@/components/source-explorer";
 import { apiRequest, formatDate, friendlyError, initials } from "@/lib/api";
+import { parseProjectSummary } from "@/lib/project-summary";
 import {
   ALL_SOURCES_ID,
   PROJECT_SUMMARY_ID,
   buildMemorySources,
-  sourceTypeLabel,
   unitMatchesSource,
 } from "@/lib/sources";
 import { isSetupSharingSelected } from "@/lib/setup-sharing";
@@ -41,6 +42,34 @@ import type {
   ProjectSummary,
   User,
 } from "@/lib/types";
+
+function SummaryText({
+  text,
+  citations,
+  onCitationClick,
+}: {
+  text: string;
+  citations: ProjectSummary["citations"];
+  onCitationClick: (number: number) => void;
+}) {
+  return text.split(/(\[\d+\])/g).map((part, index) => {
+    const number = /^\[(\d+)\]$/.exec(part)?.[1];
+    const citation = citations.find((item) => item.number === Number(number));
+    if (!citation) return <span key={index}>{part}</span>;
+    return (
+      <Tooltip key={index} title={citation.excerpt} arrow>
+        <Button
+          size="small"
+          aria-label={`Open cited context ${number}`}
+          onClick={() => onCitationClick(citation.number)}
+          sx={{ minWidth: 0, p: 0, verticalAlign: "baseline" }}
+        >
+          [{number}]
+        </Button>
+      </Tooltip>
+    );
+  });
+}
 
 declare global {
   interface Window {
@@ -863,8 +892,7 @@ function AccountAppContent({
                 Project summary
               </Typography>
               <Typography color="text.secondary" sx={{ mt: 1 }}>
-                Automatically updated as project memory changes. Expand a
-                numbered source to inspect its original context.
+                A concise overview that updates as project memory changes.
               </Typography>
               {summaryError && (
                 <Alert severity="error" sx={{ mt: 2 }}>
@@ -881,15 +909,42 @@ function AccountAppContent({
                         : "AI summarization is temporarily unavailable. Showing context highlights while Loom retries."}
                     </Alert>
                   ) : null}
-                  <Typography
-                    sx={{
-                      mt: 3,
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    {summary.summary}
-                  </Typography>
+                  <Stack spacing={3} sx={{ mt: 3 }}>
+                    {parseProjectSummary(summary.summary).map((section) => (
+                      <Box component="section" key={section.heading}>
+                        <Typography component="h2" variant="h6" sx={{ mb: 1 }}>
+                          {section.heading}
+                        </Typography>
+                        <Box component="ul" sx={{ m: 0, pl: 3 }}>
+                          {section.items.map((item, index) => (
+                            <Box
+                              component="li"
+                              key={index}
+                              sx={{ mb: 0.75, overflowWrap: "anywhere" }}
+                            >
+                              <SummaryText
+                                text={item}
+                                citations={summary.citations}
+                                onCitationClick={(number) => {
+                                  const citation = summary.citations.find(
+                                    (entry) => entry.number === number,
+                                  );
+                                  const source = sources.find((entry) =>
+                                    citation
+                                      ? unitMatchesSource(citation, entry)
+                                      : false,
+                                  );
+                                  setSelectedSourceId(
+                                    source?.id || ALL_SOURCES_ID,
+                                  );
+                                }}
+                              />
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    ))}
+                  </Stack>
                   <Typography
                     color="text.secondary"
                     sx={{ fontSize: 11, mt: 3 }}
@@ -898,44 +953,6 @@ function AccountAppContent({
                       ? `Updated ${formatDate(summary.updated_at)} · ${summary.context_count} context items`
                       : "Summary update in progress"}
                   </Typography>
-                  {summary.citations.length > 0 && (
-                    <Box sx={{ mt: 3 }}>
-                      <Typography sx={{ fontWeight: 650 }}>Sources</Typography>
-                      {summary.citations.map((citation) => (
-                        <Box
-                          component="details"
-                          key={citation.id}
-                          color="text.secondary"
-                          sx={{
-                            fontSize: 12,
-                            mt: 0.5,
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          <Box component="summary" sx={{ cursor: "pointer" }}>
-                            [{citation.number}]{" "}
-                            {sourceTypeLabel(citation.source_type)}
-                          </Box>
-                          <Typography
-                            sx={{ mt: 1, whiteSpace: "pre-wrap", fontSize: 13 }}
-                          >
-                            {citation.excerpt}
-                          </Typography>
-                          <Button
-                            size="small"
-                            onClick={() => {
-                              const source = sources.find((item) =>
-                                unitMatchesSource(citation, item),
-                              );
-                              setSelectedSourceId(source?.id || ALL_SOURCES_ID);
-                            }}
-                          >
-                            Open source
-                          </Button>
-                        </Box>
-                      ))}
-                    </Box>
-                  )}
                 </>
               ) : !summaryError ? (
                 <CircularProgress

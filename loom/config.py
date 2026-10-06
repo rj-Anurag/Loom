@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     auth_rate_limit_window_seconds: int = 300
     embedding_provider: str = "stub"
     groq_api_key: str = ""
+    xai_api_key: str = ""
     summarization_interval_minutes: int = 15
     summarization_window_minutes: int = 10
     """Time window in minutes for grouping unsummarized units."""
@@ -53,7 +54,7 @@ class Settings(BaseSettings):
     summarization_min_units: int = 5
     """Minimum number of units required to trigger summarization of a group."""
     summarization_provider: str = "stub"
-    """LLM provider for summarization: ``"stub"`` or ``"groq"``."""
+    """LLM provider for summarization: ``"stub"``, ``"groq"``, ``"xai"``, or ``"auto"``."""
     otel_endpoint: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}

@@ -134,11 +134,53 @@ class TestLLMProviderProtocol:
         assert captured["messages"][1]["role"] == "user"
         assert "[1] A fact" in captured["messages"][1]["content"]
 
+        await provider.summarize(
+            [
+                {
+                    "content": "[1] A fact",
+                    "type": "message",
+                    "output_format": "project_summary",
+                }
+            ]
+        )
+        assert "## Overview" in captured["messages"][0]["content"]
+        assert "Do not include a Sources section" in captured["messages"][0]["content"]
+
+        from loom.services.retrieval.providers import XAILLMProvider
+
+        await XAILLMProvider(api_key="xai-test").summarize(
+            [{"content": "[1] A fact", "type": "message"}]
+        )
+        assert captured["base_url"] == "https://api.x.ai/v1"
+        assert captured["model"] == "grok-4.3"
+
     async def test_groq_requires_its_own_api_key(self) -> None:
         from loom.services.retrieval.providers import GroqLLMProvider
 
         with pytest.raises(ValueError, match="GROQ_API_KEY_NOT_CONFIGURED"):
             await GroqLLMProvider(api_key=None).summarize([{"content": "A fact"}])
+
+    async def test_auto_uses_grok_key_before_groq_key(self, monkeypatch) -> None:
+        import loom.config
+        from loom.services.retrieval.providers import (
+            GroqLLMProvider,
+            StubLLMProvider,
+            XAILLMProvider,
+            from_llm_config,
+        )
+
+        monkeypatch.setattr(loom.config.settings, "summarization_provider", "auto")
+        monkeypatch.setattr(loom.config.settings, "xai_api_key", "xai-test")
+        monkeypatch.setattr(loom.config.settings, "groq_api_key", "groq-test")
+        provider = from_llm_config()
+        assert type(provider) is XAILLMProvider
+        assert provider.BASE_URL == "https://api.x.ai/v1"
+        assert provider.model == "grok-4.3"
+
+        monkeypatch.setattr(loom.config.settings, "xai_api_key", "")
+        assert type(from_llm_config()) is GroqLLMProvider
+        monkeypatch.setattr(loom.config.settings, "groq_api_key", "")
+        assert type(from_llm_config()) is StubLLMProvider
 
 
 class TestLLMProviderRuntimeCheckable:

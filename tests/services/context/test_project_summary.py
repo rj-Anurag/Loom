@@ -23,7 +23,7 @@ async def test_summary_reads_long_history_in_bounded_batches_and_carries_previou
     class Provider:
         async def summarize(self, inputs):
             calls.append(inputs)
-            return "Earlier constraint survives [1]. Updated project facts [2]."
+            return "## Overview\n- Earlier constraint survives [1].\n- Updated facts [2]."
 
     summary = await _summarize_updates(
         Provider(), history, numbers, "Earlier constraint survives [1]."
@@ -34,12 +34,23 @@ async def test_summary_reads_long_history_in_bounded_batches_and_carries_previou
     assert all(sum(len(item["content"]) for item in call) < 23000 for call in calls)
     fragments = [item["content"] for call in calls for item in call if item["type"] != "summary"]
     assert "END_OF_HISTORY" in fragments[-1]
-    assert all(any(f"[{numbers[str(item.id)]}]" in fragment for fragment in fragments)
-               for item in history)
+    assert all(
+        any(f"[{numbers[str(item.id)]}]" in fragment for fragment in fragments) for item in history
+    )
     assert "[1]" in summary
 
 
-@pytest.mark.parametrize("generated", ["", "Uncited assertion", "Invented source [999]"])
+@pytest.mark.parametrize(
+    "generated",
+    [
+        "",
+        "Uncited assertion",
+        "## Overview\n- Invented source [999]",
+        "Cited but unstructured [1]",
+        "## Overview\n- Cited [1]\n- Uncited",
+        "## Overview\n- Cited [1]\n## Sources\n- Source [1]",
+    ],
+)
 async def test_summary_rejects_missing_or_invented_citations(generated):
     item = unit("Aurora is teal")
 
@@ -47,7 +58,7 @@ async def test_summary_rejects_missing_or_invented_citations(generated):
         async def summarize(self, inputs):
             return generated
 
-    with pytest.raises(ValueError, match="cite its original evidence"):
+    with pytest.raises(ValueError, match="cite its original evidence|structured sections"):
         await _summarize_updates(Provider(), [item], {str(item.id): 1})
 
 
@@ -56,11 +67,14 @@ def test_fallback_preserves_older_decision_and_exposes_only_referenced_sources()
     history = [decision, *(unit(f"Recent turn {i}") for i in range(12))]
     numbers = {str(item.id): i for i, item in enumerate(history, 1)}
     summary = _fallback(history, numbers)
+    assert summary.startswith("## Overview\n- ")
     assert "Retry limit is seven" in summary
     assert "Recent turn 11" in summary
     response = _response(
-        summary, [{"id": str(item.id), "number": numbers[str(item.id)]} for item in history],
-        None, "extractive",
+        summary,
+        [{"id": str(item.id), "number": numbers[str(item.id)]} for item in history],
+        None,
+        "extractive",
     )
     assert response["context_count"] == 13
     assert len(response["citations"]) == 9

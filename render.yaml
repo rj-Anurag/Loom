@@ -25,7 +25,11 @@ services:
       - key: EMBEDDING_PROVIDER
         value: stub
       - key: SUMMARIZATION_PROVIDER
-        value: stub
+        value: auto
+      - key: XAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
       - key: SUMMARIZATION_INTERVAL_MINUTES
         value: 15
       - key: SUMMARIZATION_WINDOW_MINUTES

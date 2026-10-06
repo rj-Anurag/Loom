@@ -199,8 +199,21 @@ class GroqLLMProvider:
         "include numbered references such as [1], cite the supporting references in the "
         "summary and never invent reference numbers."
     )
+    _PROJECT_SUMMARY_PROMPT = (
+        "Write a readable project overview in Markdown. Use these sections in this order: "
+        "## Overview, ## Decisions, ## Current work, ## Next steps. "
+        "Start with ## Overview. Under each included heading, write 1 to 4 short '- ' bullets. "
+        "Use plain text inside bullets, without bold or code formatting. "
+        "Omit a section if there is no evidence for it, except Overview. "
+        "Synthesize facts instead of copying raw messages. Include a numbered citation like "
+        "[1] in every factual bullet, using only reference numbers provided in the source "
+        "content or previous summary. Preserve still-relevant prior facts, but prefer newer "
+        "corrections. Do not include a Sources section or commentary outside these sections."
+    )
 
     MAX_INPUT_CHARS = 30000
+    BASE_URL = "https://api.groq.com/openai/v1"
+    MISSING_KEY_ERROR = "GROQ_API_KEY_NOT_CONFIGURED"
 
     def __init__(
         self,
@@ -214,20 +227,28 @@ class GroqLLMProvider:
         if not context_units:
             return ""
         if not self._api_key:
-            raise ValueError("GROQ_API_KEY_NOT_CONFIGURED")
+            raise ValueError(self.MISSING_KEY_ERROR)
         units_text = self._format_units(context_units)
 
         import openai
 
         client = openai.AsyncOpenAI(
             api_key=self._api_key,
-            base_url="https://api.groq.com/openai/v1",
+            base_url=self.BASE_URL,
         )
         resp = await client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": self._SUMMARY_PROMPT},
-                {"role": "user", "content": units_text[:self.MAX_INPUT_CHARS]},
+                {
+                    "role": "system",
+                    "content": self._SUMMARY_PROMPT
+                    + (
+                        "\n\n" + self._PROJECT_SUMMARY_PROMPT
+                        if any(u.get("output_format") == "project_summary" for u in context_units)
+                        else ""
+                    ),
+                },
+                {"role": "user", "content": units_text[: self.MAX_INPUT_CHARS]},
             ],
             temperature=0.3,
             max_tokens=1024,
@@ -249,20 +270,46 @@ class GroqLLMProvider:
         return "\n\n".join(lines)
 
 
+class XAILLMProvider(GroqLLMProvider):
+    """Grok summarization through xAI's OpenAI-compatible chat endpoint."""
+
+    BASE_URL = "https://api.x.ai/v1"
+    MISSING_KEY_ERROR = "XAI_API_KEY_NOT_CONFIGURED"
+
+    def __init__(self, model: str = "grok-4.3", api_key: str | None = None) -> None:
+        super().__init__(model=model, api_key=api_key)
+
+
+def effective_llm_provider_name() -> str:
+    """Resolve automatic selection without placing API keys in cache revisions."""
+    provider_name = settings.summarization_provider.lower()
+    if provider_name == "auto":
+        if settings.xai_api_key:
+            return "xai"
+        if settings.groq_api_key:
+            return "groq"
+        return "stub"
+    return provider_name
+
+
 def from_llm_config() -> LLMProvider:
     """Build an LLM provider based on ``settings.summarization_provider``.
 
     ``"stub"`` (default) → :class:`StubLLMProvider`
     ``"groq"``           → :class:`GroqLLMProvider`
+    ``"xai"``            → :class:`XAILLMProvider`
+    ``"auto"``           → xAI or Groq when its key is configured, otherwise stub
 
     Raises
     ------
     ValueError
         If the provider name is not recognized.
     """
-    provider_name = settings.summarization_provider.lower()
+    provider_name = effective_llm_provider_name()
     if provider_name == "groq":
         return GroqLLMProvider(api_key=settings.groq_api_key or None)
+    if provider_name == "xai":
+        return XAILLMProvider(api_key=settings.xai_api_key or None)
     if provider_name == "stub":
         return StubLLMProvider()
     msg = f"Unrecognised summarization provider: {settings.summarization_provider!r}"

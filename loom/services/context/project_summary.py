@@ -16,11 +16,15 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loom.config import settings
 from loom.models import ChatLink, ContextUnit, ContextUnitType, Project
-from loom.services.retrieval.providers import LLMProvider, from_llm_config
+from loom.services.retrieval.providers import (
+    LLMProvider,
+    effective_llm_provider_name,
+    from_llm_config,
+)
 
 logger = logging.getLogger(__name__)
+SUMMARY_FORMAT_REVISION = "structured-v1"
 
 
 @dataclass(frozen=True)
@@ -38,8 +42,13 @@ class LinkedChatRecord:
 SummaryRecord = ContextUnit | LinkedChatRecord
 
 
-def _response(content: str, citations: list[dict[str, Any]], updated_at: datetime | None,
-              mode: str, context_count: int | None = None) -> dict[str, Any]:
+def _response(
+    content: str,
+    citations: list[dict[str, Any]],
+    updated_at: datetime | None,
+    mode: str,
+    context_count: int | None = None,
+) -> dict[str, Any]:
     referenced = {int(number) for number in re.findall(r"\[(\d+)\]", content)}
     return {
         "summary": content,
@@ -52,13 +61,19 @@ def _response(content: str, citations: list[dict[str, Any]], updated_at: datetim
 
 def _fallback(units: Sequence[SummaryRecord], numbers: dict[str, int]) -> str:
     if not units:
-        return "No project memory has been captured yet."
-    important = [unit for unit in units if unit.type in {
-        ContextUnitType.decision, ContextUnitType.task_result,
-    }][-4:]
+        return "## Overview\n- No project memory has been captured yet."
+    important = [
+        unit
+        for unit in units
+        if unit.type
+        in {
+            ContextUnitType.decision,
+            ContextUnitType.task_result,
+        }
+    ][-4:]
     selected = {unit.id: unit for unit in [*important, *units[-8:]]}
-    return "Context highlights:\n" + "\n".join(
-        f"[{numbers[str(unit.id)]}] {' '.join(unit.content.split())[:240]}"
+    return "## Overview\n" + "\n".join(
+        f"- {' '.join(unit.content.split())[:240]} [{numbers[str(unit.id)]}]"
         for unit in selected.values()
     )
 
@@ -78,31 +93,51 @@ async def _summarize_updates(
     async def summarize_batch() -> str:
         inputs = []
         if summary:
-            inputs.append({
-                "type": "summary",
-                "trust_tier": "external_tool",
-                "content": (
-                    "Previous project summary; update with the following history:\n" + summary
-                ),
-            })
-        generated = await asyncio.wait_for(provider.summarize([*inputs, *batch]), timeout=30)
+            inputs.append(
+                {
+                    "type": "summary",
+                    "trust_tier": "external_tool",
+                    "output_format": "project_summary",
+                    "content": (
+                        "Previous project summary; update with the following history:\n" + summary
+                    ),
+                }
+            )
+        current_batch = [*batch]
+        if not inputs:
+            current_batch[0] = {**current_batch[0], "output_format": "project_summary"}
+        generated = await asyncio.wait_for(
+            provider.summarize([*inputs, *current_batch]), timeout=30
+        )
         generated = generated.strip()[:3500]
         references = {int(number) for number in re.findall(r"\[(\d+)\]", generated)}
         if not generated or not references or not references.issubset(allowed):
             raise ValueError("Project summary must cite its original evidence")
+        bullets = re.findall(r"(?m)^- .+", generated)
+        if (
+            not re.search(r"(?m)^## Overview\s*$", generated)
+            or not bullets
+            or any(not re.search(r"\[\d+\]", bullet) for bullet in bullets)
+            or re.search(r"(?im)^## Sources\s*$", generated)
+        ):
+            raise ValueError("Project summary must have structured sections")
         return generated
 
     for unit in units:
         for offset in range(0, len(unit.content), 3000):
-            content = f"[{numbers[str(unit.id)]}] {unit.content[offset:offset + 3000]}"
+            content = f"[{numbers[str(unit.id)]}] {unit.content[offset : offset + 3000]}"
             if batch and size + len(content) > 18000:
                 summary = await summarize_batch()
                 batch = []
                 size = 0
-            batch.append({
-                "id": str(unit.id), "type": unit.type.value,
-                "trust_tier": "external_tool", "content": content,
-            })
+            batch.append(
+                {
+                    "id": str(unit.id),
+                    "type": unit.type.value,
+                    "trust_tier": "external_tool",
+                    "content": content,
+                }
+            )
             size += len(content)
     if batch:
         summary = await summarize_batch()
@@ -110,78 +145,124 @@ async def _summarize_updates(
 
 
 async def _last_removal(session: AsyncSession, project_id: uuid.UUID) -> datetime | None:
-    return (await session.execute(
-        text("SELECT max(removed_at) FROM removed_sources WHERE project_id = :project_id"),
-        {"project_id": project_id},
-    )).scalar_one_or_none()
+    return (
+        await session.execute(
+            text("SELECT max(removed_at) FROM removed_sources WHERE project_id = :project_id"),
+            {"project_id": project_id},
+        )
+    ).scalar_one_or_none()
 
 
 async def get_project_summary(session: AsyncSession, project_id: uuid.UUID) -> dict[str, Any]:
     """Return or refresh the overview; concurrent workers share one generation lock."""
-    count, latest = (await session.execute(
-        select(func.count(ContextUnit.id), func.max(ContextUnit.created_at)).where(
-            ContextUnit.project_id == project_id, ContextUnit.removed_at.is_(None),
-            ContextUnit.type != ContextUnitType.summary,
+    count, latest = (
+        await session.execute(
+            select(func.count(ContextUnit.id), func.max(ContextUnit.created_at)).where(
+                ContextUnit.project_id == project_id,
+                ContextUnit.removed_at.is_(None),
+                ContextUnit.type != ContextUnitType.summary,
+            )
         )
-    )).one()
-    link_count, latest_link = (await session.execute(
-        select(func.count(ChatLink.id), func.max(ChatLink.linked_at)).where(
-            ChatLink.project_id == project_id, ChatLink.removed_at.is_(None),
+    ).one()
+    link_count, latest_link = (
+        await session.execute(
+            select(func.count(ChatLink.id), func.max(ChatLink.linked_at)).where(
+                ChatLink.project_id == project_id,
+                ChatLink.removed_at.is_(None),
+            )
         )
-    )).one()
+    ).one()
     removed_at = await _last_removal(session, project_id)
-    provider_name = settings.summarization_provider.lower()
+    provider_name = effective_llm_provider_name()
     digest = hashlib.sha256(
         f"{count}:{latest}:{link_count}:{latest_link}:{removed_at}".encode()
     ).hexdigest()
-    revision = f":{provider_name}:{digest}"
-    cached = (await session.execute(
-        text("SELECT source_revision, content, citations, updated_at FROM project_summaries "
-             "WHERE project_id = :project_id"), {"project_id": project_id},
-    )).mappings().first()
+    revision = f":{provider_name}:{SUMMARY_FORMAT_REVISION}:{digest}"
+    cached = (
+        (
+            await session.execute(
+                text(
+                    "SELECT source_revision, content, citations, updated_at FROM project_summaries "
+                    "WHERE project_id = :project_id"
+                ),
+                {"project_id": project_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if cached and cached["source_revision"].endswith(revision):
         mode = cached["source_revision"].split(":", 1)[0]
-        retry_due = mode == "fallback" and (
-            datetime.now(UTC) - cached["updated_at"]
-        ).total_seconds() >= 60
+        retry_due = (
+            mode == "fallback" and (datetime.now(UTC) - cached["updated_at"]).total_seconds() >= 60
+        )
         if not retry_due:
             return _response(
                 cached["content"], cached["citations"], cached["updated_at"], mode, count
             )
 
-    locked = (await session.execute(
-        text("SELECT pg_try_advisory_xact_lock(hashtext('loom-project-summary'), hashtext(:id))"),
-        {"id": str(project_id)},
-    )).scalar_one()
+    locked = (
+        await session.execute(
+            text(
+                "SELECT pg_try_advisory_xact_lock(hashtext('loom-project-summary'), hashtext(:id))"
+            ),
+            {"id": str(project_id)},
+        )
+    ).scalar_one()
     if not locked:
         return _response("Updating project summary…", [], None, "pending")
 
-    units = list((await session.execute(
-        select(ContextUnit).where(
-            ContextUnit.project_id == project_id, ContextUnit.removed_at.is_(None),
-            ContextUnit.type != ContextUnitType.summary,
-        ).order_by(ContextUnit.created_at, ContextUnit.id)
-    )).scalars().all())
-    links = list((await session.execute(
-        select(ChatLink).where(
-            ChatLink.project_id == project_id, ChatLink.removed_at.is_(None),
-        ).order_by(ChatLink.linked_at, ChatLink.id)
-    )).scalars().all())
+    units = list(
+        (
+            await session.execute(
+                select(ContextUnit)
+                .where(
+                    ContextUnit.project_id == project_id,
+                    ContextUnit.removed_at.is_(None),
+                    ContextUnit.type != ContextUnitType.summary,
+                )
+                .order_by(ContextUnit.created_at, ContextUnit.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    links = list(
+        (
+            await session.execute(
+                select(ChatLink)
+                .where(
+                    ChatLink.project_id == project_id,
+                    ChatLink.removed_at.is_(None),
+                )
+                .order_by(ChatLink.linked_at, ChatLink.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     records: list[SummaryRecord] = sorted(
-        [*units, *(LinkedChatRecord(
-            id=link.id,
-            content=f"Linked browser conversation: {link.title or 'Untitled conversation'} "
+        [
+            *units,
+            *(
+                LinkedChatRecord(
+                    id=link.id,
+                    content=f"Linked browser conversation: {link.title or 'Untitled conversation'} "
                     f"({link.platform or 'browser'}) at {link.chat_url}",
-            created_at=link.linked_at,
-            source_url=link.chat_url,
-        ) for link in links)],
+                    created_at=link.linked_at,
+                    source_url=link.chat_url,
+                )
+                for link in links
+            ),
+        ],
         key=lambda item: (item.created_at, item.id),
     )
     current_ids = {str(item.id) for item in records}
     prior_citations = list(cached["citations"]) if cached else []
     prior_ids = {item["id"] for item in prior_citations}
     incremental = bool(
-        cached and cached["source_revision"].startswith(f"ai:{provider_name}:")
+        cached
+        and cached["source_revision"].startswith(f"ai:{provider_name}:{SUMMARY_FORMAT_REVISION}:")
         and prior_ids.issubset(current_ids)
         and (removed_at is None or cached["updated_at"] > removed_at)
     )
@@ -193,7 +274,9 @@ async def get_project_summary(session: AsyncSession, project_id: uuid.UUID) -> d
         number = len(citations) + 1
         numbers[str(unit.id)] = number
         item = {
-            "number": number, "id": str(unit.id), "source_type": unit.source_type,
+            "number": number,
+            "id": str(unit.id),
+            "source_type": unit.source_type,
             "excerpt": unit.content[:500],
         }
         if unit.agent_id is not None:
@@ -210,7 +293,10 @@ async def get_project_summary(session: AsyncSession, project_id: uuid.UUID) -> d
         try:
             updates = [unit for unit in records if not incremental or str(unit.id) not in prior_ids]
             summary = await _summarize_updates(
-                from_llm_config(), updates, numbers, cached["content"] if incremental else "",
+                from_llm_config(),
+                updates,
+                numbers,
+                cached["content"] if incremental else "",
             )
             mode = "ai"
         except Exception:
@@ -234,8 +320,13 @@ async def get_project_summary(session: AsyncSession, project_id: uuid.UUID) -> d
             "source_revision = EXCLUDED.source_revision, content = EXCLUDED.content, "
             "citations = EXCLUDED.citations, updated_at = EXCLUDED.updated_at"
         ),
-        {"project_id": project_id, "revision": mode + revision, "content": summary,
-         "citations": json.dumps(citations), "updated_at": updated_at},
+        {
+            "project_id": project_id,
+            "revision": mode + revision,
+            "content": summary,
+            "citations": json.dumps(citations),
+            "updated_at": updated_at,
+        },
     )
     await session.commit()
     return _response(summary, citations, updated_at, mode, len(units))
