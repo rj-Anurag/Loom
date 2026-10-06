@@ -89,6 +89,8 @@ async def _summarize_updates(
     batch: list[dict[str, Any]] = []
     size = 0
     allowed = set(numbers.values())
+    batch_limit = getattr(provider, "SUMMARY_BATCH_CHARS", 18000)
+    timeout = getattr(provider, "SUMMARY_TIMEOUT_SECONDS", 30)
 
     async def summarize_batch() -> str:
         inputs = []
@@ -107,7 +109,7 @@ async def _summarize_updates(
         if not inputs:
             current_batch[0] = {**current_batch[0], "output_format": "project_summary"}
         generated = await asyncio.wait_for(
-            provider.summarize([*inputs, *current_batch]), timeout=30
+            provider.summarize([*inputs, *current_batch]), timeout=timeout
         )
         generated = generated.strip()[:3500]
         references = {int(number) for number in re.findall(r"\[(\d+)\]", generated)}
@@ -126,7 +128,7 @@ async def _summarize_updates(
     for unit in units:
         for offset in range(0, len(unit.content), 3000):
             content = f"[{numbers[str(unit.id)]}] {unit.content[offset : offset + 3000]}"
-            if batch and size + len(content) > 18000:
+            if batch and size + len(content) > batch_limit:
                 summary = await summarize_batch()
                 batch = []
                 size = 0
