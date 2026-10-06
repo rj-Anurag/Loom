@@ -184,6 +184,28 @@ async def read_context(
     return "\n".join(lines)
 
 
+@mcp.tool(
+    description=(
+        "Get a prompt-specific cited brief and original browser or coding-session "
+        "evidence from the selected Loom project. No match returns no history."
+    )
+)
+async def context_bundle(prompt: str, budget: int = 4096) -> str:
+    """Return the same bundle delivered by harness prompt hooks."""
+    _check_config()
+    async with _http_client() as client:
+        resp = await client.post(
+            f"/v1/projects/{_project_id()}/context/bundle",
+            json={"prompt": prompt, "budget": budget},
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    from loom.cli.prompt_hook import format_bundle
+
+    return format_bundle(data) or "No relevant context found."
+
+
 @mcp.tool(description=(
     "List the newest project context units without relevance ranking. "
     "Use this to inspect recent work or filter memory by source, session, or type."

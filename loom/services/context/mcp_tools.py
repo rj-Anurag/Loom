@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from loom.services.context.bundle import build_context_bundle
 from loom.services.context.provenance import metadata_from_tool_arguments
 from loom.services.context.service import (
     list_context_history,
@@ -156,6 +157,36 @@ class ReadContextTool(MCPTool):
         result["budget_used"] = total
 
         return result
+
+
+class ContextBundleTool(MCPTool):
+    """Retrieve a cited brief and original evidence for one prompt."""
+
+    name = "context_bundle"
+    description = "Get prompt-specific cited context with original source evidence."
+    input_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string"},
+            "budget": {"type": "integer", "default": 4096},
+        },
+        "required": ["prompt"],
+    }
+
+    async def call(self, args: dict[str, Any]) -> dict[str, Any]:
+        prompt = args.get("prompt", "")
+        if not isinstance(prompt, str) or not prompt.strip():
+            return {"error": "Missing required field: prompt"}
+        try:
+            return await build_context_bundle(
+                self.session,
+                self.project_id,
+                self.agent_id,
+                prompt=prompt,
+                budget=args.get("budget", 4096),
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
 
 
 class WriteContextTool(MCPTool):
@@ -424,6 +455,7 @@ class ToolRegistry:
 
         self._tools: list[MCPTool] = [
             ReadContextTool(session, project_id, agent_id),
+            ContextBundleTool(session, project_id, agent_id),
             WriteContextTool(session, project_id, agent_id),
             GetProjectSummaryTool(session, project_id, agent_id),
             ListRecentContextTool(session, project_id, agent_id),

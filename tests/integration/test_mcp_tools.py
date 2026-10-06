@@ -80,11 +80,12 @@ async def test_registry_lists_all_tools(
 ) -> None:
     """ToolRegistry.list_tools() returns every public tool definition."""
     tools = tool_registry.list_tools()
-    assert len(tools) == 5
+    assert len(tools) == 6
 
     names = {t["name"] for t in tools}
     assert names == {
         "read_context",
+        "context_bundle",
         "write_context",
         "get_project_summary",
         "list_recent_context",

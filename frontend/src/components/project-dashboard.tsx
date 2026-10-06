@@ -7,6 +7,7 @@ import Card from "@mui/material/Card";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -24,6 +25,19 @@ interface Conflict {
   id?: string;
   conflict_type?: string;
   created_at?: string;
+}
+
+interface ContextBundle {
+  brief: string;
+  evidence: Array<{
+    citation: number;
+    id: string;
+    content: string;
+    source_type: string;
+    source_url?: string;
+    source_session_id?: string;
+  }>;
+  total_tokens: number;
 }
 
 const mono = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
@@ -95,6 +109,36 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
   const [units, setUnits] = useState<ContextUnit[]>([]);
   const [ascending, setAscending] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const [contextQuery, setContextQuery] = useState("");
+  const [bundle, setBundle] = useState<ContextBundle | null>(null);
+  const [bundleError, setBundleError] = useState("");
+  const [bundleLoading, setBundleLoading] = useState(false);
+
+  const searchContext = async () => {
+    if (!contextQuery.trim()) return;
+    setBundleLoading(true);
+    setBundleError("");
+    try {
+      const response = await fetch(`/v1/projects/${projectId}/context/bundle`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt: contextQuery, budget: 4096 }),
+      });
+      if (!response.ok)
+        throw new Error(`${response.status}: ${await response.text()}`);
+      setBundle((await response.json()) as ContextBundle);
+    } catch (reason) {
+      setBundle(null);
+      setBundleError(
+        reason instanceof Error ? reason.message : "Context lookup failed.",
+      );
+    } finally {
+      setBundleLoading(false);
+    }
+  };
 
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.slice(1));
@@ -405,6 +449,77 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
                 )}
               </Card>
             </Box>
+
+            <Card sx={{ mt: 2, p: { xs: 2, sm: 2.5 } }}>
+              <Typography
+                component="h2"
+                sx={{
+                  color: "primary.light",
+                  fontFamily: mono,
+                  fontSize: 11,
+                  fontWeight: 750,
+                  mb: 2,
+                  textTransform: "uppercase",
+                }}
+              >
+                Query project context
+              </Typography>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Prompt or question"
+                  value={contextQuery}
+                  onChange={(event) => setContextQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void searchContext();
+                  }}
+                />
+                <Button
+                  variant="contained"
+                  disabled={bundleLoading || !contextQuery.trim()}
+                  onClick={() => void searchContext()}
+                >
+                  {bundleLoading ? "Searching…" : "Find context"}
+                </Button>
+              </Stack>
+              {bundleError && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {bundleError}
+                </Alert>
+              )}
+              {bundle &&
+                (bundle.evidence.length ? (
+                  <Stack spacing={1.5} sx={{ mt: 2 }}>
+                    <Typography sx={{ whiteSpace: "pre-wrap" }}>
+                      {bundle.brief}
+                    </Typography>
+                    {bundle.evidence.map((item) => (
+                      <Box
+                        key={item.id}
+                        sx={{ p: 1.5, bgcolor: "#0a0a0c", borderRadius: 1 }}
+                      >
+                        <Typography
+                          color="text.secondary"
+                          sx={{ fontFamily: mono, fontSize: 11 }}
+                        >
+                          [{item.citation}] {item.source_type} ·{" "}
+                          {item.source_url ||
+                            item.source_session_id ||
+                            "Unscoped"}
+                        </Typography>
+                        <Typography sx={{ whiteSpace: "pre-wrap", mt: 0.5 }}>
+                          {item.content}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography sx={{ mt: 2 }}>
+                    No relevant context found.
+                  </Typography>
+                ))}
+            </Card>
 
             <Card sx={{ mt: 2, p: { xs: 2, sm: 2.5 } }}>
               <Stack

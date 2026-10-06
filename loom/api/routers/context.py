@@ -21,6 +21,7 @@ from loom.api.auth import AuthContext, require_auth
 from loom.api.dependencies import get_redis
 from loom.db import get_session
 from loom.schemas.events import ProjectEvent
+from loom.services.context.bundle import build_context_bundle
 from loom.services.context.service import (
     VersionConflict,
     list_context_history,
@@ -153,6 +154,18 @@ class ReadContextResponse(BaseModel):
     units: list[ReadContextUnitModel]
     total_tokens: int
     budget_used: int
+    truncated: bool
+
+
+class BundleQuery(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=10000)
+    budget: int = Field(4096, ge=1, le=32000)
+
+
+class BundleResponse(BaseModel):
+    brief: str
+    evidence: list[dict[str, Any]]
+    total_tokens: int
     truncated: bool
 
 
@@ -401,6 +414,25 @@ async def context_sources_endpoint(
             status_code=status_map.get(error_code, 400),
             detail=error_code,
         )
+
+
+@router.post("/{project_id}/context/bundle", response_model=BundleResponse)
+async def context_bundle_endpoint(
+    project_id: uuid.UUID,
+    params: BundleQuery,
+    auth: AuthContext = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Retrieve a cited context bundle for one submitted prompt."""
+    try:
+        return await build_context_bundle(
+            session, project_id, auth.agent_id, prompt=params.prompt, budget=params.budget
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code={"PROJECT_NOT_FOUND": 404, "AGENT_MISMATCH": 403}.get(str(exc), 400),
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(

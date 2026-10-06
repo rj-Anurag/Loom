@@ -47,26 +47,23 @@ def _merged_hooks(path: Path, harness: str) -> tuple[dict[str, Any], bool]:
             for entry in entries
         ):
             raise CaptureInstallError(f"Malformed {event} hook in {path}; repair it and retry")
-        expected = {
-            "hooks": [{"type": "command", "command": f"loom capture event {harness}", "timeout": 5}]
-        }
-        matching = [entry for entry in entries if entry == expected]
-        conflicts = [
-            entry
-            for entry in entries
-            if isinstance(entry, dict)
-            and any(
-                isinstance(hook, dict) and "loom capture event" in str(hook.get("command", ""))
-                for hook in entry.get("hooks", [])
-                if isinstance(entry.get("hooks"), list)
-            )
-            and entry != expected
-        ]
-        if conflicts or len(matching) > 1:
-            raise CaptureInstallError(f"Conflicting Loom hook in {path}; remove it and retry")
-        if not matching:
-            entries.append(expected)
-            changed = True
+        commands = [f"loom capture event {harness}"]
+        if event == "UserPromptSubmit":
+            commands.append("loom prompt-hook")
+        for command in commands:
+            expected = {"hooks": [{"type": "command", "command": command, "timeout": 5}]}
+            matching = [entry for entry in entries if entry == expected]
+            conflicts = [
+                entry
+                for entry in entries
+                if any(command in str(hook.get("command", "")) for hook in entry["hooks"])
+                and entry != expected
+            ]
+            if conflicts or len(matching) > 1:
+                raise CaptureInstallError(f"Conflicting Loom hook in {path}; remove it and retry")
+            if not matching:
+                entries.append(expected)
+                changed = True
     return data, changed
 
 
@@ -113,6 +110,43 @@ export const LoomCapture = async ({ client, directory }) => ({
 });
 """
 
+OLD_PLUGIN = PLUGIN
+PLUGIN = PLUGIN.replace(
+    "export const LoomCapture = async ({ client, directory }) => ({\n",
+    """const contextForPrompt = (directory, prompt) => new Promise((resolve) => {
+  const child = spawn("loom", ["prompt-hook"], {
+    cwd: directory, stdio: ["pipe", "pipe", "ignore"],
+  });
+  let output = "";
+  const timer = setTimeout(() => child.kill(), 4500);
+  child.stdout.on("data", (chunk) => { output += chunk; });
+  child.on("error", () => { clearTimeout(timer); resolve(""); });
+  child.on("close", () => {
+    clearTimeout(timer);
+    try { resolve(JSON.parse(output).hookSpecificOutput?.additionalContext ?? ""); }
+    catch { resolve(""); }
+  });
+  child.stdin.on("error", () => {});
+  child.stdin.end(JSON.stringify({ prompt }));
+});
+
+export const LoomCapture = async ({ client, directory }) => {
+  const contexts = new Map();
+  return {
+  "chat.message": async (input, output) => {
+    const prompt = output.parts.filter((part) => part.type === "text")
+      .map((part) => part.text).join("\\n");
+    if (!prompt.trim()) return;
+    contexts.set(input.sessionID ?? "default", await contextForPrompt(directory, prompt));
+  },
+  "experimental.chat.system.transform": async (input, output) => {
+    const context = contexts.get(input.sessionID ?? "default");
+    if (context) output.system.push(context);
+  },
+""",
+)
+PLUGIN = PLUGIN.rsplit("});", 1)[0] + "  };\n};\n"
+
 
 def prepare(root: Path, targets: set[str]) -> list[tuple[Path, str]]:
     binding, path = load_repository_binding(start=root)
@@ -145,8 +179,8 @@ def prepare(root: Path, targets: set[str]) -> list[tuple[Path, str]]:
             prepared.append((target, json.dumps(data, indent=2) + "\n"))
     if "opencode" in targets:
         target = root / ".opencode/plugins/loom.js"
-        if target.exists() and target.read_text(encoding="utf-8") != PLUGIN:
+        if target.exists() and target.read_text(encoding="utf-8") not in {PLUGIN, OLD_PLUGIN}:
             raise CaptureInstallError(f"Conflicting Loom plugin in {target}; remove it and retry")
-        if not target.exists():
+        if not target.exists() or target.read_text(encoding="utf-8") == OLD_PLUGIN:
             prepared.append((target, PLUGIN))
     return prepared

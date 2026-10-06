@@ -299,6 +299,11 @@ commands, tool results, reasoning, attachments, and subagent messages are not
 uploaded. Claude Code uses `.claude/settings.json` hooks. Unrelated harness
 configuration is preserved.
 Capture requires Codex 0.160.0+, Claude Code 2.1.206+, or OpenCode 1.18.34+.
+The same installer adds prompt hooks that deliver a cited brief and original
+matching history before each submitted prompt, including follow-ups. Rerun
+`loom install all` once in repositories installed before this feature; MCP
+registration alone cannot activate automatic prompt delivery. If Loom is
+unavailable, the prompt proceeds without added context.
 
 Capture writes to a user-only SQLite queue at `~/.loom/capture.db` before
 uploading. If the API is offline, later events retry automatically. Pause
@@ -329,6 +334,9 @@ loom status
 loom links
 loom history --limit 20
 loom history --source opencode --session <session-id> --type task_result
+
+# Inspect the cited bundle delivered for a submitted coding prompt
+loom context "How should login tokens expire?" --rich
 ```
 
 Each command also supports `--json`. `loom links` shows linked browser chats

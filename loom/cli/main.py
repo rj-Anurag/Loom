@@ -59,6 +59,7 @@ from loom.cli.project_config import (
     save_project,
     save_repository_binding,
 )
+from loom.cli.prompt_hook import main as prompt_hook_main
 from loom.mcp.server import main as mcp_main
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -600,16 +601,20 @@ def cmd_context(args: argparse.Namespace) -> None:
     """Fetch context relevant to a query from the Loom project."""
     _check_project_config()
 
-    resp = httpx.get(
-        f"{_api_url()}/v1/projects/{_project_id()}/context",
-        params={
-            "query": args.query,
-            "budget": args.budget,
-            "scope": args.scope,
-        },
-        headers=_headers(),
-        timeout=30,
-    )
+    if getattr(args, "rich", False):
+        resp = httpx.post(
+            f"{_api_url()}/v1/projects/{_project_id()}/context/bundle",
+            json={"prompt": args.query, "budget": args.budget},
+            headers=_headers(),
+            timeout=30,
+        )
+    else:
+        resp = httpx.get(
+            f"{_api_url()}/v1/projects/{_project_id()}/context",
+            params={"query": args.query, "budget": args.budget, "scope": args.scope},
+            headers=_headers(),
+            timeout=30,
+        )
 
     if resp.status_code == 401:
         print("Error: Authentication failed. Check LOOM_API_KEY.", file=sys.stderr)
@@ -624,6 +629,12 @@ def cmd_context(args: argparse.Namespace) -> None:
 
     if args.json:
         print(json.dumps(data, indent=2, default=str))
+        return
+
+    if getattr(args, "rich", False):
+        from loom.cli.prompt_hook import format_bundle
+
+        print(format_bundle(data) or "No relevant context found.")
         return
 
     if not units:
@@ -1154,6 +1165,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Context scope",
     )
     p_context.add_argument("--json", action="store_true", help="Output raw JSON")
+    p_context.add_argument(
+        "--rich", action="store_true", help="Show cited brief and original evidence"
+    )
+
+    sub.add_parser("prompt-hook", help=argparse.SUPPRESS)
 
     # loom init
     p_init = sub.add_parser("init", help="Create a new project and get credentials")
@@ -1358,6 +1374,7 @@ def main() -> None:
 
     commands: dict[str, Callable[[argparse.Namespace], None]] = {
         "context": cmd_context,
+        "prompt-hook": lambda _args: prompt_hook_main(),
         "init": cmd_init,
         "login": cmd_login,
         "logout": cmd_logout,

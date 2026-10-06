@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import uuid
 from argparse import Namespace
 
 import pytest
 
+from loom.cli.capture_install import OLD_PLUGIN
 from loom.cli.main import build_parser, cmd_install
 
 
@@ -68,6 +71,12 @@ def test_install_all_preserves_existing_markdown(tmp_path, monkeypatch) -> None:
     ]
     assert not (tmp_path / ".claude" / "commands" / "loom.md").exists()
 
+    for path in (tmp_path / ".codex/hooks.json", tmp_path / ".claude/settings.json"):
+        hooks = json.loads(path.read_text())["hooks"]["UserPromptSubmit"]
+        commands = [hook["command"] for entry in hooks for hook in entry["hooks"]]
+        assert "loom prompt-hook" in commands
+    assert '"chat.message"' in (tmp_path / ".opencode/plugins/loom.js").read_text()
+
 
 def test_install_all_does_not_create_markdown(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("loom.cli.main._install_codex", lambda: None)
@@ -75,6 +84,94 @@ def test_install_all_does_not_create_markdown(tmp_path, monkeypatch) -> None:
     cmd_install(_args("all", str(tmp_path)))
 
     assert list(tmp_path.rglob("*.md")) == []
+
+
+def test_install_upgrades_existing_capture_hooks_and_plugin(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("loom.cli.main._install_codex", lambda: None)
+    for relative, harness in (
+        (".codex/hooks.json", "codex"),
+        (".claude/settings.json", "claude"),
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "UserPromptSubmit": [
+                            {
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"loom capture event {harness}",
+                                        "timeout": 5,
+                                    }
+                                ]
+                            }
+                        ],
+                        "Stop": [
+                            {
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"loom capture event {harness}",
+                                        "timeout": 5,
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                }
+            )
+        )
+    plugin = tmp_path / ".opencode/plugins/loom.js"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text(OLD_PLUGIN)
+
+    cmd_install(_args("all", str(tmp_path)))
+    assert '"chat.message"' in plugin.read_text()
+    assert '"experimental.chat.system.transform"' in plugin.read_text()
+    for relative in (".codex/hooks.json", ".claude/settings.json"):
+        hooks = json.loads((tmp_path / relative).read_text())["hooks"]["UserPromptSubmit"]
+        assert (
+            sum(hook["command"] == "loom prompt-hook" for entry in hooks for hook in entry["hooks"])
+            == 1
+        )
+
+
+def test_opencode_plugin_adds_context_without_changing_user_message(tmp_path) -> None:
+    if not shutil.which("node"):
+        pytest.skip("Node.js is unavailable")
+    from loom.cli.capture_install import PLUGIN
+
+    plugin = tmp_path / "loom.mjs"
+    plugin.write_text(PLUGIN)
+    executable = tmp_path / "loom"
+    executable.write_text(
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s' "
+        '\'{"hookSpecificOutput":{"additionalContext":"cited history [1]"}}\'\n'
+    )
+    executable.chmod(0o755)
+    script = (
+        f"import {{ LoomCapture }} from {json.dumps(plugin.as_uri())};\n"
+        f"const hooks = await LoomCapture({{ directory: {json.dumps(str(tmp_path))} }});\n"
+        'const output = { parts: [{ type: "text", text: "follow-up prompt" }] };\n'
+        'await hooks["chat.message"]({ sessionID: "one" }, output);\n'
+        "const model = { system: [] };\n"
+        'await hooks["experimental.chat.system.transform"]({ sessionID: "one" }, model);\n'
+        "process.stdout.write(JSON.stringify({ parts: output.parts, system: model.system }));\n"
+    )
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    output = json.loads(result.stdout)
+    assert output["parts"] == [{"type": "text", "text": "follow-up prompt"}]
+    assert output["system"] == ["cited history [1]"]
 
 
 def test_install_codex_does_not_modify_agent_instructions(tmp_path, monkeypatch) -> None:
@@ -194,9 +291,7 @@ def test_install_claude_preserves_config_and_is_idempotent(tmp_path) -> None:
     config = json.loads(first)
     assert config["custom"] == {"keep": True}
     assert config["mcpServers"]["other"] == {"command": "other", "args": []}
-    assert config["mcpServers"]["loom"]["env"] == {
-        "LOOM_SOURCE_TYPE": "claude_code"
-    }
+    assert config["mcpServers"]["loom"]["env"] == {"LOOM_SOURCE_TYPE": "claude_code"}
 
 
 def test_install_claude_refuses_conflict_unchanged(tmp_path) -> None:
@@ -231,9 +326,7 @@ def test_install_opencode_preserves_config_and_is_idempotent(tmp_path) -> None:
     config = json.loads(first)
     assert config["model"] == "example/model"
     assert config["mcp"]["other"]["url"] == "https://example.com"
-    assert config["mcp"]["loom"]["environment"] == {
-        "LOOM_SOURCE_TYPE": "opencode"
-    }
+    assert config["mcp"]["loom"]["environment"] == {"LOOM_SOURCE_TYPE": "opencode"}
 
 
 def test_install_opencode_refuses_conflict_unchanged(tmp_path) -> None:
@@ -302,9 +395,7 @@ def test_install_parser_accepts_branded_harness_casing() -> None:
         assert parser.parse_args(argv).install == "opencode"
 
 
-def test_legacy_instruction_flag_is_accepted_without_markdown_writes(
-    tmp_path, monkeypatch
-) -> None:
+def test_legacy_instruction_flag_is_accepted_without_markdown_writes(tmp_path, monkeypatch) -> None:
     parser = build_parser()
     monkeypatch.setattr("loom.cli.main._install_codex", lambda: None)
     args = parser.parse_args(
