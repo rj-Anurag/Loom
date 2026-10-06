@@ -30,6 +30,8 @@ _STOP = {
     "have",
     "into",
     "loom",
+    "e2e",
+    "unique",
     "please",
     "that",
     "them",
@@ -60,7 +62,7 @@ _STOP = {
 def _terms(prompt: str) -> list[str]:
     return list(
         dict.fromkeys(
-            word for word in re.findall(r"[a-z0-9_]{3,}", prompt.lower()) if word not in _STOP
+            word for word in re.findall(r"[a-z0-9]{3,}", prompt.lower()) if word not in _STOP
         )
     )[:16]
 
@@ -70,16 +72,19 @@ def _source_key(unit: ContextUnit) -> tuple[str, str]:
 
 
 def _unit_dict(unit: ContextUnit, citation: int) -> dict[str, Any]:
-    return {
+    item = {
         "citation": citation,
         "id": str(unit.id),
         "type": unit.type.value,
         "content": unit.content,
         "source_type": unit.source_type,
-        "source_url": unit.source_url,
-        "source_session_id": unit.source_session_id,
         "occurred_at": unit.occurred_at.isoformat(),
     }
+    if unit.source_type == "browser_chat" and unit.source_url:
+        item["source_url"] = unit.source_url
+    elif unit.source_type != "browser_chat" and unit.source_session_id:
+        item["source_session_id"] = unit.source_session_id
+    return item
 
 
 def _fallback_brief(evidence: list[dict[str, Any]]) -> str:
@@ -119,7 +124,7 @@ async def build_context_bundle(
     )
     matches = list(rows.all())
     semantic_scores: dict[uuid.UUID, float] = {}
-    if settings.embedding_provider != "stub":
+    if not matches and settings.embedding_provider != "stub":
         try:
             embedding = await asyncio.wait_for(encode_query(prompt), timeout=2)
             if embedding is not None:
@@ -127,7 +132,7 @@ async def build_context_bundle(
                 semantic_scores = {
                     uuid.UUID(item["id"]): item["vector_score"]
                     for item in vector_matches[:16]
-                    if item["vector_score"] >= 0.55
+                    if item["vector_score"] >= 0.75
                 }
                 semantic_ids = list(semantic_scores)
                 if semantic_ids:
@@ -147,9 +152,11 @@ async def build_context_bundle(
         return {"brief": "", "evidence": [], "total_tokens": 0, "truncated": False}
 
     def relevance(unit: ContextUnit, lexical_rank: float) -> float:
-        words = set(re.findall(r"[a-z0-9_]{3,}", unit.content.lower()))
-        overlap = len(words.intersection(terms)) / len(terms)
-        return overlap + min(float(lexical_rank), 1.0) * 0.1
+        words = set(re.findall(r"[a-z0-9]{3,}", unit.content.lower()))
+        overlap = len(words.intersection(terms))
+        coverage = overlap / len(terms)
+        density = overlap / math.sqrt(max(len(words), 1))
+        return 0.7 * coverage + 0.3 * density + min(float(lexical_rank), 1.0) * 0.05
 
     matches.sort(
         key=lambda row: max(relevance(row[0], row[1]), semantic_scores.get(row[0].id, 0)),
@@ -157,6 +164,7 @@ async def build_context_bundle(
     )
     seeds = [unit for unit, _ in matches[:8]]
     seed_ids = {unit.id for unit in seeds}
+    match_ids = {unit.id for unit, _ in matches}
     selected: dict[uuid.UUID, ContextUnit] = {unit.id: unit for unit in seeds}
 
     # Capture the adjacent turns of each matched conversation, bounded per source.
@@ -185,7 +193,8 @@ async def build_context_bundle(
             )
             neighbor_rows = await session.execute(statement.limit(3))
             for neighbor in neighbor_rows.scalars():
-                selected[neighbor.id] = neighbor
+                if neighbor.id in match_ids:
+                    selected[neighbor.id] = neighbor
 
     # Both ends of a decision/result link are useful, but never cross projects.
     edge_rows = await session.execute(
@@ -209,8 +218,7 @@ async def build_context_bundle(
             .limit(32)
         )
         for unit in linked_rows.scalars():
-            if unit.type.value in {"decision", "task_result", "summary"}:
-                selected[unit.id] = unit
+            selected[unit.id] = unit
 
     groups: dict[tuple[str, str], list[ContextUnit]] = defaultdict(list)
     for unit in selected.values():
@@ -242,7 +250,7 @@ async def build_context_bundle(
             overhead = (
                 len(item["id"])
                 + len(item["source_type"])
-                + 2 * len(item["source_url"] or item["source_session_id"] or "")
+                + 2 * len(item.get("source_url") or item.get("source_session_id") or "")
                 + 120
             )
             remaining = evidence_limit - used - overhead

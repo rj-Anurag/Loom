@@ -59,6 +59,7 @@ from loom.cli.project_config import (
     save_project,
     save_repository_binding,
 )
+from loom.cli.prompt_hook import clean_bundle, format_bundle
 from loom.cli.prompt_hook import main as prompt_hook_main
 from loom.mcp.server import main as mcp_main
 
@@ -625,6 +626,8 @@ def cmd_context(args: argparse.Namespace) -> None:
     resp.raise_for_status()
 
     data = resp.json()
+    if getattr(args, "rich", False):
+        data = clean_bundle(data)
     units = data.get("units", [])
 
     if args.json:
@@ -632,8 +635,6 @@ def cmd_context(args: argparse.Namespace) -> None:
         return
 
     if getattr(args, "rich", False):
-        from loom.cli.prompt_hook import format_bundle
-
         print(format_bundle(data) or "No relevant context found.")
         return
 

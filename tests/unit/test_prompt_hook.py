@@ -63,6 +63,22 @@ def test_follow_up_prompt_fetches_its_own_bundle(monkeypatch, capsys) -> None:
     assert capsys.readouterr().out == ""
 
 
+def test_clean_bundle_omits_inapplicable_provenance() -> None:
+    data = {
+        "evidence": [
+            {"source_type": "codex_cli", "source_url": None, "source_session_id": "session-one"},
+            {
+                "source_type": "browser_chat",
+                "source_url": "https://example.test/chat",
+                "source_session_id": None,
+            },
+        ]
+    }
+    cleaned = prompt_hook.clean_bundle(data)["evidence"]
+    assert cleaned[0] == {"source_type": "codex_cli", "source_session_id": "session-one"}
+    assert cleaned[1] == {"source_type": "browser_chat", "source_url": "https://example.test/chat"}
+
+
 def test_rich_context_cli_uses_bundle_api(monkeypatch, capsys) -> None:
     monkeypatch.setattr("loom.cli.main._check_project_config", lambda: None)
     monkeypatch.setattr("loom.cli.main._api_url", lambda: "https://loom.test")
@@ -86,3 +102,38 @@ def test_rich_context_cli_uses_bundle_api(monkeypatch, capsys) -> None:
         )
     ]
     assert capsys.readouterr().out.strip() == "No relevant context found."
+
+
+def test_rich_json_cli_removes_null_provenance(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("loom.cli.main._check_project_config", lambda: None)
+    monkeypatch.setattr("loom.cli.main._api_url", lambda: "https://loom.test")
+    monkeypatch.setattr("loom.cli.main._project_id", lambda: "project-one")
+    monkeypatch.setattr("loom.cli.main._headers", lambda: {})
+
+    def post(url, **_kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "brief": "Relevant [1]",
+                "evidence": [
+                    {
+                        "citation": 1,
+                        "id": "unit-one",
+                        "type": "message",
+                        "content": "Aurora is teal",
+                        "source_type": "codex_cli",
+                        "source_url": None,
+                        "source_session_id": "session-one",
+                        "occurred_at": "2026-10-06T00:00:00Z",
+                    }
+                ],
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr("loom.cli.main.httpx.post", post)
+    args = build_parser().parse_args(["context", "Aurora", "--rich", "--json"])
+    cmd_context(args)
+    item = json.loads(capsys.readouterr().out)["evidence"][0]
+    assert "source_url" not in item
+    assert item["source_session_id"] == "session-one"

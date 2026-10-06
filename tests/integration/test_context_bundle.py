@@ -81,6 +81,9 @@ async def test_bundle_returns_cited_conversation_and_linked_result(
     assert str(browser.id) in ids
     assert str(noise.id) not in ids
     assert str(foreign.id) not in ids
+    by_id = {item["id"]: item for item in data["evidence"]}
+    assert "source_url" not in by_id[str(match.id)]
+    assert "source_session_id" not in by_id[str(browser.id)]
     assert "[1]" in data["brief"]
     assert data["total_tokens"] <= 1000
 

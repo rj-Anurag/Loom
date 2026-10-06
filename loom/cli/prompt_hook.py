@@ -11,6 +11,20 @@ import httpx
 from loom.cli.project_config import ProjectConfigError, resolve_project_config
 
 
+def clean_bundle(data: dict[str, Any]) -> dict[str, Any]:
+    """Omit provenance fields that do not apply to an evidence source."""
+    for item in data.get("evidence", []):
+        if item.get("source_type") == "browser_chat":
+            item.pop("source_session_id", None)
+            if not item.get("source_url"):
+                item.pop("source_url", None)
+        else:
+            item.pop("source_url", None)
+            if not item.get("source_session_id"):
+                item.pop("source_session_id", None)
+    return data
+
+
 def format_bundle(data: dict[str, Any]) -> str:
     evidence = data.get("evidence") or []
     if not evidence:
@@ -46,7 +60,7 @@ def fetch_bundle(prompt: str, *, budget: int = 4096) -> dict[str, Any]:
         timeout=4,
     )
     response.raise_for_status()
-    return response.json()
+    return clean_bundle(response.json())
 
 
 def main() -> None:
