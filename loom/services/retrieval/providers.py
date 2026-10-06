@@ -212,6 +212,8 @@ class GroqLLMProvider:
     )
 
     MAX_INPUT_CHARS = 30000
+    SUMMARY_BATCH_CHARS = 18000
+    SUMMARY_TIMEOUT_SECONDS = 30
     MAX_OUTPUT_TOKENS = 2048
     REASONING_EFFORT: Literal["low"] | None = "low"
     BASE_URL = "https://api.groq.com/openai/v1"
@@ -289,6 +291,9 @@ class GeminiLLMProvider(GroqLLMProvider):
 
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
     MISSING_KEY_ERROR = "GEMINI_API_KEY_NOT_CONFIGURED"
+    MAX_INPUT_CHARS = 150000
+    SUMMARY_BATCH_CHARS = 140000
+    SUMMARY_TIMEOUT_SECONDS = 60
     MAX_OUTPUT_TOKENS = 4096
 
     def __init__(self, model: str = "gemini-2.5-flash", api_key: str | None = None) -> None:

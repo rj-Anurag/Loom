@@ -40,6 +40,27 @@ async def test_summary_reads_long_history_in_bounded_batches_and_carries_previou
     assert "[1]" in summary
 
 
+async def test_gemini_summary_uses_its_larger_context_window():
+    from loom.services.retrieval.providers import GeminiLLMProvider
+
+    history = [unit(f"Turn {i}: " + "x" * 3000) for i in range(40)]
+    numbers = {str(item.id): i for i, item in enumerate(history, 1)}
+    calls = []
+
+    class Provider(GeminiLLMProvider):
+        async def summarize(self, inputs):
+            calls.append(inputs)
+            return "## Overview\n- Project history summarized [1]."
+
+    summary = await _summarize_updates(Provider(api_key="test-key"), history, numbers)
+    assert summary == "## Overview\n- Project history summarized [1]."
+    assert len(calls) == 1
+    assert all(
+        any(f"[{numbers[str(item.id)]}]" in fragment["content"] for fragment in calls[0])
+        for item in history
+    )
+
+
 @pytest.mark.parametrize(
     "generated",
     [
