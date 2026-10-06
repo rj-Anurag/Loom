@@ -212,12 +212,14 @@ class GroqLLMProvider:
     )
 
     MAX_INPUT_CHARS = 30000
+    MAX_OUTPUT_TOKENS = 2048
+    REASONING_EFFORT: str | None = "low"
     BASE_URL = "https://api.groq.com/openai/v1"
     MISSING_KEY_ERROR = "GROQ_API_KEY_NOT_CONFIGURED"
 
     def __init__(
         self,
-        model: str = "llama-3.3-70b-versatile",
+        model: str = "openai/gpt-oss-120b",
         api_key: str | None = None,
     ) -> None:
         self.model = model
@@ -236,6 +238,7 @@ class GroqLLMProvider:
             api_key=self._api_key,
             base_url=self.BASE_URL,
         )
+        model_options = {"reasoning_effort": self.REASONING_EFFORT} if self.REASONING_EFFORT else {}
         resp = await client.chat.completions.create(
             model=self.model,
             messages=[
@@ -251,7 +254,8 @@ class GroqLLMProvider:
                 {"role": "user", "content": units_text[: self.MAX_INPUT_CHARS]},
             ],
             temperature=0.3,
-            max_tokens=1024,
+            max_tokens=self.MAX_OUTPUT_TOKENS,
+            **model_options,
         )
         return resp.choices[0].message.content or ""
 
@@ -275,6 +279,7 @@ class XAILLMProvider(GroqLLMProvider):
 
     BASE_URL = "https://api.x.ai/v1"
     MISSING_KEY_ERROR = "XAI_API_KEY_NOT_CONFIGURED"
+    REASONING_EFFORT = None
 
     def __init__(self, model: str = "grok-4.3", api_key: str | None = None) -> None:
         super().__init__(model=model, api_key=api_key)
