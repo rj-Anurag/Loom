@@ -296,7 +296,7 @@ class GeminiLLMProvider(GroqLLMProvider):
     SUMMARY_TIMEOUT_SECONDS = 60
     MAX_OUTPUT_TOKENS = 4096
 
-    def __init__(self, model: str = "gemini-2.5-flash", api_key: str | None = None) -> None:
+    def __init__(self, model: str = "gemini-3.8-flash", api_key: str | None = None) -> None:
         super().__init__(model=model, api_key=api_key)
 
 

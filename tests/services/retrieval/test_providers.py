@@ -189,7 +189,7 @@ class TestLLMProviderProtocol:
         assert result == "## Overview\n- A fact [1]"
         assert captured["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
         assert captured["api_key"] == "gemini-test"
-        assert captured["model"] == "gemini-2.5-flash"
+        assert captured["model"] == "gemini-3.8-flash"
         assert captured["max_tokens"] == 4096
         assert captured["reasoning_effort"] == "low"
         assert "## Overview" in captured["messages"][0]["content"]
@@ -238,7 +238,7 @@ class TestLLMProviderProtocol:
         monkeypatch.setattr(loom.config.settings, "summarization_provider", "gemini")
         provider = from_llm_config()
         assert type(provider) is GeminiLLMProvider
-        assert provider.model == "gemini-2.5-flash"
+        assert provider.model == "gemini-3.8-flash"
 
 
 class TestLLMProviderRuntimeCheckable:
