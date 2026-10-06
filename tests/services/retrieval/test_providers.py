@@ -164,6 +164,39 @@ class TestLLMProviderProtocol:
         with pytest.raises(ValueError, match="GROQ_API_KEY_NOT_CONFIGURED"):
             await GroqLLMProvider(api_key=None).summarize([{"content": "A fact"}])
 
+    async def test_gemini_uses_compatible_endpoint_and_its_own_key(self, monkeypatch) -> None:
+        import openai
+
+        from loom.services.retrieval.providers import GeminiLLMProvider
+
+        captured = {}
+
+        async def complete(**kwargs):
+            captured.update(kwargs)
+            message = SimpleNamespace(content="## Overview\n- A fact [1]")
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        def client(**kwargs):
+            captured.update(kwargs)
+            completions = SimpleNamespace(create=complete)
+            return SimpleNamespace(chat=SimpleNamespace(completions=completions))
+
+        monkeypatch.setattr(openai, "AsyncOpenAI", client)
+        provider = GeminiLLMProvider(api_key="gemini-test")
+        result = await provider.summarize(
+            [{"content": "[1] A fact", "type": "message", "output_format": "project_summary"}]
+        )
+        assert result == "## Overview\n- A fact [1]"
+        assert captured["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
+        assert captured["api_key"] == "gemini-test"
+        assert captured["model"] == "gemini-2.5-flash"
+        assert captured["max_tokens"] == 4096
+        assert captured["reasoning_effort"] == "low"
+        assert "## Overview" in captured["messages"][0]["content"]
+
+        with pytest.raises(ValueError, match="GEMINI_API_KEY_NOT_CONFIGURED"):
+            await GeminiLLMProvider().summarize([{"content": "A fact"}])
+
     async def test_auto_uses_grok_key_before_groq_key(self, monkeypatch) -> None:
         import loom.config
         from loom.services.retrieval.providers import (
@@ -174,6 +207,7 @@ class TestLLMProviderProtocol:
         )
 
         monkeypatch.setattr(loom.config.settings, "summarization_provider", "auto")
+        monkeypatch.setattr(loom.config.settings, "gemini_api_key", "")
         monkeypatch.setattr(loom.config.settings, "xai_api_key", "xai-test")
         monkeypatch.setattr(loom.config.settings, "groq_api_key", "groq-test")
         provider = from_llm_config()
@@ -185,6 +219,26 @@ class TestLLMProviderProtocol:
         assert type(from_llm_config()) is GroqLLMProvider
         monkeypatch.setattr(loom.config.settings, "groq_api_key", "")
         assert type(from_llm_config()) is StubLLMProvider
+
+    async def test_auto_prefers_gemini_and_allows_explicit_selection(self, monkeypatch) -> None:
+        import loom.config
+        from loom.services.retrieval.providers import (
+            GeminiLLMProvider,
+            effective_llm_provider_name,
+            from_llm_config,
+        )
+
+        monkeypatch.setattr(loom.config.settings, "gemini_api_key", "gemini-test")
+        monkeypatch.setattr(loom.config.settings, "xai_api_key", "xai-test")
+        monkeypatch.setattr(loom.config.settings, "groq_api_key", "groq-test")
+        monkeypatch.setattr(loom.config.settings, "summarization_provider", "auto")
+        assert effective_llm_provider_name() == "gemini"
+        assert type(from_llm_config()) is GeminiLLMProvider
+
+        monkeypatch.setattr(loom.config.settings, "summarization_provider", "gemini")
+        provider = from_llm_config()
+        assert type(provider) is GeminiLLMProvider
+        assert provider.model == "gemini-2.5-flash"
 
 
 class TestLLMProviderRuntimeCheckable:

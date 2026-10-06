@@ -438,7 +438,9 @@ The complete local template is [.env.example](.env.example). Important values:
   to the configured frontend origin
 - `EMBEDDING_PROVIDER` — `stub`, `openai`, or `local`
 - `OPENAI_API_KEY` — required only for OpenAI embeddings
-- `SUMMARIZATION_PROVIDER` — `stub` or `groq`
+- `SUMMARIZATION_PROVIDER` — `auto`, `gemini`, `xai`, `groq`, or `stub`; `auto`
+  selects Gemini first when `GEMINI_API_KEY` is set
+- `GEMINI_API_KEY` — required for Gemini summarization
 - `GROQ_API_KEY` — required for Groq summarization/agent calls
 - `BOOTSTRAP_TOKEN` — required on a non-development server
 - `ALLOW_LEGACY_UUID_TOKENS` — temporary upgrade compatibility; keep `false`
